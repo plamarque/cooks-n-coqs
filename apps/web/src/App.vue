@@ -499,9 +499,9 @@ const currentStepMentionedIngredients = computed(() => {
     return [];
   }
 
-  return recipe.ingredients.filter((ingredient) =>
-    stepMentionsIngredient(normalizedStepText, ingredient.label)
-  );
+  return [...recipe.ingredients]
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .filter((ingredient) => stepMentionsIngredient(normalizedStepText, ingredient.label));
 });
 const selectedRecipeIngredientsSorted = computed(() => {
   const recipe = selectedRecipe.value;
@@ -1622,26 +1622,6 @@ onUnmounted(() => {
               Illustration IA de l'étape en cours…
             </p>
 
-            <section
-              class="cooking-media-ingredients-overlay"
-              aria-label="Ingrédients mentionnés dans l'étape"
-            >
-              <h3>Ingrédients de l'étape</h3>
-              <ul
-                v-if="currentStepMentionedIngredients.length > 0"
-                class="cooking-media-ingredients-list"
-              >
-                <li v-for="ingredient in currentStepMentionedIngredients" :key="ingredient.id">
-                  <span class="cooking-media-ingredients-label">{{ ingredient.label }}</span>
-                  <span v-if="ingredient.quantity !== undefined" class="cooking-media-ingredients-qty">
-                    {{ ingredient.quantity }} {{ ingredient.unit ?? "" }}
-                  </span>
-                </li>
-              </ul>
-              <p v-else class="cooking-media-ingredients-empty">
-                Aucun ingrédient détecté automatiquement.
-              </p>
-            </section>
           </div>
 
           <template v-if="currentCookingStep">
@@ -1649,19 +1629,43 @@ onUnmounted(() => {
               <div class="cooking-step-text-scroll">
                 <p class="cooking-step-text cooking-step-text--fullscreen">{{ currentCookingStep.text }}</p>
               </div>
-              <p class="cooking-step-hint">Glissez horizontalement ou utilisez les boutons.</p>
-
-              <div class="cooking-ingredients-toggle-row">
-                <Button
-                  text
-                  size="small"
-                  :icon="showCookingIngredients ? 'pi pi-eye-slash' : 'pi pi-list'"
-                  :label="showCookingIngredients ? 'Masquer tous les ingrédients' : 'Voir tous les ingrédients'"
+              <div class="cooking-step-ingredients-row" aria-label="Ingrédients mentionnés dans l'étape">
+                <div class="cooking-step-ingredients-icons">
+                  <template v-if="currentStepMentionedIngredients.length > 0">
+                    <button
+                      v-for="ingredient in currentStepMentionedIngredients"
+                      :key="ingredient.id"
+                      type="button"
+                      class="cooking-step-ingredient-icon-btn"
+                      :aria-label="`Voir les détails de ${ingredient.label}`"
+                      :title="ingredient.label"
+                      @click="openIngredientModal(ingredient)"
+                    >
+                      <IngredientImage
+                        :label="ingredient.label"
+                        :image-id="ingredient.imageId"
+                        :refresh-key="ingredientImageRefreshKey"
+                        img-class="ingredient-icon ingredient-icon--cooking-step"
+                        fallback-class="ingredient-icon ingredient-icon--cooking-step"
+                        :alt="`Ingrédient ${ingredient.label}`"
+                      />
+                    </button>
+                  </template>
+                  <span v-else class="cooking-step-ingredients-empty">
+                    Aucun ingrédient détecté automatiquement.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="cooking-step-see-all"
+                  :aria-expanded="showCookingIngredients"
                   @click="toggleCookingIngredientsVisibility"
-                />
+                >
+                  {{ showCookingIngredients ? "Masquer" : "Voir tous" }}
+                </button>
               </div>
               <ul v-if="showCookingIngredients" class="cooking-fullscreen-all-ingredients">
-                <li v-for="ingredient in selectedRecipe.ingredients" :key="ingredient.id">
+                <li v-for="ingredient in selectedRecipeIngredientsSorted" :key="ingredient.id">
                   <strong>{{ ingredient.label }}</strong>
                   <span v-if="ingredient.quantity !== undefined">
                     : {{ ingredient.quantity }} {{ ingredient.unit ?? "" }}
