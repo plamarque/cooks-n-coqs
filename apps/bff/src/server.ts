@@ -10,6 +10,7 @@ import {
   generateIngredientImage,
   generateRecipeImage
 } from "./image-generator.js";
+import { detectStepTimerDurationSeconds } from "./step-timer-detector.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPathFromDir = path.resolve(__dirname, "..", "..", "..", ".env");
@@ -35,6 +36,17 @@ app.use(express.json({ limit: "4mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+app.post("/api/step-timer-duration", async (req, res) => {
+  const stepText = req.body?.stepText as string | undefined;
+  if (!stepText?.trim()) {
+    res.status(400).json({ error: "stepText is required" });
+    return;
+  }
+
+  const durationSeconds = await detectStepTimerDurationSeconds(stepText);
+  res.json({ durationSeconds: durationSeconds ?? null });
 });
 
 app.post("/api/import/url", async (req, res) => {

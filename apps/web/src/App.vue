@@ -27,7 +27,9 @@ import {
   getCookingStepImageBlobUrl,
   resolveCookingStepImageId
 } from "./services/cooking-step-image-service";
+import { detectStepTimerDurationSeconds } from "./services/step-timer-service";
 import { buildInstagramEmbedUrl } from "./utils/instagram-embed";
+import { extractStepTimerDurationSeconds } from "./utils/step-timer";
 import {
   clearShareImportParamsFromWindowLocation,
   readShareImportPayloadFromWindow
@@ -112,6 +114,13 @@ const cookingSwipeStartX = ref<number | null>(null);
 const currentCookingStepImageUrl = ref<string | null>(null);
 const cookingStepImageLoading = ref(false);
 let cookingStepImageLoadCounter = 0;
+const stepTimerTotalSeconds = ref<number | null>(null);
+const stepTimerRemainingSeconds = ref(0);
+const stepTimerRunning = ref(false);
+const stepTimerFinished = ref(false);
+let stepTimerIntervalId: ReturnType<typeof setInterval> | null = null;
+let stepTimerEndAt = 0;
+let stepTimerDetectionCounter = 0;
 const cookingModeStartedAt = ref<number | null>(null);
 const cookingModeRecipeId = ref<string | null>(null);
 
@@ -180,6 +189,80 @@ function parseNumber(value: string): number | undefined {
     return undefined;
   }
   return parsed;
+}
+
+function formatStepTimerClock(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatStepTimerDurationLabel(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts: string[] = [];
+  if (hours > 0) {
+    parts.push(`${hours} h`);
+  }
+  if (minutes > 0) {
+    parts.push(`${minutes} min`);
+  }
+  if (seconds > 0 || parts.length === 0) {
+    parts.push(`${seconds} s`);
+  }
+  return parts.join(" ");
+}
+
+function playStepTimerFinishedSignal(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const extendedWindow = window as Window & {
+    webkitAudioContext?: typeof AudioContext;
+  };
+  const AudioContextCtor = globalThis.AudioContext ?? extendedWindow.webkitAudioContext;
+  if (!AudioContextCtor) {
+    return;
+  }
+
+  const audioContext = new AudioContextCtor();
+  void audioContext.resume();
+  const startAt = audioContext.currentTime;
+  const beepOffsets = [0, 0.24, 0.48];
+
+  for (const offset of beepOffsets) {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(980, startAt + offset);
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    const beepStart = startAt + offset;
+    const beepAttack = beepStart + 0.01;
+    const beepRelease = beepStart + 0.12;
+    gainNode.gain.setValueAtTime(0.0001, beepStart);
+    gainNode.gain.exponentialRampToValueAtTime(0.18, beepAttack);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, beepRelease);
+
+    oscillator.start(beepStart);
+    oscillator.stop(beepRelease + 0.02);
+  }
+
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    navigator.vibrate([100, 60, 100]);
+  }
+
+  window.setTimeout(() => {
+    void audioContext.close();
+  }, 900);
 }
 
 function normalizeForIngredientMatching(value: string): string {
@@ -434,11 +517,182 @@ const currentCookingStep = computed(() => {
   return steps[normalizedCookingStepIndex.value];
 });
 
+const hasCurrentStepTimer = computed(
+  () => stepTimerTotalSeconds.value !== null && stepTimerTotalSeconds.value > 0
+);
+
+const stepTimerProgressRatio = computed(() => {
+  if (!stepTimerTotalSeconds.value || stepTimerTotalSeconds.value <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, stepTimerRemainingSeconds.value / stepTimerTotalSeconds.value));
+});
+
+const stepTimerProgressDegrees = computed(
+  () => `${Math.round(stepTimerProgressRatio.value * 360)}deg`
+);
+
+const stepTimerDisplay = computed(() =>
+  hasCurrentStepTimer.value ? formatStepTimerClock(stepTimerRemainingSeconds.value) : ""
+);
+
+const stepTimerSuggestionLabel = computed(() =>
+  hasCurrentStepTimer.value && stepTimerTotalSeconds.value !== null
+    ? formatStepTimerDurationLabel(stepTimerTotalSeconds.value)
+    : ""
+);
+
+const stepTimerActionLabel = computed(() => {
+  if (stepTimerRunning.value) {
+    return "Pause";
+  }
+  if (stepTimerFinished.value) {
+    return "Relancer";
+  }
+  if (
+    stepTimerTotalSeconds.value !== null &&
+    stepTimerRemainingSeconds.value < stepTimerTotalSeconds.value
+  ) {
+    return "Reprendre";
+  }
+  return "Lancer";
+});
+
+const stepTimerActionIcon = computed(() => (stepTimerRunning.value ? "pi pi-pause" : "pi pi-play"));
+
+const stepTimerResetDisabled = computed(() => {
+  if (!hasCurrentStepTimer.value || stepTimerTotalSeconds.value === null) {
+    return true;
+  }
+  return stepTimerRemainingSeconds.value === stepTimerTotalSeconds.value && !stepTimerFinished.value;
+});
+
 function clearCurrentCookingStepImageUrl(): void {
   if (currentCookingStepImageUrl.value) {
     URL.revokeObjectURL(currentCookingStepImageUrl.value);
     currentCookingStepImageUrl.value = null;
   }
+}
+
+function clearStepTimerInterval(): void {
+  if (stepTimerIntervalId !== null) {
+    clearInterval(stepTimerIntervalId);
+    stepTimerIntervalId = null;
+  }
+  stepTimerRunning.value = false;
+  stepTimerEndAt = 0;
+}
+
+function syncStepTimerFromClock(): void {
+  if (!stepTimerRunning.value || stepTimerTotalSeconds.value === null || stepTimerEndAt <= 0) {
+    return;
+  }
+  const remainingSeconds = Math.max(0, Math.ceil((stepTimerEndAt - Date.now()) / 1000));
+  stepTimerRemainingSeconds.value = remainingSeconds;
+  if (remainingSeconds > 0) {
+    return;
+  }
+  clearStepTimerInterval();
+  stepTimerFinished.value = true;
+  playStepTimerFinishedSignal();
+}
+
+function applyStepTimerSuggestion(suggestedSeconds: number | undefined): void {
+  clearStepTimerInterval();
+  if (!suggestedSeconds) {
+    stepTimerTotalSeconds.value = null;
+    stepTimerRemainingSeconds.value = 0;
+    stepTimerFinished.value = false;
+    return;
+  }
+  stepTimerTotalSeconds.value = suggestedSeconds;
+  stepTimerRemainingSeconds.value = suggestedSeconds;
+  stepTimerFinished.value = false;
+}
+
+async function detectCurrentStepTimerSuggestion(): Promise<void> {
+  const detectionId = ++stepTimerDetectionCounter;
+  const step = currentCookingStep.value;
+  if (cookingState.value === "OFF" || !step) {
+    applyStepTimerSuggestion(undefined);
+    return;
+  }
+
+  const stepText = step.text.trim();
+  if (!stepText) {
+    applyStepTimerSuggestion(undefined);
+    return;
+  }
+
+  const localSuggestion = extractStepTimerDurationSeconds(stepText);
+  applyStepTimerSuggestion(localSuggestion);
+
+  const semanticSuggestion = await detectStepTimerDurationSeconds(stepText);
+  if (detectionId !== stepTimerDetectionCounter) {
+    return;
+  }
+
+  const activeStep = currentCookingStep.value;
+  if (!activeStep || activeStep.id !== step.id) {
+    return;
+  }
+
+  if (semanticSuggestion === localSuggestion) {
+    return;
+  }
+
+  const timerUntouched =
+    !stepTimerRunning.value &&
+    !stepTimerFinished.value &&
+    (stepTimerTotalSeconds.value === null ||
+      stepTimerRemainingSeconds.value === stepTimerTotalSeconds.value);
+  if (!timerUntouched) {
+    return;
+  }
+
+  applyStepTimerSuggestion(semanticSuggestion);
+}
+
+function startStepTimer(): void {
+  if (stepTimerTotalSeconds.value === null || stepTimerTotalSeconds.value <= 0 || stepTimerRunning.value) {
+    return;
+  }
+  if (stepTimerRemainingSeconds.value <= 0) {
+    stepTimerRemainingSeconds.value = stepTimerTotalSeconds.value;
+  }
+  stepTimerFinished.value = false;
+  stepTimerRunning.value = true;
+  stepTimerEndAt = Date.now() + stepTimerRemainingSeconds.value * 1000;
+  syncStepTimerFromClock();
+  if (!stepTimerRunning.value) {
+    return;
+  }
+  stepTimerIntervalId = setInterval(syncStepTimerFromClock, 1000);
+}
+
+function pauseStepTimer(): void {
+  if (!stepTimerRunning.value) {
+    return;
+  }
+  syncStepTimerFromClock();
+  clearStepTimerInterval();
+}
+
+function toggleStepTimer(): void {
+  if (stepTimerRunning.value) {
+    pauseStepTimer();
+    return;
+  }
+  startStepTimer();
+}
+
+function resetStepTimer(): void {
+  if (stepTimerTotalSeconds.value === null) {
+    return;
+  }
+  clearStepTimerInterval();
+  stepTimerRemainingSeconds.value = stepTimerTotalSeconds.value;
+  stepTimerFinished.value = false;
 }
 
 async function loadCurrentCookingStepImage(): Promise<void> {
@@ -733,6 +987,24 @@ watch(
   ],
   () => {
     void loadCurrentCookingStepImage();
+  },
+  { immediate: true }
+);
+
+watch(
+  () => [
+    cookingState.value,
+    selectedRecipeId.value,
+    currentCookingStep.value?.id,
+    currentCookingStep.value?.text
+  ],
+  () => {
+    if (cookingState.value === "OFF") {
+      stepTimerDetectionCounter += 1;
+      applyStepTimerSuggestion(undefined);
+      return;
+    }
+    void detectCurrentStepTimerSuggestion();
   },
   { immediate: true }
 );
@@ -1369,6 +1641,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stepTimerDetectionCounter += 1;
+  clearStepTimerInterval();
   cookingStepImageLoadCounter += 1;
   clearCurrentCookingStepImageUrl();
   if (typeof document !== "undefined") {
@@ -1622,6 +1896,43 @@ onUnmounted(() => {
               Illustration IA de l'étape en cours…
             </p>
 
+            <section
+              v-if="hasCurrentStepTimer"
+              class="cooking-step-timer"
+              :aria-label="`Timer suggéré: ${stepTimerSuggestionLabel}`"
+            >
+              <div
+                class="cooking-step-timer-visual"
+                :style="{ '--timer-progress': stepTimerProgressDegrees }"
+              >
+                <p class="cooking-step-timer-time">{{ stepTimerDisplay }}</p>
+              </div>
+              <p class="cooking-step-timer-label">
+                {{ stepTimerFinished ? "Timer terminé" : `Timer suggéré: ${stepTimerSuggestionLabel}` }}
+              </p>
+              <div class="cooking-step-timer-actions">
+                <Button
+                  size="small"
+                  rounded
+                  class="cooking-step-timer-action cooking-step-timer-action--primary"
+                  :icon="stepTimerActionIcon"
+                  :aria-label="stepTimerActionLabel"
+                  :title="stepTimerActionLabel"
+                  @click="toggleStepTimer"
+                />
+                <Button
+                  text
+                  size="small"
+                  rounded
+                  class="cooking-step-timer-action cooking-step-timer-action--reset"
+                  icon="pi pi-refresh"
+                  aria-label="Réinitialiser le timer"
+                  title="Réinitialiser"
+                  :disabled="stepTimerResetDisabled"
+                  @click="resetStepTimer"
+                />
+              </div>
+            </section>
           </div>
 
           <template v-if="currentCookingStep">

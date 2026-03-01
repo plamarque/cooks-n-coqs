@@ -33,6 +33,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `db` | Schéma IndexedDB et accès tables | `apps/web/src/storage/db.ts` |
 | `ingredient-image-service` | Résolution d'image ingrédient (cache local, génération IA), stockage | `apps/web/src/services/ingredient-image-service.ts` |
 | `cooking-step-image-service` | Résolution d'image d'étape en mode cuisine (cache local, génération IA), fallback image recette | `apps/web/src/services/cooking-step-image-service.ts` |
+| `step-timer-service` | Détection de durée de timer d'étape (sémantique IA + fallback) | `apps/web/src/services/step-timer-service.ts` |
 | `IngredientImage` (composant Vue) | Affichage de l'icône ingrédient (fallback si absent) | `apps/web/src/components/IngredientImage.vue` |
 | `import-api` | Endpoints BFF pour OCR/parsing | `apps/bff/src` |
 | `domain-types` | Types métier partagés | `packages/domain/src` |
@@ -73,6 +74,16 @@ Règles de contrat :
 - `startCookingMode()`
 - `stopCookingMode()`
 - Le calcul de durée de session et la proposition d’ajustement de `prepTimeMin` (moyenne avec la valeur existante) sont gérés côté `App.vue` lors de l’arrêt.
+
+### Step timer service
+
+- `detectStepTimerDurationSeconds(stepText)`
+
+Règles de contrat :
+- le front envoie le texte brut de l'étape au BFF (`/api/step-timer-duration`) pour une interprétation sémantique de la durée à minuter,
+- le BFF utilise un petit modèle IA pour extraire `durationSeconds` (ou `null` si pas de timer pertinent),
+- fallback local heuristique si l'IA est indisponible ou si aucune clé n'est configurée,
+- le front met en cache le résultat par texte d'étape pour limiter les appels réseau.
 
 ## Données et persistance
 
