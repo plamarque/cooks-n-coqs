@@ -32,6 +32,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
 | `db` | Schéma IndexedDB et accès tables | `apps/web/src/storage/db.ts` |
 | `ingredient-image-service` | Résolution d'image ingrédient (cache local, génération IA), stockage | `apps/web/src/services/ingredient-image-service.ts` |
+| `cooking-step-image-service` | Résolution d'image d'étape en mode cuisine (cache local, génération IA), fallback image recette | `apps/web/src/services/cooking-step-image-service.ts` |
 | `IngredientImage` (composant Vue) | Affichage de l'icône ingrédient (fallback si absent) | `apps/web/src/components/IngredientImage.vue` |
 | `import-api` | Endpoints BFF pour OCR/parsing | `apps/bff/src` |
 | `domain-types` | Types métier partagés | `packages/domain/src` |
@@ -80,6 +81,7 @@ Tables minimales :
 - `recipes`
 - `images`
 - `ingredientImages` (images d'ingrédients, clé = id normalisé du label)
+- `cookingStepImages` (illustrations d'étapes en mode cuisine, cache local)
 
 Index minimaux :
 - `category`
@@ -115,6 +117,8 @@ L'image est extraite via le scraper Instagram (URLs Instagram), sinon via le cha
 **Génération automatique** : lorsqu'aucune image n'est extraite, le BFF peut générer une image via une API IA (ex. DALL-E) à partir du titre, des ingrédients et des étapes. Style : photo de plat type Instagram, flat lay, élégant. Le front affiche un placeholder pendant la génération ; une fois l'URL reçue, l'image est téléchargée et stockée localement.
 
 **Images des ingrédients** : le service `ingredient-image-service` résout l'image d'un ingrédient par son label normalisé. Si l'image n'existe pas en cache local, le BFF génère une image IA (prompt : ingrédient isolé unique, gros plan, fond blanc sans ombre, photoréaliste, lisible en petit format). L'image est stockée dans `ingredientImages` et mutualisée entre recettes. Format cible : petit (ex. 64×64 ou 96×96 px).
+
+**Images des étapes (mode cuisine)** : à l'affichage d'une étape, le front tente de résoudre une illustration IA à partir du texte de l'étape (`/api/generate-cooking-step-image`). Le rendu affiche immédiatement l'image de recette en fallback, puis bascule vers l'illustration d'étape lorsqu'elle est disponible. Le résultat est mis en cache local dans `cookingStepImages`.
 
 Flux de résolution :
 

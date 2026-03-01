@@ -60,6 +60,8 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 3. L'utilisateur peut modifier les portions ; les quantités sont recalculées immédiatement.
 4. L'utilisateur peut réinitialiser les portions à la valeur de base.
 5. Le mode cuisine (anti-veille) est activable uniquement depuis l'écran détail d'une recette ouverte.
+6. En mode cuisine, les actions `Précédente` / `Suivante` restent toujours visibles en bas d'écran ; seul le texte de l'étape défile.
+7. En mode cuisine, l'image affichée tente d'abord une illustration IA basée sur le texte de l'étape ; l'image recette reste le fallback immédiat.
 
 > **Note** : L'ajustement des portions (points 3-4) est prévu mais l'UI est temporairement masquée ; implémentation à finaliser (slice K).
 
@@ -70,6 +72,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 3. Lorsqu'aucune image n'est extraite à l'import (URL, texte, partage), l'application tente de générer une image automatiquement à partir du titre, des ingrédients et de la description de la recette.
 4. L'image générée adopte un style plat, type photo de plat Instagram : élégant, professionnel, appétissant.
 5. À l'import, l'image est traitée en arrière-plan (extraction ou génération) ; un placeholder avec message s'affiche pendant ce temps.
+6. Les illustrations d'étapes générées pendant le mode cuisine sont conservées localement pour éviter une régénération répétée.
 
 ### Images des ingrédients
 

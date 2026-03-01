@@ -384,7 +384,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
-  overflow-y: auto;
+  overflow: hidden;
   padding:
     calc(0.95rem + env(safe-area-inset-top))
     1rem
@@ -427,6 +427,7 @@ body {
 
 .cooking-fullscreen-media-zone {
   position: relative;
+  flex-shrink: 0;
 }
 
 .cooking-fullscreen-media-image {
@@ -456,6 +457,19 @@ body {
   margin: 0;
   color: #3e4b46;
   font-size: 0.9rem;
+}
+
+.cooking-step-image-loading {
+  position: absolute;
+  right: 0.7rem;
+  top: 0.7rem;
+  z-index: 1;
+  margin: 0;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(16, 22, 20, 0.66);
+  color: #fff;
+  font-size: 0.78rem;
 }
 
 .cooking-step-status {
@@ -527,6 +541,21 @@ body {
   white-space: pre-line;
 }
 
+.cooking-step-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.cooking-step-text-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
 .cooking-step-text--fullscreen {
   padding: 1.2rem 1.15rem;
   border: 1px solid rgba(31, 79, 70, 0.2);
@@ -542,6 +571,14 @@ body {
   color: #3e4b46;
   font-size: 0.85rem;
   text-align: center;
+}
+
+.cooking-step-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-top: 0.15rem;
 }
 
 .cooking-step-navigation {
@@ -586,10 +623,14 @@ body {
 .cooking-fullscreen-all-ingredients {
   margin: 0;
   padding: 0 0 0 1rem;
+  max-height: 24vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   font-size: 0.98rem;
+  border-top: 1px solid rgba(31, 79, 70, 0.12);
+  padding-top: 0.55rem;
 }
 
 .recipe-form-image {
@@ -817,6 +858,12 @@ body {
 
   .cooking-step-hint {
     font-size: 0.8rem;
+  }
+
+  .cooking-step-image-loading {
+    right: 0.45rem;
+    top: 0.45rem;
+    font-size: 0.72rem;
   }
 
   .cooking-media-ingredients-overlay {

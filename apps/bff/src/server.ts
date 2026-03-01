@@ -5,7 +5,11 @@ import cors from "cors";
 import express from "express";
 import multer from "multer";
 import { extractImageFromUrl, parseRecipeWithCloud } from "./parsing-client.js";
-import { generateIngredientImage, generateRecipeImage } from "./image-generator.js";
+import {
+  generateCookingStepImage,
+  generateIngredientImage,
+  generateRecipeImage
+} from "./image-generator.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPathFromDir = path.resolve(__dirname, "..", "..", "..", ".env");
@@ -160,6 +164,22 @@ app.post("/api/generate-ingredient-image", async (req, res) => {
   const imageUrl = await generateIngredientImage({ label: label.trim() });
   if (!imageUrl) {
     res.status(503).json({ error: "Ingredient image generation unavailable" });
+    return;
+  }
+
+  res.json({ imageUrl });
+});
+
+app.post("/api/generate-cooking-step-image", async (req, res) => {
+  const stepText = req.body?.stepText as string | undefined;
+  if (!stepText?.trim()) {
+    res.status(400).json({ error: "stepText is required" });
+    return;
+  }
+
+  const imageUrl = await generateCookingStepImage({ stepText: stepText.trim() });
+  if (!imageUrl) {
+    res.status(503).json({ error: "Cooking step image generation unavailable" });
     return;
   }
 

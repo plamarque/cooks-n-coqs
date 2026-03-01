@@ -9,6 +9,7 @@ import {
   scaleIngredientsFromBase
 } from "@cookies-et-coquilettes/domain";
 import { db } from "../storage/db";
+import { deleteCookingStepImagesForRecipe } from "./cooking-step-image-service";
 
 const BFF_URL = import.meta.env.VITE_BFF_URL || "http://localhost:8787";
 
@@ -110,6 +111,7 @@ class DexieRecipeService implements RecipeService {
     if (current.imageId) {
       await db.images.delete(current.imageId);
     }
+    await deleteCookingStepImagesForRecipe(recipeId);
   }
 
   async toggleFavorite(recipeId: string, favorite?: boolean): Promise<void> {

@@ -10,6 +10,10 @@ export interface GenerateIngredientImageInput {
   label: string;
 }
 
+export interface GenerateCookingStepImageInput {
+  stepText: string;
+}
+
 /**
  * Génère une image de recette via DALL-E 3.
  * Style : flat lay, photo de plat type Instagram, élégant, appétissant.
@@ -86,6 +90,45 @@ export async function generateIngredientImage(
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("Ingredient image generation failed", err);
+    return undefined;
+  }
+}
+
+/**
+ * Génère une illustration d'étape de cuisine, basée sur le texte de l'étape.
+ */
+export async function generateCookingStepImage(
+  input: GenerateCookingStepImageInput
+): Promise<string | undefined> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return undefined;
+  }
+
+  const stepText = input.stepText.trim();
+  if (!stepText) {
+    return undefined;
+  }
+
+  const prompt = `Cinematic food photography illustration of a single cooking step. Depict this exact step action: "${stepText}". Focus on hands, utensils and ingredients involved in the action, realistic textures, appetizing atmosphere, kitchen context, natural light. No text, no labels, no watermark, no collage, no split-screen.`;
+
+  try {
+    const client = new OpenAI({ apiKey });
+    const response = await client.images.generate({
+      model: "dall-e-3",
+      prompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "standard",
+      style: "natural",
+      response_format: "url"
+    });
+
+    const url = response.data?.[0]?.url;
+    return typeof url === "string" ? url : undefined;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("Cooking step image generation failed", err);
     return undefined;
   }
 }
