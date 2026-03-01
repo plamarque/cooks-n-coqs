@@ -269,17 +269,69 @@ body {
   line-height: 1.2;
 }
 
+/* Grand bouton play centré sur l'image */
+.recipe-detail-play-overlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 4.5rem;
+  min-width: 4.5rem;
+  height: 4.5rem;
+  min-height: 4.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(31, 79, 70, 0.92);
+  color: #fff;
+  cursor: pointer;
+  font-size: 1.75rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  z-index: 1;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.recipe-detail-play-overlay:hover {
+  background: rgba(31, 79, 70, 1);
+  transform: translate(-50%, -50%) scale(1.05);
+}
+
+.recipe-detail-play-overlay:active {
+  transform: translate(-50%, -50%) scale(0.98);
+}
+
+.recipe-detail-play-overlay-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.recipe-detail-cuisiner-primary {
+  margin-bottom: 1rem;
+  min-height: 2.75rem;
+  padding: 0.6rem 1.25rem !important;
+}
+
 .recipe-detail-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.6rem;
 }
 
 .recipe-detail-action.p-button {
-  padding: 0.3rem 0.62rem !important;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem !important;
   border-radius: 999px !important;
-  font-size: 0.85rem !important;
+  font-size: 0.9rem !important;
 }
 
 .recipe-detail-action.p-button.p-button-text {
@@ -302,12 +354,13 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  height: 2rem;
-  padding: 0 0.62rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
   border-radius: 999px;
   background: rgba(31, 79, 70, 0.07);
   color: var(--p-primary-color, #1f4f46);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   text-decoration: none;
 }
 
@@ -693,13 +746,14 @@ body {
   }
 
   .recipe-detail-actions {
-    gap: 0.35rem;
+    gap: 0.6rem;
   }
 
   .recipe-detail-action.p-button {
-    width: 2rem;
-    min-width: 2rem;
-    height: 2rem;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    min-height: 2.75rem;
     padding: 0 !important;
     border-radius: 50% !important;
     justify-content: center;
@@ -712,15 +766,29 @@ body {
 
   .recipe-detail-action .p-button-icon {
     margin-right: 0 !important;
-    font-size: 0.95rem;
+    font-size: 1.05rem;
   }
 
   .recipe-detail-action-link {
-    width: 2rem;
-    height: 2rem;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    min-height: 2.75rem;
     padding: 0;
     border-radius: 50%;
     justify-content: center;
+  }
+
+  .recipe-detail-play-overlay {
+    width: 4rem;
+    min-width: 4rem;
+    height: 4rem;
+    min-height: 4rem;
+    font-size: 1.5rem;
+  }
+
+  .recipe-detail-play-overlay-label {
+    display: none;
   }
 
   .cooking-fullscreen-overlay {

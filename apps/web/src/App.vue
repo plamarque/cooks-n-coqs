@@ -1479,6 +1479,16 @@ onUnmounted(() => {
           />
         </div>
         <div v-else class="recipe-detail-image-placeholder" />
+        <button
+          type="button"
+          class="recipe-detail-play-overlay"
+          :aria-label="cookingState === 'OFF' ? 'Lancer le mode cuisine' : 'Désactiver le mode cuisine'"
+          :title="cookingState === 'OFF' ? 'Cuisiner' : 'Quitter le mode cuisine'"
+          @click="toggleCookingMode"
+        >
+          <i :class="cookingState === 'OFF' ? 'pi pi-play' : 'pi pi-sun'" />
+          <span class="recipe-detail-play-overlay-label">{{ cookingState === 'OFF' ? 'Cuisiner' : 'Mode cuisine actif' }}</span>
+        </button>
         <div class="recipe-detail-header-actions">
           <Button
             text
@@ -1500,16 +1510,6 @@ onUnmounted(() => {
       <div class="recipe-detail-meta">
         <h2 class="recipe-detail-title">{{ selectedRecipe.title }}</h2>
         <div class="recipe-detail-actions" role="group" aria-label="Actions de la recette">
-          <Button
-            :icon="cookingState === 'OFF' ? 'pi pi-play' : 'pi pi-sun'"
-            label="Cuisiner"
-            text
-            size="small"
-            class="recipe-detail-action"
-            aria-label="Activer ou désactiver le mode cuisine"
-            :title="cookingState === 'OFF' ? 'Activer mode cuisine' : 'Désactiver mode cuisine'"
-            @click="toggleCookingMode"
-          />
           <Button
             label="Éditer"
             text
@@ -1594,6 +1594,15 @@ onUnmounted(() => {
       />
 
       <h3>Étapes</h3>
+      <Button
+        :icon="cookingState === 'OFF' ? 'pi pi-play' : 'pi pi-sun'"
+        :label="cookingState === 'OFF' ? 'Lancer le mode cuisine' : 'Quitter le mode cuisine'"
+        class="recipe-detail-cuisiner-primary"
+        size="large"
+        :severity="cookingState === 'OFF' ? 'primary' : 'secondary'"
+        aria-label="Activer ou désactiver le mode cuisine"
+        @click="toggleCookingMode"
+      />
       <ol>
         <li v-for="step in selectedRecipeSteps" :key="step.id">{{ step.text }}</li>
       </ol>
