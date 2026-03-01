@@ -1,5 +1,6 @@
 import { createApp } from "vue";
 import PrimeVue from "primevue/config";
+import ConfirmationService from "primevue/confirmationservice";
 import Aura from "@primeuix/themes/aura";
 import App from "./App.vue";
 import "./styles.css";
@@ -11,4 +12,5 @@ createApp(App)
       preset: Aura
     }
   })
+  .use(ConfirmationService)
   .mount("#app");

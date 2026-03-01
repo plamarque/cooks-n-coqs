@@ -115,3 +115,4 @@ Attributs :
 10. Import fallback : en cas d’échec parsing/BFF, un draft minimal éditable est créé avec `source`.
 11. Image d'ingrédient : optionnelle ; l'identifiant peut être dérivé du label normalisé pour mutualiser entre recettes.
 12. Les images d'ingrédients sont stockées localement (IndexedDB), comme les images de recette.
+13. En sortie de mode cuisine, la mise à jour proposée de `prepTimeMin` se base sur une moyenne : `(prepTimeMin actuel + durée mesurée arrondie en minutes) / 2`.
