@@ -62,6 +62,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 5. Le mode cuisine (anti-veille) est activable uniquement depuis l'écran détail d'une recette ouverte.
 6. En mode cuisine, les actions `Précédente` / `Suivante` restent toujours visibles en bas d'écran ; seul le texte de l'étape défile.
 7. En mode cuisine, l'image affichée tente d'abord une illustration IA basée sur le texte de l'étape ; l'image recette reste le fallback immédiat.
+8. En mode cuisine, si le texte d'une étape mentionne une durée de cuisson/repos explicite, l'UI propose un timer countdown prérempli ; l'utilisateur le déclenche manuellement. Le timer affiche le temps restant et une progression circulaire semi-transparente décroissante (sens horaire), puis émet un court signal sonore de fin.
 
 > **Note** : L'ajustement des portions (points 3-4) est prévu mais l'UI est temporairement masquée ; implémentation à finaliser (slice K).
 
