@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="index, follow" />
+    <title>Politique de confidentialité — Cookies & Coquillettes</title>
+    <style>
+      :root {
+        --color-bg: #f8f4ec;
+        --color-text: #1a1a1a;
+        --color-accent: #1f4f46;
+        --color-muted: #5a5a5a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        line-height: 1.6;
+        color: var(--color-text);
+        background: var(--color-bg);
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 1.5rem;
+      }
+      h1 { font-size: 1.5rem; color: var(--color-accent); margin-top: 2rem; }
+      h1:first-of-type { margin-top: 0; }
+      h2 { font-size: 1.15rem; margin-top: 1.5rem; }
+      p { margin: 0.75rem 0; }
+      ul { margin: 0.5rem 0; padding-left: 1.5rem; }
+      a { color: var(--color-accent); }
+      .meta { color: var(--color-muted); font-size: 0.9rem; margin-bottom: 2rem; }
+      .highlight { background: #e8f0ee; padding: 1rem; border-radius: 6px; margin: 1rem 0; }
+    </style>
+  </head>
+  <body>
+    <h1>Politique de confidentialité</h1>
+    <p class="meta">Cookies & Coquillettes — Dernière mise à jour : mars 2025</p>
+
+    <p>
+      Cette politique de confidentialité décrit comment l’application <strong>Cookies & Coquillettes</strong>
+      («&nbsp;l’application&nbsp;», «&nbsp;nous&nbsp;») traite vos données. Elle est conforme aux exigences
+      des plateformes de distribution (Google Play, Apple App Store) et au Règlement général sur la protection
+      des données (RGPD) dans la mesure applicable.
+    </p>
+
+    <h2>1. Responsable du traitement</h2>
+    <p>
+      Le responsable du traitement des données est le développeur de l’application Cookies & Coquillettes.
+      Pour toute question relative à cette politique, vous pouvez nous contacter via le dépôt du projet
+      ou l’adresse indiquée sur la fiche store de l’application.
+    </p>
+
+    <h2>2. Données collectées et traitées</h2>
+
+    <h3>2.1 Données stockées localement (sur votre appareil)</h3>
+    <p>
+      L’application fonctionne principalement hors ligne. Les recettes, images et données que vous créez
+      ou importez sont stockées <strong>uniquement sur votre appareil</strong> (IndexedDB). Nous n’avons
+      pas accès à ces données.
+    </p>
+
+    <h3>2.2 Données envoyées à nos serveurs (BFF) et à des prestataires tiers</h3>
+    <p>
+      Lorsque vous utilisez les fonctionnalités d’import (URL, texte, capture d’écran, partage) ou la
+      génération d’images, les données suivantes sont envoyées à notre serveur intermédiaire (BFF), qui
+      les transmet à <strong>OpenAI</strong> pour le traitement :
+    </p>
+    <ul>
+      <li><strong>URLs de recettes</strong> — pour extraire le contenu des pages web ou Instagram</li>
+      <li><strong>Texte de recettes</strong> — pour structurer les ingrédients et étapes</li>
+      <li><strong>Images (captures d’écran)</strong> — pour l’extraction de texte (OCR)</li>
+      <li><strong>Métadonnées de recettes</strong> (titre, ingrédients, étapes) — pour générer des images
+        de recettes ou d’ingrédients via l’IA (DALL-E)</li>
+    </ul>
+    <p>
+      Ces données sont traitées uniquement pour fournir les fonctionnalités demandées. OpenAI applique
+      sa propre politique de confidentialité et ses conditions d’utilisation. Nous ne conservons pas ces
+      données sur nos serveurs.
+    </p>
+
+    <h3>2.3 Contenu généré par IA</h3>
+    <p>
+      L’application peut générer des images (photos de plats, icônes d’ingrédients) à l’aide de modèles
+      d’IA (DALL-E). Ces images sont créées à partir des informations que vous fournissez (titre,
+      ingrédients) et sont stockées localement sur votre appareil. Aucune image générée n’est partagée
+      avec d’autres utilisateurs.
+    </p>
+
+    <h2>3. Finalités du traitement</h2>
+    <p>
+      Les données sont utilisées exclusivement pour :
+    </p>
+    <ul>
+      <li>extraire et structurer les recettes depuis des URLs, du texte ou des images ;</li>
+      <li>générer des images de recettes ou d’ingrédients lorsque vous le demandez ;</li>
+      <li>assurer le bon fonctionnement de l’application.</li>
+    </ul>
+
+    <h2>4. Base légale</h2>
+    <p>
+      Le traitement repose sur votre consentement implicite lors de l’utilisation des fonctionnalités
+      d’import et de génération d’images. Si vous n’utilisez pas ces fonctionnalités, aucune donnée
+      n’est envoyée à nos serveurs ni à des tiers.
+    </p>
+
+    <h2>5. Conservation des données</h2>
+    <p>
+      Les données sont stockées <strong>uniquement sur votre appareil</strong>. Nous ne conservons
+      aucune donnée sur nos serveurs ; ceux-ci ne font que du traitement à la demande (parsing,
+      génération d’images). Les données envoyées à OpenAI sont traitées de manière éphémère pour
+      la requête en cours.
+    </p>
+    <p>
+      En cas de perte, vol, panne ou réinitialisation de votre appareil, les recettes et images
+      stockées localement peuvent être perdues de manière irréversible. Nous ne sommes pas
+      responsables de ces pertes.
+    </p>
+
+    <h2>6. Vos droits</h2>
+    <p>
+      Vous disposez des droits suivants :
+    </p>
+    <ul>
+      <li><strong>Accès et rectification</strong> — Vos données sont sur votre appareil ; vous pouvez
+        les consulter et les modifier directement dans l’application.</li>
+      <li><strong>Suppression</strong> — Vous pouvez supprimer une recette ou désinstaller l’application
+        pour effacer toutes les données locales.</li>
+      <li><strong>Opposition</strong> — Vous pouvez ne pas utiliser les fonctionnalités d’import ou de
+        génération d’images pour éviter tout envoi de données.</li>
+    </ul>
+    <p>
+      Pour exercer vos droits ou poser une question, contactez-nous via les coordonnées indiquées sur
+      la fiche store.
+    </p>
+
+    <h2>7. Import depuis des sites tiers</h2>
+    <p>
+      L’application permet d’importer des recettes depuis des URLs (sites web, Instagram, etc.). Le
+      contenu de ces sites appartient à leurs auteurs. En important une recette, vous êtes responsable
+      du respect des conditions d’utilisation et des droits d’auteur des sites sources. L’application
+      est un outil personnel de sauvegarde ; nous ne contrôlons pas le contenu des sites tiers et
+      déclinons toute responsabilité à ce sujet.
+    </p>
+
+    <h2>8. Limitation de responsabilité</h2>
+    <div class="highlight">
+      <p>
+        L’application est fournie «&nbsp;en l’état&nbsp;». Dans la mesure maximale permise par la loi,
+        nous déclinons toute responsabilité pour :
+      </p>
+      <ul>
+        <li>les dommages directs ou indirects résultant de l’utilisation de l’application ;</li>
+        <li><strong>les pertes de données sur votre appareil</strong> — les données étant stockées
+          localement uniquement, nous ne sommes pas responsables des pertes dues à un dysfonctionnement,
+          une réinitialisation, un vol ou une perte de l’appareil ;</li>
+        <li>le contenu des sites tiers ou des recettes importées ;</li>
+        <li>les erreurs ou inexactitudes dans les extractions ou générations par IA ;</li>
+        <li>le non-respect par l’utilisateur des conditions des sites sources.</li>
+      </ul>
+    </div>
+
+    <h2>9. Modifications</h2>
+    <p>
+      Nous pouvons modifier cette politique à tout moment. La date de dernière mise à jour est indiquée
+      en tête de document. Les modifications substantielles seront signalées dans l’application ou sur
+      la fiche store.
+    </p>
+
+    <h2>10. Droit applicable</h2>
+    <p>
+      Cette politique est régie par le droit français. En cas de litige, les tribunaux français seront
+      compétents.
+    </p>
+
+    <hr style="margin: 2rem 0; border: none; border-top: 1px solid #ddd;" />
+    <p class="meta">
+      Cookies & Coquillettes — Application de cahier de recettes à usage personnel.
+    </p>
+  </body>
+</html>

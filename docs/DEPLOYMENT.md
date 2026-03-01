@@ -32,7 +32,7 @@ Déployer en mode push :
    - Start Command : `npm run start -w @cookies-et-coquilettes/bff`
 3. Renseigner les variables Render :
    - `OPENAI_API_KEY`
-   - `CORS_ORIGIN` (URL GitHub Pages)
+   - `CORS_ORIGIN` = `https://plamarque.github.io` (origine du front GitHub Pages)
 4. Copier l’URL du Deploy Hook Render dans le secret GitHub :
    - `RENDER_DEPLOY_HOOK_URL`
 

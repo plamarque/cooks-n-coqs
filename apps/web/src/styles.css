@@ -19,6 +19,22 @@ body {
   padding: 1rem;
 }
 
+.app-footer {
+  margin-top: 2rem;
+  padding: 1rem 0;
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.app-footer a {
+  color: var(--p-primary-color, #1f4f46);
+  text-decoration: none;
+}
+
+.app-footer a:hover {
+  text-decoration: underline;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

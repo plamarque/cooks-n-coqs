@@ -103,6 +103,7 @@ const ingredientModalVisible = ref(false);
 const ingredientImageRefreshKey = ref(0);
 
 const FEATURE_PORTIONS_ENABLED = false;
+const baseUrl = import.meta.env.BASE_URL;
 const INGREDIENT_TOKEN_STOPWORDS = new Set([
   "de",
   "du",
@@ -1805,5 +1806,15 @@ onUnmounted(() => {
         />
       </div>
     </section>
+
+    <footer class="app-footer">
+      <a
+        :href="`${baseUrl}politique-confidentialite.html`"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Politique de confidentialité
+      </a>
+    </footer>
   </main>
 </template>

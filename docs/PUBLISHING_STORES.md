@@ -4,108 +4,196 @@
 
 Ce guide décrit comment publier **Cookies & Coquillettes** (PWA) sur Apple App Store et Google Play Store en s'appuyant sur un packaging PWA (PWABuilder/TWA + wrapper iOS).
 
-Références :
-- `docs/ARCH.md`
-- `docs/DEPLOYMENT.md`
+Références : `docs/ARCH.md`, `docs/DEPLOYMENT.md`
 
-## 1. Prérequis communs
+---
 
-- PWA déployée en HTTPS public (GitHub Pages ou domaine custom)
-- Manifest complet (nom, icônes, description, `start_url`)
-- Service worker valide
-- Build de production vérifié
+## URLs à copier pour les formulaires stores
 
-Comptes nécessaires :
+| Champ formulaire | URL à coller |
+|------------------|--------------|
+| **Politique de confidentialité** (Play Store, App Store Connect) | `https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html` |
+| **URL de la PWA** (PWABuilder) | `https://plamarque.github.io/cookies-et-coquilettes/` |
 
-| Store | Compte |
-|-------|--------|
-| Google Play | Google Play Console |
-| Apple | Apple Developer Program |
+---
 
-## 2. Validation avant packaging
+## Vue d'ensemble
 
-1. Vérifier le comportement standalone de la PWA.
-2. Vérifier l'offline minimal (écran d'accueil + navigation de base).
-3. Vérifier les assets stores (icône, screenshots smartphone/tablette).
-4. Générer les captures avec :
+| Où ? | Quoi faire |
+|------|------------|
+| **Hors dépôt** | Comptes stores, PWABuilder, consoles Play/App Store, politique de confidentialité |
+| **Dans le dépôt** | Manifest (icônes), `assetlinks.json`, screenshots, variables d'environnement |
+
+---
+
+# Partie A — Hors du dépôt
+
+## Étape A1. Créer les comptes développeur
+
+| Store | Compte | Coût |
+|-------|--------|------|
+| Google Play | [Google Play Console](https://play.google.com/console) | 25 $ (une fois) |
+| Apple | [Apple Developer Program](https://developer.apple.com/programs/) | 99 €/an |
+
+## Étape A2. Déployer la PWA en HTTPS
+
+La PWA doit être accessible en HTTPS avant le packaging.
+
+1. Suivre `docs/DEPLOYMENT.md` pour déployer sur GitHub Pages ou un domaine custom.
+2. Vérifier que l'URL de production charge correctement l'app (ex. `https://plamarque.github.io/cookies-et-coquilettes/`).
+
+## Étape A3. Préparer les assets marketing (hors dépôt)
+
+À préparer avant de remplir les fiches store :
+
+- **Politique de confidentialité** : disponible à `https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html` (fichier `apps/web/public/politique-confidentialite.html`, déployé avec la PWA).
+- **Description courte** (80 caractères max pour Play Store).
+- **Description longue** (4000 caractères max).
+- **Feature graphic** (Play Store) : 1024×500 px.
+- **Icône haute résolution** : 512×512 px (PNG) pour PWABuilder si besoin de regénération.
+
+## Étape A4. Packaging via PWABuilder
+
+1. Aller sur [https://pwabuilder.com](https://pwabuilder.com).
+2. Saisir l'URL de production de la PWA (ex. `https://plamarque.github.io/cookies-et-coquilettes/`).
+3. Vérifier que le manifest et les icônes passent (sinon, corriger dans le dépôt — voir Partie B).
+4. Cliquer sur **Package for stores**.
+5. Télécharger :
+   - **Android** : package TWA (AAB ou APK).
+   - **iOS** : projet Xcode (wrapper).
+
+## Étape A5. Google Play — Console et publication
+
+1. Créer l'application dans [Play Console](https://play.google.com/console).
+2. Remplir la fiche store :
+   - Description courte / longue
+   - Catégorie (ex. Style de vie)
+   - **Politique de confidentialité** : `https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html`
+   - Captures smartphone + tablette (depuis `apps/web/public/screenshots/`)
+   - Feature graphic
+3. Créer une piste **Internal testing**.
+4. Uploader l'AAB généré par PWABuilder.
+5. Récupérer le **SHA-256 fingerprint** : App Integrity → App signing.
+6. Publier `assetlinks.json` sur le domaine (voir Partie B).
+7. Promouvoir en production après validation.
+
+## Étape A6. Apple App Store — App Store Connect et publication
+
+1. Créer l'app dans [App Store Connect](https://appstoreconnect.apple.com).
+2. Remplir les métadonnées (dont **Politique de confidentialité** : `https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html`).
+3. Uploader les screenshots iPhone/iPad (depuis `apps/web/public/screenshots/ios/`).
+4. Sur Mac : ouvrir le projet Xcode généré par PWABuilder.
+5. Configurer le bundle ID, le compte Apple Developer, les capabilities.
+6. Archiver et uploader via Xcode Organizer (ou Fastlane).
+7. Soumettre pour review.
+
+---
+
+# Partie B — Dans le dépôt (fichiers à configurer)
+
+## Étape B1. Icônes PWA (manifest)
+
+PWABuilder exige au minimum des icônes **192×192** et **512×512** (PNG). Le manifest actuel n'a que `favicon.svg`.
+
+**Fichier** : `apps/web/vite.config.ts`
+
+1. Créer les icônes PNG :
+   - `apps/web/public/icons/icon-192x192.png`
+   - `apps/web/public/icons/icon-512x512.png`
+
+   (À partir du `favicon.svg` : exporter en PNG aux tailles requises, ou utiliser un outil comme [realfavicongenerator.net](https://realfavicongenerator.net) / [favicon-generator.ai](https://favicon-generator.ai).)
+
+2. Mettre à jour le bloc `manifest.icons` dans `vite.config.ts` :
+
+```ts
+icons: [
+  { src: "favicon.svg", sizes: "any", type: "image/svg+xml" },
+  { src: "icons/icon-192x192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+  { src: "icons/icon-512x512.png", sizes: "512x512", type: "image/png", purpose: "any" }
+]
+```
+
+## Étape B2. Digital Asset Links (Android TWA)
+
+Pour éviter la barre d’URL dans la TWA, servir `assetlinks.json` à la racine du domaine.
+
+**Fichier à créer** : `apps/web/public/.well-known/assetlinks.json`
+
+Structure (à adapter avec ton package name et ton SHA-256) :
+
+```json
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.example.cookiesetcoquilettes",
+      "sha256_cert_fingerprints": [
+        "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+      ]
+    }
+  }
+]
+```
+
+- `package_name` : celui défini dans PWABuilder / Play Console.
+- `sha256_cert_fingerprints` : depuis Play Console → App Integrity → App signing.
+
+**Important** : ce fichier doit être servi à `https://plamarque.github.io/cookies-et-coquilettes/.well-known/assetlinks.json`. Placer le fichier dans `public/.well-known/` ; il sera copié à la racine du site déployé.
+
+## Étape B3. Générer les screenshots
 
 ```bash
 npm run screenshots
 ```
 
-Sortie :
-- `apps/web/public/screenshots/ios/...`
-- `apps/web/public/screenshots/android/...`
+Génère les captures dans :
+- `apps/web/public/screenshots/ios/iphone/`, `ios/ipad/`
+- `apps/web/public/screenshots/android/smartphone/`, `android/tablet/`
 
-## 3. Packaging via PWABuilder
+Les utiliser pour les fiches Play Store et App Store Connect.
 
-1. Aller sur https://pwabuilder.com
-2. Saisir l'URL de production de l'application
-3. Générer les packages Android et iOS
-4. Renseigner les métadonnées demandées
+## Étape B4. Variables d'environnement (déploiement)
 
-## 4. Google Play (Android / TWA)
+Pour le build de production (GitHub Pages, etc.) :
 
-### 4.1 Console Google Play
+- **Secret GitHub** : `VITE_BFF_URL` = URL publique du BFF (ex. `https://cookies-et-coquilettes-bff.onrender.com`).
+- **Vérifier** : `VITE_BASE_PATH` correspond à l’URL de déploiement (ex. `/cookies-et-coquilettes/` pour un GitHub Pages project site).
 
-1. Créer l'application dans Play Console.
-2. Remplir la fiche store :
-   - description courte/longue
-   - catégorie
-   - politique de confidentialité
-   - captures smartphone + tablette
-3. Uploader l'AAB en piste interne (internal testing), puis production.
+Voir `docs/DEPLOYMENT.md` pour les détails.
 
-### 4.2 Digital Asset Links (standalone Android)
+---
 
-Pour éviter l'affichage de la barre navigateur dans la TWA, publier `assetlinks.json` sur le domaine racine :
+# Récapitulatif des fichiers du dépôt à modifier/créer
 
-`https://<domaine>/.well-known/assetlinks.json`
+**URL politique de confidentialité** (pour formulaires Play Store / App Store Connect) :
+```
+https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html
+```
 
-Étapes :
-1. Récupérer le fingerprint SHA-256 dans Play Console (App Integrity / App signing)
-2. Générer `assetlinks.json`
-3. Le publier sur le domaine racine
-4. Vérifier via l'API Digital Asset Links Google
+| Fichier | Action |
+|---------|--------|
+| `apps/web/vite.config.ts` | Ajouter icônes 192×192 et 512×512 dans `manifest.icons` |
+| `apps/web/public/icons/icon-192x192.png` | Créer (export depuis favicon) |
+| `apps/web/public/icons/icon-512x512.png` | Créer (export depuis favicon) |
+| `apps/web/public/.well-known/assetlinks.json` | Créer avec package name + SHA-256 Play Console |
+| `apps/web/public/screenshots/` | Générer via `npm run screenshots` |
 
-## 5. Apple App Store (iOS wrapper)
+---
 
-### 5.1 Pré-requis
+# CI/CD release (optionnel)
 
-- Mac + Xcode à jour
-- Compte Apple Developer
-- Projet iOS wrapper généré depuis PWABuilder
+Ce repo dispose déjà du déploiement push (PWA GitHub Pages, BFF Render). Pour automatiser les releases stores :
 
-### 5.2 App Store Connect
+- Workflow `release-stores.yml` déclenché par tag `v*`
+- Workflow `promote-stores.yml` déclenché manuellement
+- Secrets GitHub : `PLAY_STORE_SERVICE_ACCOUNT`, `ANDROID_KEYSTORE_BASE64`, `APPSTORE_ISSUER_ID`, `APPSTORE_KEY_ID`, `APPSTORE_API_PRIVATE_KEY`, etc.
 
-1. Créer l'app dans App Store Connect.
-2. Remplir les métadonnées.
-3. Uploader les screenshots iPhone/iPad.
-4. Uploader le build iOS (Xcode Organizer / Fastlane).
-5. Soumettre pour review.
+Voir la section 8 ci-dessous pour la liste des secrets typiques.
 
-## 6. Assets et contenus à préparer
+---
 
-- Icône store haute résolution
-- Feature graphic (Play Store)
-- Captures smartphone + tablette
-- Politique de confidentialité (URL publique)
-- Description marketing courte + longue
-
-## 7. CI/CD release (inspiration Chrono EPS)
-
-Ce repo dispose déjà du déploiement push pour :
-- PWA : GitHub Pages
-- BFF : Render
-
-Pour automatiser les releases stores comme sur Chrono EPS, prévoir ensuite :
-- workflow `release-stores.yml` déclenché par tag `v*`
-- workflow `promote-stores.yml` déclenché manuellement
-- scripts utilitaires `release-version.sh` et `promote-to-stores.sh`
-
-Ces workflows nécessitent des secrets store (Play Console + App Store Connect).
-
-## 8. Secrets typiques pour pipelines stores
+# Secrets typiques pour pipelines stores
 
 Exemples de secrets GitHub à prévoir (selon l'implémentation retenue) :
 
