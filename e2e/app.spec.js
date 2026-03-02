@@ -3,9 +3,11 @@ import path from "path";
 import { writeFileSync, mkdirSync } from "fs";
 
 async function saveRecipeForm(page) {
+  // Cible le bouton Enregistrer du header (évite ambiguïté avec celui du footer)
   await page
     .locator(".form-header-actions")
     .getByRole("button", { name: "Enregistrer" })
+    .first()
     .click();
 }
 
@@ -47,7 +49,7 @@ test.describe("Cookies & Coquillettes v1", () => {
   }) => {
     await page.goto("/");
     await expect(page.getByRole("button", { name: "Nouvelle recette" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Favoris" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Favoris", exact: true })).toBeVisible();
     // Filtre favoris actif par défaut : les recettes seed (favorites) sont visibles
     await expect(page.getByText("Coquillettes au jambon de Juan Arbelaez")).toBeVisible();
     await expect(page.getByText("Cookies aux pépites de chocolat")).toBeVisible();

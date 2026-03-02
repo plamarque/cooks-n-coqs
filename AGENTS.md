@@ -46,5 +46,4 @@ Standard commands are documented in `docs/DEVELOPMENT.md`. Key notes:
 - **Unit tests**: `npm run test:unit` (Node built-in test runner on `packages/domain` + `apps/web/test`).
 - **Frontend utility rule**: when adding/changing logic in `apps/web/src/utils` (or extracting helper logic from components), add/update targeted unit tests in `apps/web/test` and run `npm run test:unit -w @cookies-et-coquilettes/web` (or the root `npm run test:unit`).
 - **Type checking**: `npm run typecheck` (vue-tsc for web, tsc for BFF).
-- **E2E tests**: `npm run test:e2e` (builds the web app, starts a preview server on port 4174, runs Playwright). Requires `npx playwright install chromium` first.
-- Some E2E tests have pre-existing strict-mode failures (duplicate "Enregistrer" button selectors); 1 of 5 tests passes as of the initial codebase state.
+- **E2E tests**: `npm run test:e2e` (builds the web app, starts a preview server on port 4174, runs Playwright). Requires `npx playwright install chromium` first. Les tests YouTube, Instagram et import fichier nécessitent le BFF démarré (`npm run dev:bff`) ; sans BFF ils sont ignorés.
