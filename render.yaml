@@ -14,3 +14,8 @@ services:
         sync: false
       - key: CORS_ORIGIN
         sync: false
+      - key: GENERATED_IMAGE_CACHE_DIR
+        value: .cache/generated-images
+      - key: GENERATED_IMAGE_BASE_URL
+        sync: false
+

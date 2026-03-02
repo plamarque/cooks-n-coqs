@@ -16,11 +16,17 @@ const BFF_URL = import.meta.env.VITE_BFF_URL || "http://localhost:8787";
 export async function storeImageFromUrl(url: string): Promise<string | undefined> {
   try {
     const isExternal = url.startsWith("http://") || url.startsWith("https://");
-    const fetchUrl = isExternal
+    const isBffGeneratedImage = url.includes("/api/generated-images/");
+    const fetchUrl = isExternal && !isBffGeneratedImage
       ? `${BFF_URL}/api/proxy-image`
       : url;
-    const fetchOpts: RequestInit = isExternal
-      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }), signal: AbortSignal.timeout(15000) }
+    const fetchOpts: RequestInit = isExternal && !isBffGeneratedImage
+      ? {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+          signal: AbortSignal.timeout(15000)
+        }
       : { mode: "cors", signal: AbortSignal.timeout(10000) };
     const res = await fetch(fetchUrl, fetchOpts);
     if (!res.ok) return undefined;

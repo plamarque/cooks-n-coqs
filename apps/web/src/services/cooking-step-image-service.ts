@@ -50,12 +50,18 @@ async function fetchGeneratedCookingStepImageUrl(
 
 async function fetchImageBlob(url: string): Promise<Blob | undefined> {
   try {
-    const response = await fetch(`${BFF_URL}/api/proxy-image`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-      signal: AbortSignal.timeout(15000)
-    });
+    const isBffGeneratedImage = url.includes("/api/generated-images/");
+    const response = isBffGeneratedImage
+      ? await fetch(url, {
+          mode: "cors",
+          signal: AbortSignal.timeout(15000)
+        })
+      : await fetch(`${BFF_URL}/api/proxy-image`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+          signal: AbortSignal.timeout(15000)
+        });
     if (!response.ok) {
       return undefined;
     }
