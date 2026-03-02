@@ -492,7 +492,9 @@ interface LlmRecipePayload {
 }
 
 function parseLlmRecipePayload(raw: string): LlmRecipePayload | null {
-  const json = raw.replace(/^```json?\s*|\s*```$/g, "");
+  let json = raw.replace(/^```json?\s*|\s*```$/g, "").trim();
+  // Fix trailing commas (invalid JSON but common in LLM output)
+  json = json.replace(/,(\s*[}\]])/g, "$1");
   try {
     return JSON.parse(json) as LlmRecipePayload;
   } catch {

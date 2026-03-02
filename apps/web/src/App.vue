@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import Button from "primevue/button";
 import Card from "primevue/card";
 import ConfirmDialog from "primevue/confirmdialog";
+import Dialog from "primevue/dialog";
 import ProgressSpinner from "primevue/progressspinner";
 import { useConfirm } from "primevue/useconfirm";
 import type {
@@ -81,6 +82,7 @@ const formMode = ref<FormMode>("CREATE");
 const formRecipeId = ref<string | null>(null);
 const cookingState = ref<"OFF" | "WAKE_LOCK" | "FALLBACK">("OFF");
 const feedback = ref<string>("");
+const feedbackType = ref<"success" | "warning">("success");
 const errorMessage = ref<string>("");
 
 const search = ref("");
@@ -106,6 +108,13 @@ const importSourceType = ref<ImportProgressType | null>(null);
 const imageGenerating = ref(false);
 const imageReextracting = ref(false);
 const recipeIdWithPendingImage = ref<string | null>(null);
+const recipeImageFullscreenId = ref<string | null>(null);
+const recipeImageFullscreenVisible = computed({
+  get: () => Boolean(recipeImageFullscreenId.value),
+  set: (v) => {
+    if (!v) recipeImageFullscreenId.value = null;
+  }
+});
 const imageLoadingMessage = ref<string>("");
 
 const servingsInput = ref("");
@@ -946,7 +955,7 @@ async function runImportFromFile(file: File): Promise<void> {
       const text = await file.text();
       draft = await bffImportService.importFromText(text);
     }
-    await createRecipeFromDraft(draft);
+    await createRecipeFromDraft(draft, isImageFile ? file : undefined);
   } catch (error) {
     setError(error);
   } finally {
@@ -1034,6 +1043,7 @@ function setError(error: unknown): void {
 
 function clearMessages(): void {
   feedback.value = "";
+  feedbackType.value = "success";
   errorMessage.value = "";
 }
 
@@ -1121,7 +1131,10 @@ function fallbackImportMessage(source?: ImportSource): string {
   }
 }
 
-async function createRecipeFromDraft(draft: ParsedRecipeDraft): Promise<void> {
+async function createRecipeFromDraft(
+  draft: ParsedRecipeDraft,
+  fallbackScreenshotFile?: File
+): Promise<void> {
   clearMessages();
   form.value = draftToForm(draft);
   let recipe = formToRecipe(undefined); // sans image, on la traite en async
@@ -1136,6 +1149,15 @@ async function createRecipeFromDraft(draft: ParsedRecipeDraft): Promise<void> {
   await dexieRecipeService.createRecipe(recipe);
   selectedRecipeId.value = recipe.id;
   favoriteOnly.value = false;
+
+  if (isMinimalFallbackDraft(draft) && draft.source?.type === "SCREENSHOT" && fallbackScreenshotFile) {
+    const imageId = await storeImageFromFile(fallbackScreenshotFile);
+    if (imageId) {
+      await dexieRecipeService.updateRecipe(recipe.id, { imageId });
+      recipe = { ...recipe, imageId };
+    }
+  }
+
   await refresh();
 
   if (isMinimalFallbackDraft(draft)) {
@@ -1143,6 +1165,7 @@ async function createRecipeFromDraft(draft: ParsedRecipeDraft): Promise<void> {
     formRecipeId.value = recipe.id;
     form.value = toForm(recipe);
     viewMode.value = "FORM";
+    feedbackType.value = "warning";
     feedback.value = fallbackImportMessage(draft.source);
   } else {
     viewMode.value = "DETAIL";
@@ -1660,8 +1683,26 @@ onUnmounted(() => {
 <template>
   <main class="app-shell">
     <ConfirmDialog group="app-confirmation" />
+    <Dialog
+      v-model:visible="recipeImageFullscreenVisible"
+      modal
+      :header="undefined"
+      :closable="true"
+      :dismissable-mask="true"
+      :style="{ width: '95vw', maxWidth: '900px' }"
+      :content-style="{ padding: 0, overflow: 'hidden' }"
+      class="recipe-image-fullscreen-dialog"
+    >
+      <div v-if="recipeImageFullscreenId" class="recipe-image-fullscreen-content">
+        <RecipeImage
+          :image-id="recipeImageFullscreenId"
+          alt="Image de la recette en plein écran"
+          img-class="recipe-image-fullscreen-img"
+        />
+      </div>
+    </Dialog>
     <section v-if="errorMessage" class="message error">{{ errorMessage }}</section>
-    <section v-else-if="feedback" class="message success">{{ feedback }}</section>
+    <section v-else-if="feedback" :class="['message', feedbackType === 'warning' ? 'warning' : 'success']">{{ feedback }}</section>
 
     <section v-if="viewMode === 'LIST'" class="list-view">
       <div class="toolbar">
@@ -2044,11 +2085,21 @@ onUnmounted(() => {
             allowfullscreen
           />
         </div>
-        <RecipeImage
+        <button
           v-else-if="selectedRecipe.imageId"
-          :image-id="selectedRecipe.imageId"
-          img-class="recipe-detail-image"
-        />
+          type="button"
+          class="recipe-detail-image-button"
+          :aria-label="'Voir l\'image en plein écran'"
+          @click="recipeImageFullscreenId = selectedRecipe.imageId ?? null"
+        >
+          <RecipeImage
+            :image-id="selectedRecipe.imageId"
+            img-class="recipe-detail-image"
+          />
+          <span class="recipe-detail-image-expand-hint">
+            <i class="pi pi-search-plus" aria-hidden="true" />
+          </span>
+        </button>
         <div
           v-else-if="selectedRecipe.id === recipeIdWithPendingImage"
           class="recipe-detail-image-placeholder recipe-detail-image-placeholder--loading"
