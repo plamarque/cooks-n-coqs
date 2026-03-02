@@ -48,7 +48,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 ### Organisation et recherche rapide
 
 1. Les recettes sont affichées sous forme de grille de vignettes.
-2. L’utilisateur peut filtrer par catégorie (`Sucré`, `Salé`) et par favoris.
+2. L’utilisateur peut filtrer par catégorie (`Sucré`, `Salé`) et par favoris. Au chargement, le filtre favoris est activé par défaut (icône cœur) : seules les recettes favorites sont affichées.
 3. L’utilisateur peut rechercher en texte libre sur `titre + ingrédients`.
 4. La liste est triée par défaut : favoris en premier, puis par dernière modification (`updatedAt DESC`).
 5. La navigation privilégie l’accès rapide aux recettes fréquemment utilisées.

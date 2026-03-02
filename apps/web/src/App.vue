@@ -97,7 +97,7 @@ function toggleSearchExpanded() {
   }
 }
 const categoryFilter = ref<"ALL" | RecipeCategory>("ALL");
-const favoriteOnly = ref(false);
+const favoriteOnly = ref(true);
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const formImageInputRef = ref<HTMLInputElement | null>(null);
@@ -789,9 +789,6 @@ const formInstagramEmbedUrl = computed(() =>
 
 const formYouTubeEmbedUrl = computed(() =>
   buildYouTubeEmbedUrl(form.value.source?.url)
-);
-const favoriteCount = computed(() =>
-  recipes.value.filter((recipe) => recipe.favorite).length
 );
 
 const activeFilters = computed<RecipeFilters>(() => ({
@@ -1796,9 +1793,10 @@ onUnmounted(() => {
             />
             <Button
               :severity="favoriteOnly ? 'primary' : 'secondary'"
-              :label="`Favoris (${favoriteCount})`"
               size="small"
               icon="pi pi-heart"
+              rounded
+              aria-label="Favoris"
               @click="favoriteOnly = !favoriteOnly"
             />
             <Button

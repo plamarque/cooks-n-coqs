@@ -42,9 +42,13 @@ async function createRecipeViaImport(page, recipeText = "Recette brute") {
 }
 
 test.describe("Cookies & Coquillettes v1", () => {
-  test("affiche l'écran principal avec les cartes", async ({ page }) => {
+  test("affiche l'écran principal avec les cartes et filtre favoris actif par défaut", async ({
+    page
+  }) => {
     await page.goto("/");
     await expect(page.getByRole("button", { name: "Nouvelle recette" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Favoris" })).toBeVisible();
+    // Filtre favoris actif par défaut : les recettes seed (favorites) sont visibles
     await expect(page.getByText("Coquillettes au jambon de Juan Arbelaez")).toBeVisible();
     await expect(page.getByText("Cookies aux pépites de chocolat")).toBeVisible();
   });
