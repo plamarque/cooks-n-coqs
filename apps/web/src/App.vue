@@ -29,6 +29,7 @@ import {
 } from "./services/cooking-step-image-service";
 import { detectStepTimerDurationSeconds } from "./services/step-timer-service";
 import { buildInstagramEmbedUrl } from "./utils/instagram-embed";
+import { buildYouTubeEmbedUrl } from "./utils/youtube-embed";
 import { extractStepTimerDurationSeconds } from "./utils/step-timer";
 import {
   clearShareImportParamsFromWindowLocation,
@@ -767,8 +768,16 @@ const selectedRecipeInstagramEmbedUrl = computed(() =>
   buildInstagramEmbedUrl(selectedRecipe.value?.source?.url)
 );
 
+const selectedRecipeYouTubeEmbedUrl = computed(() =>
+  buildYouTubeEmbedUrl(selectedRecipe.value?.source?.url)
+);
+
 const formInstagramEmbedUrl = computed(() =>
   buildInstagramEmbedUrl(form.value.source?.url)
+);
+
+const formYouTubeEmbedUrl = computed(() =>
+  buildYouTubeEmbedUrl(form.value.source?.url)
 );
 const favoriteCount = computed(() =>
   recipes.value.filter((recipe) => recipe.favorite).length
@@ -2024,8 +2033,18 @@ onUnmounted(() => {
       </Teleport>
 
       <div class="recipe-detail-header">
+        <div v-if="selectedRecipeYouTubeEmbedUrl" class="recipe-detail-embed-wrapper">
+          <iframe
+            :src="selectedRecipeYouTubeEmbedUrl"
+            title="Aperçu vidéo YouTube"
+            class="recipe-detail-youtube-embed"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+          />
+        </div>
         <RecipeImage
-          v-if="selectedRecipe.imageId"
+          v-else-if="selectedRecipe.imageId"
           :image-id="selectedRecipe.imageId"
           img-class="recipe-detail-image"
         />
@@ -2047,6 +2066,7 @@ onUnmounted(() => {
         </div>
         <div v-else class="recipe-detail-image-placeholder" />
         <button
+          v-if="!selectedRecipeYouTubeEmbedUrl && !selectedRecipeInstagramEmbedUrl"
           type="button"
           class="recipe-detail-play-overlay"
           :aria-label="cookingState === 'OFF' ? 'Lancer le mode cuisine' : 'Désactiver le mode cuisine'"
@@ -2222,7 +2242,18 @@ onUnmounted(() => {
       </div>
 
       <div class="stack">
-        <div v-if="form.imageUrl || (form.imageId && typeof form.imageId === 'string')" class="row recipe-form-image-row">
+        <div v-if="formYouTubeEmbedUrl" class="recipe-form-embed-wrapper">
+          <iframe
+            :src="formYouTubeEmbedUrl"
+            title="Aperçu vidéo YouTube"
+            class="recipe-form-youtube-embed"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+          />
+          <small class="muted">Aperçu de la vidéo YouTube importée.</small>
+        </div>
+        <div v-else-if="form.imageUrl || (form.imageId && typeof form.imageId === 'string')" class="row recipe-form-image-row">
           <RecipeImage
             v-if="form.imageId && typeof form.imageId === 'string'"
             :image-id="form.imageId"

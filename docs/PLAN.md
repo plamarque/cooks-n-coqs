@@ -21,6 +21,7 @@ Exécution des slices v1 en petites livraisons verticales. Refonte UX appliquée
 | K | Ajustement portions : recalcul quantités (UI masquée, implémentation à finaliser) | Différée |
 | L | Cible de partage PWA (`share_target`) + fallback presse-papiers multi-plateforme | Fait |
 | M | Images ingrédients : icônes détail + cartes, génération IA lazy, cache IndexedDB mutualisé | Fait |
+| N | Import URL — YouTube (description, poster, embed) | Fait |
 
 ## Definition of Done par slice
 

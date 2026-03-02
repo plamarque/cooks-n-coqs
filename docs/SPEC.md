@@ -43,7 +43,8 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 4. Si le BFF est indisponible ou l’extraction échoue, l’application crée un draft minimal (titre + provenance) à compléter manuellement via l'édition.
 5. Pendant l’import (URL, texte ou image), l’interface affiche un état d’attente explicite indiquant l’analyse en cours.
 6. La provenance (`source`) est conservée pour tout import, même sans URL (ex. image collée).
-7. Pour un import Instagram en fallback (sans image locale), l’interface affiche un aperçu embarqué du post/reel à la place de la photo, afin de pouvoir consulter la source pendant l’édition.
+7. Pour un import Instagram en fallback (sans image locale), l'interface affiche un aperçu embarqué du post/reel à la place de la photo, afin de pouvoir consulter la source pendant l'édition.
+8. Pour un import YouTube, l'application extrait la recette depuis la description de la vidéo, capture le poster (thumbnail) et affiche un embed vidéo dans la vue détail et le formulaire d'édition.
 
 ### Organisation et recherche rapide
 

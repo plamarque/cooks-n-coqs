@@ -15,7 +15,7 @@
     "build:web": "npm run build -w @cookies-et-coquilettes/web",
     "build:bff": "npm run build -w @cookies-et-coquilettes/bff",
     "typecheck": "npm run typecheck -w @cookies-et-coquilettes/web && npm run typecheck -w @cookies-et-coquilettes/bff",
-    "test:unit": "node --test packages/domain/test/*.test.mjs && npm run test:unit -w @cookies-et-coquilettes/web",
+    "test:unit": "node --test packages/domain/test/*.test.mjs && npm run test:unit -w @cookies-et-coquilettes/web && npm run test:unit -w @cookies-et-coquilettes/bff",
     "test:e2e": "bash scripts/run-e2e.sh",
     "test:e2e:ui": "npx playwright test --ui",
     "screenshots": "node scripts/generate-screenshots.js"

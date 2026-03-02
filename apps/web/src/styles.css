@@ -203,6 +203,13 @@ body {
   display: block;
 }
 
+.recipe-detail-youtube-embed {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: none;
+  display: block;
+}
+
 .recipe-detail-header-actions {
   position: absolute;
   top: 0.5rem;
@@ -772,6 +779,15 @@ body {
   width: 100%;
   max-width: 420px;
   min-height: 360px;
+  border: 1px solid rgba(31, 79, 70, 0.2);
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.recipe-form-youtube-embed {
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 16 / 9;
   border: 1px solid rgba(31, 79, 70, 0.2);
   border-radius: 0.5rem;
   background: #fff;

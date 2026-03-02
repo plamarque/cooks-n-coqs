@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import OpenAI from "openai";
 import { instagramGetUrl, type InstagramResponse } from "instagram-url-direct";
+import { extractYouTubeVideoId, isYouTubeUrl } from "./youtube-utils.js";
 import type { IngredientLine, ImportType, ParsedRecipeDraft } from "./types.js";
 
 export interface ParseRecipeInput {
@@ -360,6 +361,79 @@ function isInstagramUrl(rawUrl: string): boolean {
   }
 }
 
+interface YouTubeOEmbedResponse {
+  title?: string;
+  thumbnail_url?: string;
+}
+
+async function extractYouTubeData(url: string): Promise<{
+  title: string;
+  imageUrl?: string;
+  descriptionText: string;
+}> {
+  const videoId = extractYouTubeVideoId(url);
+  const canonicalUrl =
+    videoId && url.includes("youtube.com")
+      ? `https://www.youtube.com/watch?v=${videoId}`
+      : url;
+
+  let title = "Recette YouTube";
+  let imageUrl: string | undefined;
+  let descriptionText = "";
+
+  try {
+    const oEmbedRes = await fetch(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(canonicalUrl)}&format=json`,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (compatible; CookiesEtCoquillettes/1.0; +https://github.com/cookies-et-coquilettes)"
+        },
+        signal: AbortSignal.timeout(10000)
+      }
+    );
+    if (oEmbedRes.ok) {
+      const oembed = (await oEmbedRes.json()) as YouTubeOEmbedResponse;
+      if (oembed.title) title = oembed.title;
+      if (oembed.thumbnail_url?.startsWith("http")) imageUrl = oembed.thumbnail_url;
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("YouTube oEmbed error", err);
+  }
+
+  try {
+    const html = await fetchUrl(canonicalUrl);
+    const $ = cheerio.load(html);
+    const ogDesc = $('meta[property="og:description"]').attr("content");
+    if (ogDesc?.trim()) {
+      descriptionText = decodeHtmlEntities(ogDesc).replace(/\s+/g, " ").trim();
+    }
+    if (!imageUrl) {
+      const ogImage = $('meta[property="og:image"]').attr("content");
+      if (ogImage?.startsWith("http")) imageUrl = ogImage;
+    }
+    const shortDescMatch = html.match(
+      /"shortDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/
+    );
+    if (shortDescMatch?.[1]) {
+      const unescaped = shortDescMatch[1]
+        .replace(/\\n/g, "\n")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\");
+      const fullDesc = decodeHtmlEntities(unescaped).replace(/\s+/g, " ").trim();
+      if (fullDesc.length > descriptionText.length) {
+        descriptionText = fullDesc;
+      }
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("YouTube HTML fetch error", err);
+  }
+
+  return { title, imageUrl, descriptionText };
+}
+
 function pickInstagramImage(result: InstagramResponse): string | undefined {
   const imageMedia = result.media_details.find((media) => media.type === "image" && media.url);
   if (imageMedia?.url) {
@@ -507,6 +581,7 @@ Extrais les champs suivants au format JSON (réponds uniquement avec du JSON val
   "steps": [{"order": 1, "text": "description étape"}]
 }
 Pour les ingrédients : quantity et unit optionnels. Reconnaître : g/gr (grammes), CC/c à c (cuillère à café), c à s (cuillère à soupe), fractions (1/2 = demi). isScalable=true si la quantité peut être ajustée (ex: farine), false pour "sel", "poivre", "à volonté".
+Pour les étapes : extraire toute préparation ou instructions présentes (même partielles). Si le texte ne contient que des ingrédients, mettre steps: [].
 Texte à analyser :
 
 ${text.slice(0, 12000)}`;
@@ -520,9 +595,7 @@ ${text.slice(0, 12000)}`;
     const raw = completion.choices[0]?.message?.content?.trim();
     if (!raw) return fallbackDraft(fallbackTitle, sourceType, url, { imageUrl });
     const parsed = parseLlmRecipePayload(raw);
-    if (!parsed) {
-      return fallbackDraft(fallbackTitle, sourceType, url, { imageUrl });
-    }
+    if (!parsed) return fallbackDraft(fallbackTitle, sourceType, url, { imageUrl });
     return toDraftFromLlmPayload(parsed, sourceType, url, imageUrl);
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -663,6 +736,15 @@ export async function extractImageFromUrl(url: string): Promise<string | undefin
     }
   }
 
+  if (isYouTubeUrl(url)) {
+    try {
+      const ytData = await extractYouTubeData(url);
+      return ytData.imageUrl;
+    } catch {
+      // Fallback sur extraction HTML standard
+    }
+  }
+
   try {
     const html = await fetchUrl(url);
     const ogImage = extractOgImage(html, url);
@@ -727,6 +809,27 @@ export async function parseRecipeWithCloud(
       }
     }
 
+    if (isYouTubeUrl(url)) {
+      try {
+        const ytData = await extractYouTubeData(url);
+        if (ytData.descriptionText.length > 80) {
+          return parseWithOpenAI(
+            ytData.descriptionText,
+            ytData.imageUrl,
+            url,
+            sourceType,
+            ytData.title
+          );
+        }
+        return fallbackDraft(ytData.title, sourceType, url, {
+          imageUrl: ytData.imageUrl
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("YouTube import error", err);
+      }
+    }
+
     try {
       const html = await fetchUrl(url);
       const baseUrl = url;
@@ -771,6 +874,30 @@ export async function parseRecipeWithCloud(
   }
 
   if (sourceType === "SHARE") {
+    if (url && isYouTubeUrl(url)) {
+      try {
+        const ytData = await extractYouTubeData(url);
+        const text = [input.shareTitle, input.text, ytData.descriptionText]
+          .filter((chunk): chunk is string => Boolean(chunk?.trim()))
+          .join("\n\n");
+        if (text.length > 80) {
+          return parseWithOpenAI(
+            text,
+            ytData.imageUrl,
+            url,
+            sourceType,
+            ytData.title
+          );
+        }
+        return fallbackDraft(ytData.title, sourceType, url, {
+          imageUrl: ytData.imageUrl
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("YouTube SHARE import error", err);
+      }
+    }
+
     if (url) {
       try {
         const html = await fetchUrl(url);

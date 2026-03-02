@@ -64,6 +64,8 @@ npm install -D @playwright/test
 npx playwright install chromium
 ```
 
+Pour les tests d’import (fichier, URL YouTube), le BFF doit être en cours d’exécution : `npm run dev:bff` dans un terminal séparé.
+
 ## Déploiement
 
 - PWA : workflow GitHub Pages (`.github/workflows/deploy-pages.yml`)

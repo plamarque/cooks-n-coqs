@@ -32,10 +32,13 @@ async function createRecipeViaImport(page, recipeText = "Recette brute") {
   const fileChooser = await fileChooserPromise;
   await fileChooser.setFiles(filePath);
 
-  await expect(page.locator(".message.success")).toContainText(
-    /Recette importée\.|a échoué/i
+  await expect(page.locator("section.panel.detail, section.panel.form-panel")).toBeVisible({
+    timeout: 15000
+  });
+  await expect(page.locator(".message.success, .message.error")).toContainText(
+    /Recette importée|échoué/i,
+    { timeout: 5000 }
   );
-  await expect(page.locator("section.panel.detail, section.panel.form-panel")).toBeVisible();
 }
 
 test.describe("Cookies & Coquillettes v1", () => {
@@ -50,7 +53,8 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.goto("/");
     await createRecipeViaManual(page, "Recette test mode cuisine");
     await expect(page.getByRole("heading", { name: "Recette test mode cuisine" })).toBeVisible();
-    await page.getByRole("button", { name: "Cuisiner" }).click();
+    // L'overlay utilise aria-label "Lancer le mode cuisine" ; .first() = overlay (pas le bouton en bas)
+    await page.getByRole("button", { name: "Lancer le mode cuisine" }).first().click();
     await expect(page.locator(".message.success")).toContainText(/Wake Lock|fallback navigateur/i);
   });
 
@@ -65,14 +69,22 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByText("Brownie maison").first().click();
     await expect(page.getByText("Mélanger les ingrédients")).toBeVisible();
 
-    page.once("dialog", async (dialog) => {
-      await dialog.accept();
-    });
-    await page.getByRole("button", { name: "Supprimer" }).click();
+    await page.locator(".recipe-detail-actions").getByRole("button", { name: "Supprimer" }).click();
+    await page.getByText(/Supprimer définitivement/).waitFor({ state: "visible", timeout: 5000 });
+    await page.getByRole("button", { name: "Supprimer" }).last().click();
     await expect(page.getByText("Recette supprimée.")).toBeVisible();
   });
 
   test("import fichier crée la recette directement", async ({ page }) => {
+    let bffOk = false;
+    try {
+      const r = await fetch("http://localhost:8787/health");
+      bffOk = r.ok;
+    } catch {
+      /* BFF non démarré */
+    }
+    test.skip(!bffOk, "BFF non disponible - lancer npm run dev:bff");
+
     await page.goto("/");
     await createRecipeViaImport(page, "Recette: Omelette");
     await expect(page.locator("section.panel.detail, section.panel.form-panel")).toBeVisible();
@@ -140,6 +152,62 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByLabel(/ingredient-label-/).nth(0)).toHaveValue("Sucre");
     await expect(page.getByLabel(/ingredient-label-/).nth(1)).toHaveValue("Farine");
     await expect(page.getByLabel(/ingredient-label-/).nth(2)).toHaveValue("Oeuf");
+  });
+
+  test("import YouTube : description, ingrédients, embed, poster, pas d'overlay Cuisiner", async ({
+    page
+  }) => {
+    test.setTimeout(60000); // BFF + YouTube + OpenAI peuvent prendre du temps
+    const youtubeUrl = "https://www.youtube.com/watch?v=32cyzq4Cm94";
+
+    let bffOk = false;
+    try {
+      const r = await fetch("http://localhost:8787/health");
+      bffOk = r.ok;
+    } catch {
+      /* BFF non démarré */
+    }
+    test.skip(!bffOk, "BFF non disponible - lancer npm run dev:bff dans un terminal séparé");
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Nouvelle recette" }).click();
+    await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
+
+    await page.locator("#paste-field").fill(youtubeUrl);
+    await page.getByRole("button", { name: "Importer" }).click();
+
+    await expect(page.locator(".message.success")).toContainText(/Recette importée/i, {
+      timeout: 30000
+    });
+    await expect(page.locator("section.panel.detail")).toBeVisible({ timeout: 5000 });
+
+    const recipeTitle = (await page.locator(".recipe-detail-title").textContent())?.trim() ?? "";
+
+    // Embed YouTube visible dans la fiche recette
+    await expect(page.locator("iframe.recipe-detail-youtube-embed")).toBeVisible();
+    await expect(page.locator("iframe[title='Aperçu vidéo YouTube']")).toHaveAttribute(
+      "src",
+      /youtube\.com\/embed\/32cyzq4Cm94/
+    );
+
+    // Pas de bouton overlay "Cuisiner" par-dessus l'embed (gêne la vidéo)
+    await expect(page.locator(".recipe-detail-play-overlay")).toHaveCount(0);
+
+    // Bouton "Lancer le mode cuisine" en bas reste disponible
+    await expect(page.locator(".recipe-detail-cuisiner-primary")).toBeVisible();
+
+    // Ingrédients extraits depuis la description YouTube
+    const ingredientLines = page.locator(".ingredient-line");
+    await expect(ingredientLines.first()).toBeVisible({ timeout: 5000 });
+
+    // Poster sur les cartes : retour à la liste, vérifier l'image sur la carte
+    await page.getByRole("button", { name: "Retour" }).click();
+    const recipeCard = recipeTitle
+      ? page.locator(".recipe-card", { hasText: recipeTitle }).first()
+      : page.locator(".recipe-card").first();
+    await expect(recipeCard).toBeVisible();
+    // L'image poster (thumbnail YouTube) est affichée sur la carte (chargement async)
+    await expect(recipeCard.locator(".recipe-card-image")).toBeVisible({ timeout: 15000 });
   });
 
   test("image recette : affichage sur carte, détail, formulaire et suppression", async ({
