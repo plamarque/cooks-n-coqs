@@ -110,19 +110,17 @@ body {
   color: #3e4b46;
 }
 
-.recipe-card-meta-row {
+.recipe-card-content {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .recipe-card-ingredient-icons {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0.25rem;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 
 .ingredient-icon {
@@ -136,13 +134,15 @@ body {
 }
 
 .ingredient-icon--card {
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  border: none;
 }
 
 .ingredient-icon--detail {
-  width: 2.2rem;
-  height: 2.2rem;
+  width: 2.6rem;
+  height: 2.6rem;
+  border: none;
 }
 
 .ingredient-image-fallback {

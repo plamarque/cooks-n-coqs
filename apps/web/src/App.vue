@@ -1857,7 +1857,7 @@ onUnmounted(() => {
             {{ formatRecipeTime(recipe) }}
           </template>
           <template #content>
-            <div class="recipe-card-meta-row">
+            <div class="recipe-card-content">
               <p class="recipe-card-meta">
                 {{ recipe.ingredients.length }} ingrédients · {{ recipe.steps.length }} étapes
               </p>
@@ -2368,7 +2368,7 @@ onUnmounted(() => {
           />
         </div>
         <small
-          v-else-if="form.source && !form.source.url && !(form.source.type === 'SCREENSHOT' && formRecipeSourceImageIds.length)"
+          v-if="form.source && !form.source.url && !(form.source.type === 'SCREENSHOT' && formRecipeSourceImageIds.length)"
           class="muted"
         >
           Source import : {{ sourceTypeLabel(form.source) }}
