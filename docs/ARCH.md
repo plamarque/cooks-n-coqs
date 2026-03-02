@@ -127,7 +127,13 @@ Ordre de priorité côté BFF :
 
 L'image (poster) est extraite via le scraper Instagram (URLs Instagram, thumbnail pour les reels), via oEmbed (URLs YouTube), sinon via le champ `image` du JSON-LD ou la balise `og:image`. Le front télécharge l'image à la sauvegarde et la stocke dans IndexedDB. Pour les sources YouTube et Instagram (post/reel), l'interface affiche l'embed en priorité dans la fiche recette et le formulaire ; le poster est réservé aux cartes.
 
-**Génération automatique** : lorsqu'aucune image n'est extraite, le BFF peut générer une image via une API IA (ex. DALL-E) à partir du titre, des ingrédients et des étapes. Style : photo de plat type Instagram, flat lay, élégant. Le front affiche un placeholder pendant la génération ; une fois l'URL reçue, l'image est téléchargée et stockée localement.
+**Génération automatique** : lorsqu'aucune image n'est extraite, le BFF peut générer une image via une API IA (ex. DALL-E) à partir du titre, des ingrédients et des étapes. Style : photo de plat type Instagram, flat lay, élégant. Le front affiche un placeholder pendant la génération ; une fois l'URL reçue, l'image est téléchargée et stockée localement. Le BFF met en cache serveur les images générées (clé déterministe dérivée du prompt normalisé), puis expose l'asset via `GET /api/generated-images/:key` avec `Cache-Control: public, max-age=31536000, immutable` afin de permettre le cache CDN en frontal.
+
+Le cache serveur d'images générées s'appuie sur deux couches :
+- cache filesystem local (`GENERATED_IMAGE_CACHE_DIR`) pour la rapidité et le fallback,
+- stockage objet S3-compatible optionnel (R2/S3) pour la persistance cross-redeploy.
+
+Le BFF expose en complément des endpoints d'administration protégés par token (`GENERATED_IMAGE_ADMIN_TOKEN`) pour purger une image par clé, ou purger une image d'ingrédient par label normalisé, afin de forcer une régénération au prochain accès.
 
 **Images des ingrédients** : le service `ingredient-image-service` résout l'image d'un ingrédient par son label normalisé. Si l'image n'existe pas en cache local, le BFF génère une image IA (prompt : ingrédient isolé unique, gros plan, fond blanc sans ombre, photoréaliste, lisible en petit format). L'image est stockée dans `ingredientImages` et mutualisée entre recettes. Format cible : petit (ex. 64×64 ou 96×96 px).
 

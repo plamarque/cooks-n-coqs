@@ -10,6 +10,15 @@ import {
   reorderStepsByRecipeLogic
 } from "./parsing-client.js";
 import {
+  buildCookingStepImageCacheKey,
+  buildIngredientImageCacheKey,
+  buildRecipeImageCacheKey,
+  deleteCachedImageByKey,
+  describeGeneratedImageStorage,
+  getCachedImageByKey,
+  resolveCachedImageUrl
+} from "./image-cache.js";
+import {
   generateCookingStepImage,
   generateIngredientImage,
   generateRecipeImage
@@ -30,6 +39,7 @@ const app = express();
 const upload = multer();
 const port = Number(process.env.PORT ?? 8787);
 const corsOrigin = process.env.CORS_ORIGIN ?? "*";
+const generatedImageAdminToken = process.env.GENERATED_IMAGE_ADMIN_TOKEN?.trim();
 
 app.use(
   cors({
@@ -37,6 +47,16 @@ app.use(
   })
 );
 app.use(express.json({ limit: "4mb" }));
+
+function isGeneratedImageAdminAuthorized(req: express.Request): boolean {
+  if (!generatedImageAdminToken) {
+    return false;
+  }
+
+  const bearer = req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  const headerToken = req.header("x-admin-token")?.trim();
+  return bearer === generatedImageAdminToken || headerToken === generatedImageAdminToken;
+}
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -169,7 +189,7 @@ app.post("/api/generate-recipe-image", async (req, res) => {
     return;
   }
 
-  const imageUrl = await generateRecipeImage({
+  const input = {
     title: title.trim(),
     ingredients: Array.isArray(ingredients)
       ? ingredients.map((i) => ({ label: String(i?.label ?? "").trim() }))
@@ -177,7 +197,10 @@ app.post("/api/generate-recipe-image", async (req, res) => {
     steps: Array.isArray(steps)
       ? steps.map((s) => ({ text: String(s?.text ?? "").trim() }))
       : []
-  });
+  };
+
+  const cacheKey = buildRecipeImageCacheKey(input);
+  const imageUrl = await resolveCachedImageUrl(cacheKey, req, () => generateRecipeImage(input));
 
   if (!imageUrl) {
     res.status(503).json({ error: "Image generation unavailable" });
@@ -194,7 +217,11 @@ app.post("/api/generate-ingredient-image", async (req, res) => {
     return;
   }
 
-  const imageUrl = await generateIngredientImage({ label: label.trim() });
+  const input = { label: label.trim() };
+  const cacheKey = buildIngredientImageCacheKey(input);
+  const imageUrl = await resolveCachedImageUrl(cacheKey, req, () =>
+    generateIngredientImage(input)
+  );
   if (!imageUrl) {
     res.status(503).json({ error: "Ingredient image generation unavailable" });
     return;
@@ -210,7 +237,11 @@ app.post("/api/generate-cooking-step-image", async (req, res) => {
     return;
   }
 
-  const imageUrl = await generateCookingStepImage({ stepText: stepText.trim() });
+  const input = { stepText: stepText.trim() };
+  const cacheKey = buildCookingStepImageCacheKey(input);
+  const imageUrl = await resolveCachedImageUrl(cacheKey, req, () =>
+    generateCookingStepImage(input)
+  );
   if (!imageUrl) {
     res.status(503).json({ error: "Cooking step image generation unavailable" });
     return;
@@ -219,11 +250,66 @@ app.post("/api/generate-cooking-step-image", async (req, res) => {
   res.json({ imageUrl });
 });
 
+app.get("/api/generated-images/:key", async (req, res) => {
+  const key = String(req.params.key ?? "").trim();
+  if (!key) {
+    res.status(400).json({ error: "key is required" });
+    return;
+  }
+
+  const cachedImage = await getCachedImageByKey(key);
+  if (!cachedImage) {
+    res.status(404).json({ error: "Cached image not found" });
+    return;
+  }
+
+  res.setHeader("Content-Type", cachedImage.mimeType);
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.send(cachedImage.buffer);
+});
+
+app.post("/api/admin/generated-images/purge-key", async (req, res) => {
+  if (!isGeneratedImageAdminAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const key = String(req.body?.key ?? "").trim();
+  if (!key) {
+    res.status(400).json({ error: "key is required" });
+    return;
+  }
+
+  const deleted = await deleteCachedImageByKey(key);
+  res.json({ key, deleted });
+});
+
+app.post("/api/admin/generated-images/purge-ingredient", async (req, res) => {
+  if (!isGeneratedImageAdminAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const label = String(req.body?.label ?? "").trim();
+  if (!label) {
+    res.status(400).json({ error: "label is required" });
+    return;
+  }
+
+  const key = buildIngredientImageCacheKey({ label });
+  const deleted = await deleteCachedImageByKey(key);
+  res.json({ key, label, deleted });
+});
+
 app.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`BFF listening on http://localhost:${port} (CORS: ${corsOrigin})`);
   // eslint-disable-next-line no-console
   console.log(
     `  .env: ${envResult.error ? `NOT FOUND (${envPath})` : envPath} | OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? "set" : "NOT SET"}`
+  );
+  // eslint-disable-next-line no-console
+  console.log(
+    `  generated image storage: ${describeGeneratedImageStorage()} | admin purge: ${generatedImageAdminToken ? "enabled" : "disabled"}`
   );
 });
