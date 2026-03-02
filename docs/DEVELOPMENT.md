@@ -44,6 +44,9 @@ npm run test:e2e:ui
 
 # Génération screenshots stores
 npm run screenshots
+
+# Test R2 (stockage images) — vérifie config et permissions
+npm run test:r2 -w @cookies-et-coquilettes/bff
 ```
 
 Le front est servi par défaut sur `http://localhost:5173` et le BFF sur `http://localhost:8787`.

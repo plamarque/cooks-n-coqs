@@ -163,7 +163,7 @@ flowchart LR
     Gen --> Cache
 ```
 
-Le BFF charge `.env` à la racine du projet (dotenv) pour `OPENAI_API_KEY`. L’extraction des ingrédients JSON-LD reconnaît notamment : `litre`/`litres`, `c à s`/`c. à s` (cuillère à soupe), et les unités courantes (g, ml, pincée, tranche, etc.).
+Le BFF charge `.env` à la racine du projet via `load-env.ts` (avant tout autre module) pour s'assurer que les variables d'environnement (ex. `OPENAI_API_KEY`, config R2) sont disponibles dès le démarrage. L’extraction des ingrédients JSON-LD reconnaît notamment : `litre`/`litres`, `c à s`/`c. à s` (cuillère à soupe), et les unités courantes (g, ml, pincée, tranche, etc.).
 
 ## Gestion d’erreurs v1
 

@@ -1,6 +1,4 @@
-import * as path from "path";
-import { fileURLToPath } from "url";
-import { config } from "dotenv";
+import { envPath, envResult } from "./load-env.js";
 import cors from "cors";
 import express from "express";
 import multer from "multer";
@@ -25,16 +23,6 @@ import {
   generateRecipeImage
 } from "./image-generator.js";
 import { detectStepTimerDurationSeconds } from "./step-timer-detector.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const envPathFromDir = path.resolve(__dirname, "..", "..", "..", ".env");
-const envPathFromCwd = path.resolve(process.cwd(), ".env");
-let envResult = config({ path: envPathFromDir });
-let envPath = envPathFromDir;
-if (envResult.error) {
-  envPath = envPathFromCwd;
-  envResult = config({ path: envPathFromCwd });
-}
 
 const app = express();
 const upload = multer();

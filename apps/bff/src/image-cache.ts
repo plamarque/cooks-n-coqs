@@ -405,7 +405,17 @@ async function storeCachedImageToObjectStorage(
   });
 
   if (!response || !response.ok) {
-    throw new Error(`Object storage PUT failed (${response?.status ?? "network"})`);
+    const status = response?.status ?? "network";
+    let detail = "";
+    try {
+      if (response?.ok === false && response.body) {
+        const body = await response.text();
+        if (body) detail = ` | ${body.slice(0, 200)}`;
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`Object storage PUT failed (${status})${detail}`);
   }
 }
 
@@ -496,6 +506,28 @@ export async function deleteCachedImageByKey(key: string): Promise<boolean> {
   ]);
 
   return localDeleted || objectDeleted;
+}
+
+/** Test minimal : envoie un petit fichier dans R2 pour valider config et permissions. */
+export async function testR2Upload(): Promise<{ ok: boolean; error?: string }> {
+  if (!objectStorageConfig) {
+    return { ok: false, error: "Object storage not configured (missing env vars)" };
+  }
+
+  const testKey = "test-r2-upload-12345678901234567890123456789012";
+  const minimalPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64"
+  );
+
+  try {
+    await storeCachedImageToObjectStorage(testKey, minimalPng, "image/png");
+    await deleteCachedImageByKeyFromObjectStorage(testKey);
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
 }
 
 export async function resolveCachedImageUrl(

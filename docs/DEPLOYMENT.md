@@ -53,6 +53,7 @@ Déployer en mode push :
      - `GENERATED_IMAGE_S3_SECRET_ACCESS_KEY`
      - `GENERATED_IMAGE_S3_SESSION_TOKEN` (optionnel)
      - `GENERATED_IMAGE_S3_PREFIX` (optionnel, défaut `generated-images`)
+     - **R2** : le token API doit avoir la permission « Object Read & Write » sur le bucket cible. Un token avec lecture seule génère des PUT en 403 (opérations comptabilisées mais aucun objet stocké).
 
 > Note : sur un service Render stateless, le cache filesystem est best effort (non partagé entre instances et potentiellement perdu lors des redeploys). Pour un cache durable + CDN, brancher un stockage objet (ex. Cloudflare R2) derrière le même endpoint.
 
