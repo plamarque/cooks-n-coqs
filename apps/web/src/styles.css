@@ -382,6 +382,45 @@ body {
   white-space: nowrap;
 }
 
+.recipe-time-encart {
+  background: rgba(31, 79, 70, 0.06);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.recipe-time-total {
+  font-size: 1rem;
+  color: #1d1f1c;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid rgba(31, 79, 70, 0.15);
+  margin-bottom: 0.6rem;
+}
+
+.recipe-time-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem 1rem;
+  font-size: 0.9rem;
+  color: #3e4b46;
+}
+
+.recipe-time-col {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 400px) {
+  .recipe-time-encart {
+    padding: 0.9rem 1rem;
+  }
+
+  .recipe-time-breakdown {
+    grid-template-columns: 1fr;
+  }
+}
+
 .recipe-detail-cuisiner-primary {
   margin-bottom: 1rem;
   min-height: 2.75rem;

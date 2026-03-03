@@ -26,6 +26,7 @@ Attributs principaux :
 - `steps: InstructionStep[]`
 - `prepTimeMin` (optionnel)
 - `cookTimeMin` (optionnel)
+- `restTimeMin` (optionnel)
 - `imageId` (optionnel)
 - `source: ImportSource` (optionnel)
 - `createdAt`

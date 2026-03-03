@@ -62,6 +62,7 @@ interface RecipeFormState {
   servingsBase: string;
   prepTimeMin: string;
   cookTimeMin: string;
+  restTimeMin: string;
   ingredients: IngredientInput[];
   steps: StepInput[];
   source?: ImportSource;
@@ -183,6 +184,7 @@ function emptyForm(): RecipeFormState {
     servingsBase: "",
     prepTimeMin: "",
     cookTimeMin: "",
+    restTimeMin: "",
     ingredients: [emptyIngredient()],
     steps: [emptyStep()]
   };
@@ -342,6 +344,7 @@ function toForm(recipe: Recipe): RecipeFormState {
     servingsBase: recipe.servingsBase ? String(recipe.servingsBase) : "",
     prepTimeMin: recipe.prepTimeMin ? String(recipe.prepTimeMin) : "",
     cookTimeMin: recipe.cookTimeMin ? String(recipe.cookTimeMin) : "",
+    restTimeMin: recipe.restTimeMin ? String(recipe.restTimeMin) : "",
     ingredients:
       recipe.ingredients.length > 0
         ? [...recipe.ingredients]
@@ -375,6 +378,7 @@ function draftToForm(draft: ParsedRecipeDraft): RecipeFormState {
     servingsBase: draft.servingsBase ? String(draft.servingsBase) : "",
     prepTimeMin: draft.prepTimeMin ? String(draft.prepTimeMin) : "",
     cookTimeMin: draft.cookTimeMin ? String(draft.cookTimeMin) : "",
+    restTimeMin: draft.restTimeMin ? String(draft.restTimeMin) : "",
     imageUrl: draft.imageUrl,
     imageId: undefined,
     ingredients:
@@ -492,6 +496,7 @@ function formToRecipe(existing?: Recipe): Recipe {
     steps,
     prepTimeMin: parseNumber(form.value.prepTimeMin),
     cookTimeMin: parseNumber(form.value.cookTimeMin),
+    restTimeMin: parseNumber(form.value.restTimeMin),
     source,
     sourceImageIds: existing?.sourceImageIds,
     imageId:
@@ -1519,7 +1524,8 @@ async function deleteRecipe(recipe: Recipe): Promise<void> {
 }
 
 function formatRecipeTime(recipe: Recipe): string {
-  const total = (recipe.prepTimeMin ?? 0) + (recipe.cookTimeMin ?? 0);
+  const total =
+    (recipe.prepTimeMin ?? 0) + (recipe.cookTimeMin ?? 0) + (recipe.restTimeMin ?? 0);
   if (total <= 0) return "";
   if (total < 60) return `${total}'`;
   const h = Math.floor(total / 60);
@@ -2345,6 +2351,33 @@ onUnmounted(() => {
       />
 
       <h3>Préparation</h3>
+      <div
+        v-if="
+          (selectedRecipe?.prepTimeMin ?? 0) +
+            (selectedRecipe?.cookTimeMin ?? 0) +
+            (selectedRecipe?.restTimeMin ?? 0) >
+          0
+        "
+        class="recipe-time-encart"
+      >
+        <div class="recipe-time-total">
+          Temps total :
+          {{
+            formatRecipeTime(selectedRecipe!)
+          }}
+        </div>
+        <div class="recipe-time-breakdown">
+          <span v-if="selectedRecipe?.prepTimeMin" class="recipe-time-col">
+            Préparation : {{ selectedRecipe.prepTimeMin }} min
+          </span>
+          <span v-if="selectedRecipe?.restTimeMin" class="recipe-time-col">
+            Repos : {{ selectedRecipe.restTimeMin }} min
+          </span>
+          <span v-if="selectedRecipe?.cookTimeMin" class="recipe-time-col">
+            Cuisson : {{ selectedRecipe.cookTimeMin }} min
+          </span>
+        </div>
+      </div>
       <Button
         :icon="cookingState === 'OFF' ? 'pi pi-play' : 'pi pi-sun'"
         :label="cookingState === 'OFF' ? 'Lancer le mode cuisine' : 'Quitter le mode cuisine'"
@@ -2577,6 +2610,13 @@ onUnmounted(() => {
             <label for="prepTime">Préparation</label>
             <span class="time-input-wrap">
               <input id="prepTime" v-model="form.prepTimeMin" type="number" min="1" step="1" class="time-input" />
+              min
+            </span>
+          </div>
+          <div class="stack">
+            <label for="restTime">Repos</label>
+            <span class="time-input-wrap">
+              <input id="restTime" v-model="form.restTimeMin" type="number" min="1" step="1" class="time-input" />
               min
             </span>
           </div>

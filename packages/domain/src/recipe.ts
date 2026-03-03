@@ -36,6 +36,7 @@ export interface Recipe {
   steps: InstructionStep[];
   prepTimeMin?: number;
   cookTimeMin?: number;
+  restTimeMin?: number;
   imageId?: string;
   source?: ImportSource;
   /** IDs des images sources (captures d'écran importées), consultables en vignettes */
@@ -91,6 +92,7 @@ export interface ParsedRecipeDraft {
   steps: InstructionStep[];
   prepTimeMin?: number;
   cookTimeMin?: number;
+  restTimeMin?: number;
   imageUrl?: string;
   source?: ImportSource;
 }

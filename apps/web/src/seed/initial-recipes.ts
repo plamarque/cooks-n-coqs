@@ -51,6 +51,7 @@ export function getInitialRecipes(): Recipe[] {
     servingsCurrent: 6,
     prepTimeMin: 15,
     cookTimeMin: 14,
+    restTimeMin: 15,
     ingredients: [
       { id: seedId("cook", "ing-1"), label: "Œuf", quantity: 1, unit: "unité", isScalable: true },
       { id: seedId("cook", "ing-2"), label: "Farine", quantity: 250, unit: "g", isScalable: true },

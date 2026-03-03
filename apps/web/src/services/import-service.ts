@@ -139,6 +139,8 @@ function mergeDrafts(drafts: ParsedRecipeDraft[]): ParsedRecipeDraft {
     drafts.find((d) => typeof d.prepTimeMin === "number")?.prepTimeMin ?? first.prepTimeMin;
   const cookTimeMin =
     drafts.find((d) => typeof d.cookTimeMin === "number")?.cookTimeMin ?? first.cookTimeMin;
+  const restTimeMin =
+    drafts.find((d) => typeof d.restTimeMin === "number")?.restTimeMin ?? first.restTimeMin;
   const imageUrl = drafts.find((d) => d.imageUrl)?.imageUrl ?? first.imageUrl;
 
   const seenLabels = new Set<string>();
@@ -190,6 +192,7 @@ function mergeDrafts(drafts: ParsedRecipeDraft[]): ParsedRecipeDraft {
     servingsBase,
     prepTimeMin,
     cookTimeMin,
+    restTimeMin,
     ingredients,
     steps,
     imageUrl,

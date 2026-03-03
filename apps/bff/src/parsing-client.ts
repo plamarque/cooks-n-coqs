@@ -486,6 +486,7 @@ interface LlmRecipePayload {
   servingsBase?: number;
   prepTimeMin?: number;
   cookTimeMin?: number;
+  restTimeMin?: number;
   ingredients?: Array<{
     label?: string;
     quantity?: number;
@@ -553,6 +554,7 @@ function toDraftFromLlmPayload(
     steps,
     prepTimeMin: typeof parsed.prepTimeMin === "number" ? parsed.prepTimeMin : undefined,
     cookTimeMin: typeof parsed.cookTimeMin === "number" ? parsed.cookTimeMin : undefined,
+    restTimeMin: typeof parsed.restTimeMin === "number" ? parsed.restTimeMin : undefined,
     imageUrl: imageUrl || undefined,
     source: {
       type: sourceType,
@@ -598,6 +600,7 @@ Extrais les champs suivants au format JSON (réponds uniquement avec du JSON val
   "servingsBase": nombre de portions (nombre ou null),
   "prepTimeMin": temps préparation en minutes (nombre ou null),
   "cookTimeMin": temps cuisson en minutes (nombre ou null),
+  "restTimeMin": temps de repos en minutes si mentionné (nombre ou null),
   "ingredients": [{"label": "nom", "quantity": nombre ou null, "unit": "unité", "isScalable": true/false}],
   "steps": [{"order": 1, "text": "description étape"}]
 }
@@ -649,6 +652,7 @@ Réponds uniquement avec du JSON valide, sans markdown :
   "servingsBase": nombre de portions (nombre ou null),
   "prepTimeMin": temps préparation en minutes (nombre ou null),
   "cookTimeMin": temps cuisson en minutes (nombre ou null),
+  "restTimeMin": temps de repos en minutes si mentionné (nombre ou null),
   "ingredients": [{"label": "nom", "quantity": nombre ou null, "unit": "unité", "isScalable": true/false}],
   "steps": [{"order": 1, "text": "description étape"}]
 }
