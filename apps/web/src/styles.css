@@ -387,7 +387,9 @@ body {
   border-radius: 0.75rem;
   padding: 1rem 1.25rem;
   margin-bottom: 1rem;
+  margin-inline: auto;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  max-width: 32rem;
 }
 
 .recipe-time-total {
@@ -407,11 +409,10 @@ body {
 }
 
 .recipe-time-col {
-  min-width: 0;
-  overflow-wrap: break-word;
+  white-space: nowrap;
 }
 
-@media (max-width: 400px) {
+@media (max-width: 520px) {
   .recipe-time-encart {
     padding: 0.9rem 1rem;
   }
