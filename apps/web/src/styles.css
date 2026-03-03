@@ -1543,8 +1543,8 @@ body {
 /* Zone Préparation : étapes avec images ingrédients en bout de ligne */
 .prep-steps-list {
   margin: 0;
-  padding: 0 0 0 1.4rem;
-  list-style: decimal;
+  padding: 0;
+  list-style: none;
 }
 
 .prep-step {
