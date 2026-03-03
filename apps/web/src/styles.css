@@ -1508,6 +1508,37 @@ body {
   line-height: 1.25;
 }
 
+@media (max-width: 480px) {
+  .ingredient-grid {
+    grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+    gap: 0.5rem;
+  }
+
+  .ingredient-card {
+    border-radius: 0.5rem;
+  }
+
+  .ingredient-card-image-wrap {
+    border-radius: 0.4rem 0.4rem 0 0;
+  }
+
+  .ingredient-card-image-wrap .ingredient-card-img-fallback {
+    min-height: 2.5rem;
+    font-size: 1.1rem;
+  }
+
+  .ingredient-card-name {
+    font-size: 0.78rem;
+    padding: 0.25rem 0.35rem 0.08rem;
+    line-height: 1.25;
+  }
+
+  .ingredient-card-qty {
+    font-size: 0.72rem;
+    padding: 0 0.35rem 0.3rem;
+  }
+}
+
 /* Zone Préparation : étapes avec images ingrédients en bout de ligne */
 .prep-steps-list {
   margin: 0;
