@@ -122,7 +122,6 @@ const cookingStepIndex = ref(0);
 const showCookingIngredients = ref(false);
 const cookingSwipeStartX = ref<number | null>(null);
 const currentCookingStepImageUrl = ref<string | null>(null);
-const cookingStepImageLoading = ref(false);
 let cookingStepImageLoadCounter = 0;
 const stepTimerTotalSeconds = ref<number | null>(null);
 const stepTimerRemainingSeconds = ref(0);
@@ -716,17 +715,13 @@ async function loadCurrentCookingStepImage(): Promise<void> {
   const recipe = selectedRecipe.value;
   const step = currentCookingStep.value;
   if (cookingState.value === "OFF" || !recipe || !step) {
-    cookingStepImageLoading.value = false;
     return;
   }
 
   const stepText = step.text.trim();
   if (!stepText) {
-    cookingStepImageLoading.value = false;
     return;
   }
-
-  cookingStepImageLoading.value = true;
 
   const imageId = await resolveCookingStepImageId({
     recipeId: recipe.id,
@@ -739,7 +734,6 @@ async function loadCurrentCookingStepImage(): Promise<void> {
   }
 
   if (!imageId) {
-    cookingStepImageLoading.value = false;
     return;
   }
 
@@ -752,7 +746,6 @@ async function loadCurrentCookingStepImage(): Promise<void> {
   }
 
   currentCookingStepImageUrl.value = blobUrl ?? null;
-  cookingStepImageLoading.value = false;
 }
 
 const currentStepMentionedIngredients = computed(() => {
@@ -1981,7 +1974,7 @@ onUnmounted(() => {
             <img
               v-if="currentCookingStepImageUrl"
               :src="currentCookingStepImageUrl"
-              alt="Illustration IA de l'étape en cours"
+              alt="Illustration de l'étape"
               class="cooking-fullscreen-media-image"
             />
             <RecipeImage
@@ -1999,12 +1992,6 @@ onUnmounted(() => {
                 @click="openEditForm(selectedRecipe)"
               />
             </div>
-            <p
-              v-if="cookingStepImageLoading && !currentCookingStepImageUrl"
-              class="cooking-step-image-loading"
-            >
-              Illustration IA de l'étape en cours…
-            </p>
 
             <section
               v-if="hasCurrentStepTimer"

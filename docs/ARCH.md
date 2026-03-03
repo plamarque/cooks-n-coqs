@@ -137,7 +137,7 @@ Le BFF expose en complément des endpoints d'administration protégés par token
 
 **Images des ingrédients** : le service `ingredient-image-service` résout l'image d'un ingrédient par son label normalisé. Si l'image n'existe pas en cache local, le BFF génère une image IA (prompt : ingrédient isolé unique, gros plan, fond blanc sans ombre, photoréaliste, lisible en petit format). L'image est stockée dans `ingredientImages` et mutualisée entre recettes. Format cible : petit (ex. 64×64 ou 96×96 px).
 
-**Images des étapes (mode cuisine)** : à l'affichage d'une étape, le front tente de résoudre une illustration IA à partir du texte de l'étape (`/api/generate-cooking-step-image`). Le rendu affiche immédiatement l'image de recette en fallback, puis bascule vers l'illustration d'étape lorsqu'elle est disponible. Le résultat est mis en cache local dans `cookingStepImages`.
+**Images des étapes (mode cuisine)** : l'image de recette est affichée à chaque étape. Si une image d'étape existe en cache local (`cookingStepImages`, ex. anciennes générations ou futures images manuelles), elle est utilisée en priorité. La génération automatique IA n'est plus activée ; l'endpoint BFF `POST /api/generate-cooking-step-image` reste disponible pour usage manuel ou admin.
 
 Flux de résolution :
 

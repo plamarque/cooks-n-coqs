@@ -1,8 +1,5 @@
 import { db } from "../storage/db";
 
-const BFF_URL = import.meta.env.VITE_BFF_URL || "http://localhost:8787";
-const inFlightById = new Map<string, Promise<string | undefined>>();
-
 export interface ResolveCookingStepImageInput {
   recipeId: string;
   stepId: string;
@@ -28,54 +25,12 @@ export function buildCookingStepImageId(input: ResolveCookingStepImageInput): st
   return `${input.recipeId}:${input.stepId}:${contentHash}`;
 }
 
-async function fetchGeneratedCookingStepImageUrl(
-  stepText: string
-): Promise<string | undefined> {
-  try {
-    const response = await fetch(`${BFF_URL}/api/generate-cooking-step-image`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stepText }),
-      signal: AbortSignal.timeout(20000)
-    });
-    if (!response.ok) {
-      return undefined;
-    }
-    const data = (await response.json()) as { imageUrl?: string };
-    return data.imageUrl?.trim() || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function fetchImageBlob(url: string): Promise<Blob | undefined> {
-  try {
-    const isBffGeneratedImage = url.includes("/api/generated-images/");
-    const response = isBffGeneratedImage
-      ? await fetch(url, {
-          mode: "cors",
-          signal: AbortSignal.timeout(15000)
-        })
-      : await fetch(`${BFF_URL}/api/proxy-image`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
-          signal: AbortSignal.timeout(15000)
-        });
-    if (!response.ok) {
-      return undefined;
-    }
-    const blob = await response.blob();
-    if (!blob.type.startsWith("image/")) {
-      return undefined;
-    }
-    return blob;
-  } catch {
-    return undefined;
-  }
-}
-
-async function storeCookingStepImage(id: string, recipeId: string, stepId: string, blob: Blob): Promise<void> {
+export async function storeCookingStepImage(
+  id: string,
+  recipeId: string,
+  stepId: string,
+  blob: Blob
+): Promise<void> {
   const now = new Date().toISOString();
   await db.cookingStepImages.put({
     id,
@@ -88,26 +43,7 @@ async function storeCookingStepImage(id: string, recipeId: string, stepId: strin
   });
 }
 
-async function generateAndStoreCookingStepImage(
-  id: string,
-  recipeId: string,
-  stepId: string,
-  stepText: string
-): Promise<string | undefined> {
-  const imageUrl = await fetchGeneratedCookingStepImageUrl(stepText);
-  if (!imageUrl) {
-    return undefined;
-  }
-
-  const blob = await fetchImageBlob(imageUrl);
-  if (!blob) {
-    return undefined;
-  }
-
-  await storeCookingStepImage(id, recipeId, stepId, blob);
-  return id;
-}
-
+/** Résout l'image d'une étape — lecture seule, ne génère plus d'images IA. */
 export async function resolveCookingStepImageId(
   input: ResolveCookingStepImageInput
 ): Promise<string | undefined> {
@@ -118,25 +54,7 @@ export async function resolveCookingStepImageId(
 
   const id = buildCookingStepImageId(input);
   const existing = await db.cookingStepImages.get(id);
-  if (existing) {
-    return id;
-  }
-
-  const inFlight = inFlightById.get(id);
-  if (inFlight) {
-    return inFlight;
-  }
-
-  const generation = generateAndStoreCookingStepImage(
-    id,
-    input.recipeId,
-    input.stepId,
-    stepText
-  ).finally(() => {
-    inFlightById.delete(id);
-  });
-  inFlightById.set(id, generation);
-  return generation;
+  return existing ? id : undefined;
 }
 
 export async function getCookingStepImageBlobUrl(
@@ -150,12 +68,5 @@ export async function getCookingStepImageBlobUrl(
 }
 
 export async function deleteCookingStepImagesForRecipe(recipeId: string): Promise<void> {
-  const recipeRows = await db.cookingStepImages
-    .where("recipeId")
-    .equals(recipeId)
-    .toArray();
-  for (const row of recipeRows) {
-    inFlightById.delete(row.id);
-  }
   await db.cookingStepImages.where("recipeId").equals(recipeId).delete();
 }
