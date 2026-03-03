@@ -323,6 +323,17 @@ function stepMentionsIngredient(stepTextNormalized: string, ingredientLabel: str
   });
 }
 
+function getMentionedIngredientsForStep(
+  step: { text: string },
+  ingredients: IngredientLine[]
+): IngredientLine[] {
+  const normalized = normalizeForIngredientMatching(step.text);
+  if (!normalized) return [];
+  return [...ingredients]
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .filter((ing) => stepMentionsIngredient(normalized, ing.label));
+}
+
 function toForm(recipe: Recipe): RecipeFormState {
   return {
     title: recipe.title,
@@ -768,6 +779,17 @@ const selectedRecipeIngredientsSorted = computed(() => {
   const recipe = selectedRecipe.value;
   if (!recipe?.ingredients.length) return [];
   return [...recipe.ingredients].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+});
+
+/** Map step.id -> ingrédients mentionnés dans cette étape (pour zone préparation) */
+const prepStepMentionedIngredients = computed(() => {
+  const steps = selectedRecipeSteps.value;
+  const ingredients = selectedRecipeIngredientsSorted.value;
+  const map = new Map<string, IngredientLine[]>();
+  for (const step of steps) {
+    map.set(step.id, getMentionedIngredientsForStep(step, ingredients));
+  }
+  return map;
 });
 
 const selectedRecipeInstagramEmbedUrl = computed(() =>
@@ -2260,8 +2282,8 @@ onUnmounted(() => {
             type="button"
             class="servings-stepper-btn"
             aria-label="Diminuer le nombre de portions"
-            :disabled="!parseNumber(servingsInput) || parseNumber(servingsInput) <= 1"
-            @click="decrementServings(selectedRecipe)"
+            :disabled="!(parseNumber(servingsInput) ?? 0) || (parseNumber(servingsInput) ?? 0) <= 1"
+            @click="selectedRecipe && decrementServings(selectedRecipe)"
           >
             −
           </button>
@@ -2273,13 +2295,13 @@ onUnmounted(() => {
             step="1"
             class="servings-stepper-input"
             aria-label="Nombre de portions"
-            @change="scaleToInput(selectedRecipe)"
+            @change="selectedRecipe && scaleToInput(selectedRecipe)"
           />
           <button
             type="button"
             class="servings-stepper-btn"
             aria-label="Augmenter le nombre de portions"
-            @click="incrementServings(selectedRecipe)"
+            @click="selectedRecipe && incrementServings(selectedRecipe)"
           >
             +
           </button>
@@ -2322,7 +2344,7 @@ onUnmounted(() => {
         @image-updated="ingredientImageRefreshKey++"
       />
 
-      <h3>Étapes</h3>
+      <h3>Préparation</h3>
       <Button
         :icon="cookingState === 'OFF' ? 'pi pi-play' : 'pi pi-sun'"
         :label="cookingState === 'OFF' ? 'Lancer le mode cuisine' : 'Quitter le mode cuisine'"
@@ -2332,8 +2354,43 @@ onUnmounted(() => {
         aria-label="Activer ou désactiver le mode cuisine"
         @click="toggleCookingMode"
       />
-      <ol>
-        <li v-for="step in selectedRecipeSteps" :key="step.id">{{ step.text }}</li>
+      <ol class="prep-steps-list">
+        <li
+          v-for="(step, stepIndex) in selectedRecipeSteps"
+          :key="step.id"
+          class="prep-step"
+        >
+          <div class="prep-step-row">
+            <div class="prep-step-content">
+              <strong class="prep-step-num">Étape {{ stepIndex + 1 }}</strong>
+              <span class="prep-step-text">{{ step.text }}</span>
+            </div>
+            <div
+              v-if="(prepStepMentionedIngredients.get(step.id) ?? []).length"
+              class="prep-step-ingredients"
+              aria-label="Ingrédients pour cette étape"
+            >
+              <button
+                v-for="ingredient in (prepStepMentionedIngredients.get(step.id) ?? [])"
+                :key="ingredient.id"
+                type="button"
+                class="prep-step-ingredient-img-btn"
+                :aria-label="`Voir ${ingredient.label}`"
+                :title="ingredient.label"
+                @click="openIngredientModal(ingredient)"
+              >
+                <IngredientImage
+                  :label="ingredient.label"
+                  :image-id="ingredient.imageId"
+                  :refresh-key="ingredientImageRefreshKey"
+                  img-class="ingredient-icon ingredient-icon--prep-step"
+                  fallback-class="ingredient-icon ingredient-icon--prep-step"
+                  :alt="`Ingrédient ${ingredient.label}`"
+                />
+              </button>
+            </div>
+          </div>
+        </li>
       </ol>
     </section>
 
@@ -2560,7 +2617,7 @@ onUnmounted(() => {
       </div>
       <Button text icon="pi pi-plus" label="Ajouter ingrédient" @click="addIngredient" />
 
-      <h3>Étapes</h3>
+      <h3>Préparation</h3>
       <div v-for="step in form.steps" :key="step.id" class="step-row">
         <textarea
           v-model="step.text"

@@ -1469,6 +1469,78 @@ body {
   line-height: 1.25;
 }
 
+/* Zone Préparation : étapes avec images ingrédients en bout de ligne */
+.prep-steps-list {
+  margin: 0;
+  padding: 0 0 0 1.4rem;
+  list-style: decimal;
+}
+
+.prep-step {
+  margin-bottom: 1.2rem;
+}
+
+.prep-step:last-child {
+  margin-bottom: 0;
+}
+
+.prep-step-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.prep-step-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.prep-step-num {
+  font-size: 0.95rem;
+}
+
+.prep-step-text {
+  white-space: pre-line;
+  line-height: 1.45;
+  color: #1d1f1c;
+}
+
+.prep-step-ingredients {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.prep-step-ingredient-img-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.prep-step-ingredient-img-btn:focus-visible {
+  outline: 2px solid var(--p-primary-color, #1f4f46);
+  outline-offset: 2px;
+}
+
+.ingredient-icon--prep-step {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(31, 79, 70, 0.2);
+  background: rgba(31, 79, 70, 0.08);
+}
+
 .ingredient-list {
   list-style: none;
   margin: 0;

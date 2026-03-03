@@ -107,7 +107,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await saveRecipeForm(page);
 
     await expect(page.getByRole("heading", { name: "Recette images ingrédient" })).toBeVisible();
-    await expect(page.locator(".ingredient-line .ingredient-icon--detail").first()).toBeVisible();
+    await expect(page.locator(".ingredient-card .ingredient-card-image-wrap").first()).toBeVisible();
 
     await page.getByRole("button", { name: "Retour" }).click();
     const recipeCard = page.locator(".recipe-card", {
@@ -145,7 +145,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await saveRecipeForm(page);
     await expect(page.getByRole("heading", { name: "Recette ordre ingrédients" })).toBeVisible();
 
-    const detailIngredients = page.locator(".ingredient-line strong");
+    const detailIngredients = page.locator(".ingredient-card-name");
     await expect(detailIngredients).toHaveCount(3);
     await expect(detailIngredients.nth(0)).toHaveText("Sucre");
     await expect(detailIngredients.nth(1)).toHaveText("Farine");
@@ -202,8 +202,8 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.locator(".recipe-detail-cuisiner-primary")).toBeVisible();
 
     // Ingrédients extraits depuis la description YouTube
-    const ingredientLines = page.locator(".ingredient-line");
-    await expect(ingredientLines.first()).toBeVisible({ timeout: 5000 });
+    const ingredientCards = page.locator(".ingredient-card");
+    await expect(ingredientCards.first()).toBeVisible({ timeout: 5000 });
 
     // Poster sur les cartes : retour à la liste, vérifier l'image sur la carte
     await page.getByRole("button", { name: "Retour" }).click();
@@ -259,8 +259,8 @@ test.describe("Cookies & Coquillettes v1", () => {
       // Pas de bouton overlay "Cuisiner" par-dessus l'embed
       await expect(page.locator(".recipe-detail-play-overlay")).toHaveCount(0);
       await expect(page.locator(".recipe-detail-cuisiner-primary")).toBeVisible();
-      const ingredientLines = page.locator(".ingredient-line");
-      await expect(ingredientLines.first()).toBeVisible({ timeout: 5000 });
+      const ingredientCards = page.locator(".ingredient-card");
+      await expect(ingredientCards.first()).toBeVisible({ timeout: 5000 });
       const recipeTitle = (await page.locator(".recipe-detail-title").textContent())?.trim() ?? "";
       await page.getByRole("button", { name: "Retour" }).click();
       const recipeCard = recipeTitle
