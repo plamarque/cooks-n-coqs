@@ -56,7 +56,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 ### Consultation et exécution
 
 1. Les vignettes (cartes) affichent la photo de la recette lorsqu'elle existe.
-2. L'écran détail affiche l'image en en-tête, puis ingrédients (grille avec images), quantités, portions et préparation (étapes ordonnées avec icônes ingrédients en bout de ligne).
+2. L'écran détail affiche l'image en en-tête, puis ingrédients (grille avec images), quantités, portions et préparation (étapes ordonnées avec icônes des ingrédients mentionnés en bout de ligne, au plus trois visibles par étape ; au-delà, une indication « +x » sur la troisième icône ouvre une popin listant tous les ingrédients de l'étape). En mode cuisine, la bande d'ingrédients de l'étape courante suit la même règle.
 3. L'utilisateur peut modifier les portions ; les quantités sont recalculées immédiatement.
 4. L'utilisateur peut réinitialiser les portions à la valeur de base.
 5. Le mode cuisine (anti-veille) est activable uniquement depuis l'écran détail d'une recette ouverte.

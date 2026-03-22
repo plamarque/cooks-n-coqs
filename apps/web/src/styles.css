@@ -1657,6 +1657,89 @@ body {
   background: rgba(31, 79, 70, 0.08);
 }
 
+.step-mentioned-ingredient-icons {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
+.step-mentioned-ingredient-icons--cooking {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-mentioned-ingredient-more-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.step-mentioned-ingredient-more-badge {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(29, 31, 28, 0.72);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  pointer-events: none;
+  line-height: 1;
+}
+
+.step-mentioned-ingredient-icons--cooking .step-mentioned-ingredient-more-badge {
+  font-size: 0.82rem;
+}
+
+.step-mentioned-ingredients-popover-panel {
+  min-width: 12rem;
+  max-width: min(22rem, 92vw);
+  max-height: min(50vh, 18rem);
+  overflow-y: auto;
+  padding: 0.35rem 0;
+}
+
+.step-mentioned-ingredients-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.35rem 0.65rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.step-mentioned-ingredients-popover-row:hover {
+  background: rgba(31, 79, 70, 0.08);
+}
+
+.step-mentioned-ingredients-popover-row:focus-visible {
+  outline: 2px solid var(--p-primary-color, #1f4f46);
+  outline-offset: -2px;
+  background: rgba(31, 79, 70, 0.06);
+}
+
+.step-mentioned-ingredients-popover-img {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(31, 79, 70, 0.2);
+  flex-shrink: 0;
+}
+
+.step-mentioned-ingredients-popover-label {
+  font-size: 0.9rem;
+  line-height: 1.3;
+  color: #1d1f1c;
+}
+
 .ingredient-list {
   list-style: none;
   margin: 0;

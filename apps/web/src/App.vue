@@ -19,6 +19,7 @@ import { isRecipeValidForSave } from "@cookies-et-coquilettes/domain";
 import RecipeImage from "./components/RecipeImage.vue";
 import IngredientImage from "./components/IngredientImage.vue";
 import IngredientDetailModal from "./components/IngredientDetailModal.vue";
+import StepMentionedIngredientIcons from "./components/StepMentionedIngredientIcons.vue";
 import { seedIfEmpty } from "./seed/seed-if-empty";
 import { dexieRecipeService, storeImageFromFile, storeImageFromUrl } from "./services/recipe-service";
 import { db } from "./storage/db";
@@ -2070,26 +2071,13 @@ onUnmounted(() => {
               </div>
               <div class="cooking-step-ingredients-row" aria-label="Ingrédients mentionnés dans l'étape">
                 <div class="cooking-step-ingredients-icons">
-                  <template v-if="currentStepMentionedIngredients.length > 0">
-                    <button
-                      v-for="ingredient in currentStepMentionedIngredients"
-                      :key="ingredient.id"
-                      type="button"
-                      class="cooking-step-ingredient-icon-btn"
-                      :aria-label="`Voir les détails de ${ingredient.label}`"
-                      :title="ingredient.label"
-                      @click="openIngredientModal(ingredient)"
-                    >
-                      <IngredientImage
-                        :label="ingredient.label"
-                        :image-id="ingredient.imageId"
-                        :refresh-key="ingredientImageRefreshKey"
-                        img-class="ingredient-icon ingredient-icon--cooking-step"
-                        fallback-class="ingredient-icon ingredient-icon--cooking-step"
-                        :alt="`Ingrédient ${ingredient.label}`"
-                      />
-                    </button>
-                  </template>
+                  <StepMentionedIngredientIcons
+                    v-if="currentStepMentionedIngredients.length > 0"
+                    :ingredients="currentStepMentionedIngredients"
+                    :refresh-key="ingredientImageRefreshKey"
+                    variant="cooking"
+                    @detail="openIngredientModal($event)"
+                  />
                 </div>
                 <button
                   type="button"
@@ -2429,24 +2417,12 @@ onUnmounted(() => {
               class="prep-step-ingredients"
               aria-label="Ingrédients pour cette étape"
             >
-              <button
-                v-for="ingredient in (prepStepMentionedIngredients.get(step.id) ?? [])"
-                :key="ingredient.id"
-                type="button"
-                class="prep-step-ingredient-img-btn"
-                :aria-label="`Voir ${ingredient.label}`"
-                :title="ingredient.label"
-                @click="openIngredientModal(ingredient)"
-              >
-                <IngredientImage
-                  :label="ingredient.label"
-                  :image-id="ingredient.imageId"
-                  :refresh-key="ingredientImageRefreshKey"
-                  img-class="ingredient-icon ingredient-icon--prep-step"
-                  fallback-class="ingredient-icon ingredient-icon--prep-step"
-                  :alt="`Ingrédient ${ingredient.label}`"
-                />
-              </button>
+              <StepMentionedIngredientIcons
+                :ingredients="prepStepMentionedIngredients.get(step.id) ?? []"
+                :refresh-key="ingredientImageRefreshKey"
+                variant="prep"
+                @detail="openIngredientModal($event)"
+              />
             </div>
           </div>
         </li>

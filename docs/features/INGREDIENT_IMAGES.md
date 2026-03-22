@@ -8,7 +8,7 @@
 ## Slide 2 — Où afficher
 
 - **Liste ingrédients** (écran détail) : grille de cartes avec image par ingrédient.
-- **Zone Préparation** (écran détail) : icônes des ingrédients mentionnés en bout de chaque ligne d'étape.
+- **Zone Préparation** (écran détail) et **mode cuisine** : icônes des ingrédients mentionnés par étape (au plus trois visibles ; au-delà, badge « +x » sur la troisième et popin listant tous les ingrédients).
 - **Cartes accueil** : icônes des ingrédients à côté du compteur « X ingrédient(s) ».
 
 ## Slide 3 — Source des images
