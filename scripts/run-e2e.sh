@@ -2,24 +2,38 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+ROOT="$(pwd)"
 
 PORT=4174
 BASE_PATH="/"
 PREVIEW_URL="http://localhost:${PORT}/"
+VITE_CLI="${ROOT}/node_modules/vite/bin/vite.js"
 
 echo "Building web app for E2E..."
 VITE_BASE_PATH="$BASE_PATH" npm run build:web
+
+if [ ! -f "$VITE_CLI" ]; then
+  echo "vite CLI introuvable : ${VITE_CLI}"
+  exit 1
+fi
 
 echo "Stopping any existing preview on port ${PORT}..."
 lsof -ti:"${PORT}" | xargs kill -9 2>/dev/null || true
 sleep 1
 
-echo "Starting preview server..."
-VITE_BASE_PATH="$BASE_PATH" npm run preview -w @cookies-et-coquilettes/web -- --host 127.0.0.1 --port "${PORT}" --strictPort &
+echo "Starting preview server (vite direct, sans npm)..."
+(
+  cd "${ROOT}/apps/web"
+  export VITE_BASE_PATH="$BASE_PATH"
+  exec node "${VITE_CLI}" preview --host 127.0.0.1 --port "${PORT}" --strictPort
+) &
 PREVIEW_PID=$!
 
 cleanup() {
-  kill "${PREVIEW_PID}" 2>/dev/null || true
+  if [ -n "${PREVIEW_PID:-}" ] && kill -0 "${PREVIEW_PID}" 2>/dev/null; then
+    kill -TERM "${PREVIEW_PID}" 2>/dev/null || true
+    wait "${PREVIEW_PID}" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT INT TERM
 

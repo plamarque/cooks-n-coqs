@@ -286,7 +286,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByRole("button", { name: "Saisir à la main" }).click();
     await page.getByLabel("Titre").fill("Recette avec image");
     await page.getByLabel(/step-text-/).first().fill("Étape 1");
-    await page.getByRole("button", { name: "Ajouter une image" }).click();
+    await page.getByRole("button", { name: "Ajouter une image à la recette" }).click();
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles(imagePath);
     await saveRecipeForm(page);

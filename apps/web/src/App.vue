@@ -123,6 +123,9 @@ const favoriteOnly = ref(true);
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const formImageInputRef = ref<HTMLInputElement | null>(null);
+const pasteFieldRef = ref<HTMLTextAreaElement | null>(null);
+const pasteFieldRowRef = ref<HTMLElement | null>(null);
+const addChoiceSecondaryButtonsRef = ref<HTMLElement | null>(null);
 const pasteFieldContent = ref("");
 const importBusy = ref(false);
 const clipboardBusy = ref(false);
@@ -957,6 +960,48 @@ function triggerFilePick(): void {
   fileInputRef.value?.click();
 }
 
+function pasteFieldViewportBottomPx(): number {
+  if (typeof window === "undefined") return 800;
+  const vv = window.visualViewport;
+  if (vv) return vv.offsetTop + vv.height;
+  return window.innerHeight;
+}
+
+/** Marge sous la rangée champ (grille + espacement avant les boutons secondaires). */
+const PASTE_FIELD_GAP_BELOW_ROW_PX = 28;
+
+function computePasteFieldMaxHeightPx(): number {
+  const row = pasteFieldRowRef.value;
+  const secondary = addChoiceSecondaryButtonsRef.value;
+  if (!row || !secondary) return 320;
+  const viewportBottom = pasteFieldViewportBottomPx();
+  const rowTop = row.getBoundingClientRect().top;
+  const reserve = secondary.offsetHeight + PASTE_FIELD_GAP_BELOW_ROW_PX;
+  return Math.max(52, viewportBottom - rowTop - reserve);
+}
+
+function adjustPasteFieldHeight(): void {
+  const el = pasteFieldRef.value;
+  if (!el || viewMode.value !== "ADD_CHOICE") return;
+  const maxH = computePasteFieldMaxHeightPx();
+  el.style.height = "auto";
+  const next = Math.min(el.scrollHeight, maxH);
+  el.style.height = `${next}px`;
+}
+
+function scheduleAdjustPasteFieldHeight(): void {
+  void nextTick(() => {
+    adjustPasteFieldHeight();
+    requestAnimationFrame(() => adjustPasteFieldHeight());
+  });
+}
+
+function onPasteFieldViewportChange(): void {
+  if (viewMode.value === "ADD_CHOICE") {
+    adjustPasteFieldHeight();
+  }
+}
+
 function isLikelyUrl(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
@@ -1060,7 +1105,9 @@ function onPasteInField(ev: ClipboardEvent): void {
     if (file) {
       runImportFromFile(file);
     }
+    return;
   }
+  scheduleAdjustPasteFieldHeight();
 }
 
 async function runImportFromFile(file: File): Promise<void> {
@@ -1163,6 +1210,24 @@ watch(activeFilters, async () => {
 watch(selectedRecipeId, () => {
   cookingStepIndex.value = 0;
   showCookingIngredients.value = false;
+});
+
+watch(viewMode, (mode) => {
+  if (mode === "ADD_CHOICE") {
+    scheduleAdjustPasteFieldHeight();
+  }
+});
+
+watch(importBusy, () => {
+  if (viewMode.value === "ADD_CHOICE") {
+    scheduleAdjustPasteFieldHeight();
+  }
+});
+
+watch(pasteFieldContent, () => {
+  if (viewMode.value === "ADD_CHOICE") {
+    scheduleAdjustPasteFieldHeight();
+  }
 });
 
 watch(
@@ -1980,12 +2045,22 @@ async function toggleCookingMode(): Promise<void> {
 }
 
 onMounted(async () => {
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", onPasteFieldViewportChange);
+    window.visualViewport?.addEventListener("resize", onPasteFieldViewportChange);
+    window.visualViewport?.addEventListener("scroll", onPasteFieldViewportChange);
+  }
   await seedIfEmpty();
   await refresh();
   await consumeShareTargetPayloadFromUrl();
 });
 
 onUnmounted(() => {
+  if (typeof window !== "undefined") {
+    window.removeEventListener("resize", onPasteFieldViewportChange);
+    window.visualViewport?.removeEventListener("resize", onPasteFieldViewportChange);
+    window.visualViewport?.removeEventListener("scroll", onPasteFieldViewportChange);
+  }
   stepTimerDetectionCounter += 1;
   clearStepTimerInterval();
   cookingStepImageLoadCounter += 1;
@@ -2192,24 +2267,33 @@ onUnmounted(() => {
         <p>{{ importBusyLabel(importSourceType) }}</p>
       </div>
 
-      <div class="stack">
+      <div class="stack add-choice-import-stack">
         <label for="paste-field">Coller</label>
-        <textarea
-          id="paste-field"
-          v-model="pasteFieldContent"
-          class="paste-field"
-          rows="4"
-          placeholder="Lien, texte ou image"
-          @paste="onPasteInField"
-        />
+        <div ref="pasteFieldRowRef" class="paste-field-row">
+          <textarea
+            id="paste-field"
+            ref="pasteFieldRef"
+            v-model="pasteFieldContent"
+            class="paste-field"
+            rows="1"
+            placeholder="Lien, texte ou image"
+            @paste="onPasteInField"
+          />
+          <Button
+            class="paste-field-import-btn"
+            label="Importer"
+            icon="pi pi-download"
+            :disabled="importBusy || clipboardBusy || !pasteFieldContent.trim()"
+            @click="runImportFromPasteField"
+          />
+        </div>
       </div>
 
-      <div class="add-choice-buttons">
+      <div ref="addChoiceSecondaryButtonsRef" class="add-choice-buttons add-choice-secondary-buttons">
         <Button
-          label="Importer"
-          icon="pi pi-download"
-          :disabled="importBusy || clipboardBusy || !pasteFieldContent.trim()"
-          @click="runImportFromPasteField"
+          label="Saisir à la main"
+          icon="pi pi-pencil"
+          @click="openCreateForm"
         />
         <Button
           label="Coller depuis le presse-papiers"
@@ -2217,11 +2301,6 @@ onUnmounted(() => {
           :loading="clipboardBusy"
           :disabled="importBusy"
           @click="importFromClipboardFallback"
-        />
-        <Button
-          label="Saisir à la main"
-          icon="pi pi-pencil"
-          @click="openCreateForm"
         />
         <Button
           label="Choisir des images"
@@ -2944,6 +3023,7 @@ onUnmounted(() => {
               size="small"
               icon="pi pi-image"
               label="Ajouter une image"
+              aria-label="Ajouter une image à la recette"
               @click="triggerFormImagePick"
             />
             <Button
@@ -3114,6 +3194,7 @@ onUnmounted(() => {
             size="small"
             icon="pi pi-upload"
             label="Ajouter une image"
+            aria-label="Ajouter une image à l'étape"
             @click="triggerStepImagePick(step.id)"
           />
           <Button
