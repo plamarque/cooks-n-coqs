@@ -22,6 +22,7 @@ Exécution des slices v1 en petites livraisons verticales. Refonte UX appliquée
 | L | Cible de partage PWA (`share_target`) + fallback presse-papiers multi-plateforme | Fait | — |
 | M | Images ingrédients : icônes détail + cartes, génération IA lazy, cache IndexedDB mutualisé | Fait | — |
 | N | Import URL — YouTube (description, poster, embed) | Fait | — |
+| O | Export / import cahier (JSON, tout ou liste filtrée, sans dédoublonnage) | Fait | — |
 
 ## Idées / backlog (hors livraison v1)
 

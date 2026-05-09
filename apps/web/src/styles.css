@@ -1405,6 +1405,17 @@ body {
   color: #3e4b46;
 }
 
+.export-book-help {
+  margin: 0 0 1rem;
+  line-height: 1.45;
+  color: #3e4b46;
+  font-size: 0.95rem;
+}
+
+.export-book-actions {
+  gap: 0.65rem;
+}
+
 .add-choice-buttons {
   display: grid;
   grid-template-columns: 1fr 1fr;

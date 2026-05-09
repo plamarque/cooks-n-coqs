@@ -27,6 +27,8 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 |-----------|----------------|-------------|
 | `app-shell` | Initialisation Vue/PWA/PrimeVue | `apps/web/src/main.ts` |
 | `recipe-service` | CRUD recettes, favoris, portions | `apps/web/src/services/recipe-service.ts` |
+| `recipe-book-transfer-core` | Schéma JSON v1, parse, remappage d’IDs à l’import (sans I/O) | `apps/web/src/services/recipe-book-transfer-core.ts` |
+| `recipe-book-transfer-service` | Export / import fichier cahier (Dexie + JSON base64) | `apps/web/src/services/recipe-book-transfer-service.ts` |
 | `import-service` | Import URL/share/screenshot/texte + appel BFF | `apps/web/src/services/import-service.ts` |
 | `share-target-service` | Lecture/nettoyage des paramètres `share_target` au démarrage | `apps/web/src/services/share-target-service.ts` |
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
@@ -54,6 +56,11 @@ Règles de contrat :
 - validation à la sauvegarde (`title` + au moins un ingrédient ou une étape),
 - recalcul portions depuis `quantityBase` (immuable),
 - tri par défaut `updatedAt DESC`.
+
+### Recipe book transfer (export / import fichier)
+
+- `exportRecipeBookJson(recipes)` — assemble l’archive JSON v1 (recettes + blobs référencés + `cookingStepImages` pour les `recipeId` exportés).
+- `importRecipeBookFromJson(text)` — valide le format, écrit les blobs puis `createRecipe` pour chaque recette ; **remappage systématique** des IDs pour éviter les collisions ; pas de dédoublonnage.
 
 ### Import service
 

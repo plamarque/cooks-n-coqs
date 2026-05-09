@@ -28,6 +28,11 @@ import {
   storeImageFromFile,
   storeImageFromUrl
 } from "./services/recipe-service";
+import {
+  exportRecipeBookJson,
+  importRecipeBookFromJson,
+  RecipeBookImportError
+} from "./services/recipe-book-transfer-service";
 import { db } from "./storage/db";
 import { browserCookingModeService } from "./services/cooking-mode-service";
 import {
@@ -122,6 +127,10 @@ const categoryFilter = ref<"ALL" | RecipeCategory>("ALL");
 const favoriteOnly = ref(true);
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const recipeBookFileInputRef = ref<HTMLInputElement | null>(null);
+const exportBookDialogVisible = ref(false);
+const exportBookBusy = ref(false);
+const recipeBookImportBusy = ref(false);
 const formImageInputRef = ref<HTMLInputElement | null>(null);
 const pasteFieldRef = ref<HTMLTextAreaElement | null>(null);
 const pasteFieldRowRef = ref<HTMLElement | null>(null);
@@ -1203,6 +1212,83 @@ async function refresh(): Promise<void> {
   }
 }
 
+function openExportBookDialog(): void {
+  clearMessages();
+  exportBookDialogVisible.value = true;
+}
+
+async function runExportRecipeBook(scope: "all" | "filtered"): Promise<void> {
+  clearMessages();
+  exportBookBusy.value = true;
+  try {
+    const list =
+      scope === "all" ? await dexieRecipeService.listRecipes() : recipes.value;
+    if (list.length === 0) {
+      feedbackType.value = "warning";
+      feedback.value =
+        scope === "all"
+          ? "Aucune recette à exporter."
+          : "Aucune recette dans la liste actuelle (modifiez filtres ou recherche).";
+      return;
+    }
+    const json = await exportRecipeBookJson(list);
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const fname = `cookies-recettes-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
+    const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fname;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    feedbackType.value = "success";
+    feedback.value = `Fichier exporté (${list.length} recette${list.length > 1 ? "s" : ""}).`;
+    exportBookDialogVisible.value = false;
+  } catch (error) {
+    setError(error);
+  } finally {
+    exportBookBusy.value = false;
+  }
+}
+
+function triggerRecipeBookFilePick(): void {
+  recipeBookFileInputRef.value?.click();
+}
+
+async function onRecipeBookFileChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) {
+    return;
+  }
+  clearMessages();
+  recipeBookImportBusy.value = true;
+  try {
+    const text = await file.text();
+    const { importedCount } = await importRecipeBookFromJson(text);
+    await refresh();
+    feedbackType.value = "success";
+    feedback.value =
+      importedCount === 0
+        ? "L’archive ne contenait aucune recette."
+        : `${importedCount} recette${importedCount > 1 ? "s" : ""} importée${importedCount > 1 ? "s" : ""}.`;
+    closeAddChoice();
+  } catch (error) {
+    if (error instanceof RecipeBookImportError) {
+      errorMessage.value = error.message;
+    } else {
+      setError(error);
+    }
+  } finally {
+    recipeBookImportBusy.value = false;
+  }
+}
+
 watch(activeFilters, async () => {
   await refresh();
 });
@@ -2075,6 +2161,37 @@ onUnmounted(() => {
   <main class="app-shell">
     <ConfirmDialog group="app-confirmation" />
     <Dialog
+      v-model:visible="exportBookDialogVisible"
+      modal
+      header="Exporter le cahier"
+      :style="{ width: 'min(96vw, 420px)' }"
+      :closable="true"
+    >
+      <p class="export-book-help">
+        Génère un fichier JSON à copier vers un autre appareil (messagerie, AirDrop…). Les images
+        locales sont incluses. À l’import, les recettes sont toujours ajoutées (pas de fusion avec
+        les fiches existantes).
+      </p>
+      <div class="stack export-book-actions">
+        <Button
+          label="Tout le cahier"
+          icon="pi pi-book"
+          :loading="exportBookBusy"
+          :disabled="exportBookBusy"
+          @click="runExportRecipeBook('all')"
+        />
+        <Button
+          label="Liste affichée (filtres)"
+          icon="pi pi-filter"
+          severity="secondary"
+          outlined
+          :loading="exportBookBusy"
+          :disabled="exportBookBusy"
+          @click="runExportRecipeBook('filtered')"
+        />
+      </div>
+    </Dialog>
+    <Dialog
       v-model:visible="recipeImageFullscreenVisible"
       modal
       :header="undefined"
@@ -2182,6 +2299,15 @@ onUnmounted(() => {
         </div>
         <div class="toolbar-actions">
           <Button
+            icon="pi pi-upload"
+            severity="secondary"
+            rounded
+            aria-label="Exporter le cahier"
+            title="Exporter le cahier"
+            :disabled="importBusy"
+            @click="openExportBookDialog"
+          />
+          <Button
             label="Nouvelle recette"
             icon="pi pi-plus"
             rounded
@@ -2259,12 +2385,12 @@ onUnmounted(() => {
       </div>
 
       <div
-        v-if="importBusy"
+        v-if="importBusy || recipeBookImportBusy"
         class="import-analyzing"
         aria-live="polite"
       >
         <ProgressSpinner style="width: 2.5rem; height: 2.5rem" strokeWidth="4" />
-        <p>{{ importBusyLabel(importSourceType) }}</p>
+        <p>{{ importBusy ? importBusyLabel(importSourceType) : "Import de l’archive…" }}</p>
       </div>
 
       <div class="stack add-choice-import-stack">
@@ -2283,7 +2409,7 @@ onUnmounted(() => {
             class="paste-field-import-btn"
             label="Importer"
             icon="pi pi-download"
-            :disabled="importBusy || clipboardBusy || !pasteFieldContent.trim()"
+            :disabled="importBusy || clipboardBusy || recipeBookImportBusy || !pasteFieldContent.trim()"
             @click="runImportFromPasteField"
           />
         </div>
@@ -2293,22 +2419,39 @@ onUnmounted(() => {
         <Button
           label="Saisir à la main"
           icon="pi pi-pencil"
+          :disabled="importBusy || recipeBookImportBusy"
           @click="openCreateForm"
         />
         <Button
           label="Coller depuis le presse-papiers"
           icon="pi pi-clipboard"
           :loading="clipboardBusy"
-          :disabled="importBusy"
+          :disabled="importBusy || recipeBookImportBusy"
           @click="importFromClipboardFallback"
         />
         <Button
           label="Choisir des images"
           icon="pi pi-image"
-          :disabled="importBusy"
+          :disabled="importBusy || recipeBookImportBusy"
           @click="triggerFilePick"
         />
+        <Button
+          label="Importer une archive (.json)"
+          icon="pi pi-file-import"
+          severity="secondary"
+          outlined
+          :disabled="importBusy || recipeBookImportBusy"
+          @click="triggerRecipeBookFilePick"
+        />
       </div>
+
+      <input
+        ref="recipeBookFileInputRef"
+        type="file"
+        accept="application/json,.json"
+        class="hidden-file-input"
+        @change="onRecipeBookFileChange"
+      />
 
       <input
         ref="fileInputRef"

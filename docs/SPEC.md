@@ -24,6 +24,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 10. Suppression définitive d’une recette avec confirmation explicite.
 11. Sauvegarde explicite du formulaire recette (`Enregistrer` / `Annuler`).
 12. Import direct : création immédiate de la recette, édition possible à tout moment.
+13. Export et import du cahier : fichier JSON téléchargeable (tout le cahier ou la liste filtrée affichée), import depuis l’écran « Nouvelle recette », sans dédoublonnement ni fusion automatique avec les fiches existantes.
 
 ### Hors périmètre v1
 
@@ -45,6 +46,14 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 6. Pendant l’import (URL, texte ou image), l’interface affiche un état d’attente explicite indiquant l’analyse en cours.
 7. La provenance (`source`) est conservée pour tout import, même sans URL (ex. image collée).
 8. Pour un import YouTube ou Instagram (post/reel), l'application extrait la recette depuis la description (caption), capture le poster (thumbnail) et affiche l'embed vidéo dans la vue détail et le formulaire d'édition ; le poster est réservé aux cartes de l'écran d'accueil. Le bouton overlay « Cuisiner » est masqué sur les embeds vidéo pour ne pas gêner la lecture.
+
+### Export / import du cahier
+
+1. Depuis la liste des recettes, l’utilisateur peut lancer un export : **tout le cahier** ou **uniquement les recettes correspondant aux filtres et à la recherche affichés** (même périmètre que la liste à l’écran).
+2. L’export produit un **fichier JSON** versionné, téléchargeable sur l’appareil ; il contient les fiches recettes et les **images locales** associées (photo recette, captures source, images d’étapes, icônes ingrédients, cache d’illustrations d’étapes mode cuisine le cas échéant). Les URLs vidéo d’étapes sont conservées telles quelles.
+3. Depuis l’écran « Nouvelle recette », l’utilisateur peut **importer** un fichier d’archive JSON ; chaque recette du fichier est **ajoutée** au stockage local.
+4. **Aucune détection ni fusion de doublons** : les recettes importées coexistent avec les fiches déjà présentes (titres ou contenus identiques possibles en parallèle). À l’import, de **nouveaux identifiants** sont attribués aux recettes et aux blobs pour ne pas écraser les données existantes.
+5. Le transfert est **manuel** (copie du fichier par l’utilisateur, ex. messagerie ou AirDrop) ; il ne constitue pas une synchronisation cloud multi-appareils.
 
 ### Organisation et recherche rapide
 
