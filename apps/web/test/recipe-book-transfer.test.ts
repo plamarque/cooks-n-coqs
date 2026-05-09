@@ -16,6 +16,7 @@ import {
   stripAllRecipeImageRefsFromRecipes,
   stripUndeclaredIngredientImageRefs,
   stripUndeclaredRecipeImageRefs,
+  filterRecipeBookExportPayloadForDedup,
   type RecipeBookExportPayload
 } from "../src/services/recipe-book-transfer-core";
 
@@ -206,6 +207,35 @@ test("shouldRehydrateRecipeMediaAfterImport is true for v3 and all-off v2", () =
 
   const fullV1 = minimalExport();
   assert.equal(shouldRehydrateRecipeMediaAfterImport(fullV1), false);
+});
+
+test("filterRecipeBookExportPayloadForDedup skips duplicate stable keys", () => {
+  const a = minimalRecipe({ id: "a", title: "A", importSourceStableKey: "k1" });
+  const b = minimalRecipe({ id: "b", title: "B", importSourceStableKey: "k1" });
+  const c = minimalRecipe({ id: "c", title: "C", importSourceStableKey: "k2" });
+  const payload: RecipeBookExportPayload = {
+    format: RECIPE_BOOK_FORMAT,
+    version: RECIPE_BOOK_EXPORT_VERSION,
+    exportedAt: a.createdAt,
+    recipes: [a, b, c],
+    recipeImages: [],
+    ingredientImages: [],
+    cookingStepImages: []
+  };
+  const first = filterRecipeBookExportPayloadForDedup(payload, ["k1", "k1", "k2"], new Set());
+  assert.equal(first.skippedDuplicateCount, 1);
+  assert.equal(first.payload.recipes.length, 2);
+  assert.equal(first.payload.recipes[0]!.id, "a");
+  assert.equal(first.payload.recipes[1]!.id, "c");
+
+  const second = filterRecipeBookExportPayloadForDedup(
+    payload,
+    ["k1", "k1", "k2"],
+    new Set(["k2"])
+  );
+  assert.equal(second.skippedDuplicateCount, 2);
+  assert.equal(second.payload.recipes.length, 1);
+  assert.equal(second.payload.recipes[0]!.id, "a");
 });
 
 test("stripAllRecipeImageRefsFromRecipes and stripAllIngredientImageRefsFromRecipes", () => {

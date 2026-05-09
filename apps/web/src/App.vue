@@ -34,6 +34,7 @@ import {
   importRecipeBookFromZipFile,
   RecipeBookImportError
 } from "./services/recipe-book-transfer-service";
+import { rehydrateRecipeMediaAfterArchiveImport } from "./services/recipe-book-rehydrate-after-import";
 import { db } from "./storage/db";
 import { browserCookingModeService } from "./services/cooking-mode-service";
 import {
@@ -1217,6 +1218,9 @@ async function refresh(): Promise<void> {
   }
 }
 
+/** Évite deux réhydratations parallèles pour la même recette (ouverture détail). */
+const bookMediaRehydrationInFlight = new Set<string>();
+
 function openExportBookDialog(): void {
   clearMessages();
   exportBookDialogVisible.value = true;
@@ -1282,16 +1286,37 @@ async function onRecipeBookFileChange(event: Event): Promise<void> {
   recipeBookImportProgress.value = 0;
   recipeBookImportStage.value = "";
   try {
-    const { importedCount } = await importRecipeBookFromZipFile(file, (pct, stage) => {
-      recipeBookImportProgress.value = pct;
-      recipeBookImportStage.value = stage;
-    });
+    const { importedCount, slimArchiveMedia, skippedDuplicateCount } =
+      await importRecipeBookFromZipFile(file, {
+        onProgress: (pct, stage) => {
+          recipeBookImportProgress.value = pct;
+          recipeBookImportStage.value = stage;
+        }
+      });
     await refresh();
     feedbackType.value = "success";
-    feedback.value =
-      importedCount === 0
-        ? "L’archive ne contenait aucune recette."
-        : `${importedCount} recette${importedCount > 1 ? "s" : ""} importée${importedCount > 1 ? "s" : ""}.`;
+    const skipSuffix =
+      skippedDuplicateCount > 0
+        ? skippedDuplicateCount === 1
+          ? " 1 recette ignorée (déjà présente)."
+          : ` ${skippedDuplicateCount} recettes ignorées (déjà présentes).`
+        : "";
+    if (importedCount === 0) {
+      feedback.value =
+        skippedDuplicateCount > 0
+          ? `Aucune recette nouvelle.${skipSuffix}`
+          : "L’archive ne contenait aucune recette.";
+    } else {
+      const base =
+        importedCount === 1
+          ? slimArchiveMedia
+            ? "1 recette importée. Ouvrez la fiche pour charger les images si besoin."
+            : "1 recette importée."
+          : slimArchiveMedia
+            ? `${importedCount} recettes importées. Ouvrez une fiche pour charger les images si besoin.`
+            : `${importedCount} recettes importées.`;
+      feedback.value = base + skipSuffix;
+    }
     closeAddChoice();
   } catch (error) {
     if (error instanceof RecipeBookImportError) {
@@ -1623,6 +1648,24 @@ function openDetail(recipe: Recipe): void {
       ? String(recipe.servingsBase)
       : "";
   viewMode.value = "DETAIL";
+
+  if (
+    recipe.pendingBookMediaHydration &&
+    !bookMediaRehydrationInFlight.has(recipe.id)
+  ) {
+    bookMediaRehydrationInFlight.add(recipe.id);
+    recipeIdWithPendingImage.value = recipe.id;
+    imageLoadingMessage.value = "Chargement des images…";
+    void rehydrateRecipeMediaAfterArchiveImport(recipe.id)
+      .then(() => refresh())
+      .finally(() => {
+        bookMediaRehydrationInFlight.delete(recipe.id);
+        if (recipeIdWithPendingImage.value === recipe.id) {
+          recipeIdWithPendingImage.value = null;
+          imageLoadingMessage.value = "";
+        }
+      });
+  }
 }
 
 async function backToList(): Promise<void> {

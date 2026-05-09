@@ -1415,6 +1415,7 @@ body {
   color: #3e4b46;
   text-align: center;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .export-book-progress {

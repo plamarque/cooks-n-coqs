@@ -29,6 +29,8 @@ Attributs principaux :
 - `restTimeMin` (optionnel)
 - `imageId` (optionnel)
 - `source: ImportSource` (optionnel)
+- `pendingBookMediaHydration` (optionnel, booléen) — import cahier sans images embarquées : indique que la complétion des visuels (cache BFF / IA) peut être tentée à l’ouverture détail ; retiré après une première tentative (best-effort). Non sérialisé dans le fichier d’export cahier.
+- `importSourceStableKey` (optionnel, chaîne opaque) — empreinte stable dérivée de `source.url` lorsqu’elle existe (ex. SHA-256 hex après normalisation d’URL), pour le **dédoublonnage** à l’import cahier ; inclus dans le JSON d’export lorsque calculable.
 - `createdAt`
 - `updatedAt`
 
@@ -125,3 +127,4 @@ Attributs :
 11. Image d'ingrédient : optionnelle ; l'identifiant peut être dérivé du label normalisé pour mutualiser entre recettes.
 12. Les images d'ingrédients sont stockées localement (IndexedDB), comme les images de recette.
 13. En sortie de mode cuisine, la mise à jour proposée de `prepTimeMin` se base sur une moyenne : `(prepTimeMin actuel + durée mesurée arrondie en minutes) / 2`.
+14. **Import cahier** : si `importSourceStableKey` est défini sur une recette déjà en stock et qu’une recette du fichier partage la même clé, la recette du fichier n’est pas importée (comportement « ignorer »). À l’intérieur d’un même fichier, la **première** occurrence d’une clé l’emporte.

@@ -30,7 +30,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `recipe-book-transfer-core` | Schéma JSON v1–v3, parse, strips, remappage d’IDs à l’import (sans I/O) | `apps/web/src/services/recipe-book-transfer-core.ts` |
 | `recipe-book-transfer-service` | Export / import cahier : ZIP + JSON interne (Dexie ; v3 sans blobs ; v1/v2 avec base64 possible dans le JSON à l’intérieur du zip) | `apps/web/src/services/recipe-book-transfer-service.ts` |
 | `recipe-book-zip` | Compression / décompression ZIP côté client (`fflate`) | `apps/web/src/utils/recipe-book-zip.ts` |
-| `recipe-book-rehydrate-after-import` | Réhydratation médias post-import archive légère (BFF cache puis IA) | `apps/web/src/services/recipe-book-rehydrate-after-import.ts` |
+| `recipe-book-rehydrate-after-import` | Complétion médias d’une recette issue d’archive légère (BFF cache puis IA), typiquement à la première ouverture détail | `apps/web/src/services/recipe-book-rehydrate-after-import.ts` |
 | `import-service` | Import URL/share/screenshot/texte + appel BFF | `apps/web/src/services/import-service.ts` |
 | `share-target-service` | Lecture/nettoyage des paramètres `share_target` au démarrage | `apps/web/src/services/share-target-service.ts` |
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
@@ -61,13 +61,15 @@ Règles de contrat :
 
 ### Recipe book transfer (export / import fichier)
 
-- `exportRecipeBookJson(recipes)` — JSON **version 3** toujours **sans images** (même logique de contenu que ci-dessous).
+- `exportRecipeBookJson(recipes)` — JSON **version 3** toujours **sans images** ; remplit **`importSourceStableKey`** sur chaque recette lorsque la clé peut être dérivée de `source` (module domaine `import-source-dedup`).
 - `exportRecipeBookZipBlob(recipes, onProgress?)` — zippe ce JSON sous l’entrée **`recipe-book.json`** (`fflate`) ; l’UI télécharge le `.zip` et peut afficher la progression.
-- `importRecipeBookFromZipFile(file, onProgress?)` — **.zip** uniquement ; décompression puis `importRecipeBookFromJson` ; progression remontée à l’UI.
-- `importRecipeBookFromJson(text, { onProgress? })` — parse, développe les clés BFF si besoin, transaction Dexie puis `createRecipe` ; si `shouldRehydrateRecipeMediaAfterImport`, appelle `rehydrateRecipeMediaAfterArchiveImport` par recette (**best-effort**, erreurs ignorées). **Remappage systématique** des IDs ; pas de dédoublonnage. Exposé surtout pour **tests** ou usages internes (l’UI importe via `importRecipeBookFromZipFile`).
+- `importRecipeBookFromZipFile(file, { onProgress? })` — **.zip** uniquement ; décompression puis `importRecipeBookFromJson` ; progression jusqu’à la fin de la transaction Dexie ; retourne `{ importedCount, slimArchiveMedia, skippedDuplicateCount }`.
+- `importRecipeBookFromJson(text, { onProgress? })` — parse ; **filtre** via `filterRecipeBookExportPayloadForDedup` (clés `importSourceStableKey` / résolution depuis `source.url`, comparaison avec `listRecipes`) ; développe les clés BFF si besoin ; transaction Dexie puis `createRecipe` ; si `shouldRehydrateRecipeMediaAfterImport`, pose **`pendingBookMediaHydration: true`** sur chaque recette importée. **Remappage systématique** des IDs pour les recettes effectivement importées. Retourne `{ importedCount, slimArchiveMedia, skippedDuplicateCount }`.
 - `parseRecipeBookExport` / `prepareImportFromExportV1` — acceptent les archives **v1, v2 et v3** ; références d’images manquantes **strippées** avant remappage ; les clés BFF (`bffGeneratedKey`) dans d’anciennes archives v2 sont **développées** en blobs via `GET /api/generated-images/:key` avant écriture Dexie.
+- `filterRecipeBookExportPayloadForDedup` (`recipe-book-transfer-core.ts`) — retire les recettes doublon et les lignes d’images orphelines avant `prepareImportFromExportV1`.
+- `import-source-dedup` (`packages/domain`) — `normalizeUrlForDedup`, `computeImportSourceStableKey`, `resolveImportSourceStableKey` (SHA-256 hex via `crypto.subtle` si disponible, sinon même hachage en pur JavaScript pour contextes non sécurisés).
 - `shouldRehydrateRecipeMediaAfterImport(payload)` — vrai lorsque le profil effectif n’inclut aucune image (ex. **v3** ou v2 « tout off »).
-- `recipe-book-rehydrate-after-import.ts` — photo principale (cache recette puis `generateRecipeImage`), icônes (`resolveIngredientImageId`), images d’étapes (cache étape puis `generateCookingStepImage`), stockage via `storeImageFromUrl` / `updateRecipe`.
+- `recipe-book-rehydrate-after-import.ts` — photo principale (cache recette puis `generateRecipeImage`), icônes (`resolveIngredientImageId`), images d’étapes (cache étape puis `generateCookingStepImage`), stockage via `storeImageFromUrl` / `updateRecipe` ; remet **`pendingBookMediaHydration`** à `false` en fin de parcours.
 
 ### BFF — clés de cache image (sans génération)
 

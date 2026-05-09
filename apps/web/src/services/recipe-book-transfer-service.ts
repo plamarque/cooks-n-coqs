@@ -1,7 +1,9 @@
 import type { Recipe } from "@cookies-et-coquilettes/domain";
+import { resolveImportSourceStableKey } from "@cookies-et-coquilettes/domain";
 import { db } from "../storage/db";
 import { dexieRecipeService } from "./recipe-service";
 import {
+  filterRecipeBookExportPayloadForDedup,
   isRecipeImageRowBffRef,
   parseRecipeBookExport,
   parseRecipeBookExportV1,
@@ -15,7 +17,6 @@ import {
   type RecipeBookExportPayload,
   type RecipeBookRecipeImageRowExport
 } from "./recipe-book-transfer-core";
-import { rehydrateRecipeMediaAfterArchiveImport } from "./recipe-book-rehydrate-after-import";
 import { unzipRecipeBookJson, zipRecipeBookJson } from "../utils/recipe-book-zip";
 
 export {
@@ -36,6 +37,7 @@ export {
   stripAllRecipeImageRefsFromRecipes,
   stripUndeclaredIngredientImageRefs,
   stripUndeclaredRecipeImageRefs,
+  filterRecipeBookExportPayloadForDedup,
   type RecipeBookExportPayload,
   type RecipeBookExportProfile,
   type RecipeBookExportV1,
@@ -49,6 +51,31 @@ const BFF_URL = import.meta.env.VITE_BFF_URL || "http://localhost:8787";
 
 /** `percent` entre 0 et 100 ; `stage` libellé court pour l’UI. */
 export type RecipeBookTransferProgressCallback = (percent: number, stage: string) => void;
+
+/** Titre affiché dans la barre d’import (évite les libellés trop longs). */
+function formatRecipeTitleForProgress(title: string): string {
+  const t = title.trim() || "Sans titre";
+  return t.length > 72 ? `${t.slice(0, 69)}…` : t;
+}
+
+/** Première recette de l’archive qui référence cette image recette (photo, sources, étapes). */
+function recipeTitleForRecipeImageId(
+  payload: RecipeBookExportPayload,
+  imageId: string
+): string | undefined {
+  for (const recipe of payload.recipes) {
+    if (recipe.imageId === imageId) return formatRecipeTitleForProgress(recipe.title);
+    if (recipe.sourceImageIds?.includes(imageId)) return formatRecipeTitleForProgress(recipe.title);
+    for (const step of recipe.steps) {
+      for (const m of step.media ?? []) {
+        if (m.type === "image" && m.imageId === imageId) {
+          return formatRecipeTitleForProgress(recipe.title);
+        }
+      }
+    }
+  }
+  return undefined;
+}
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer();
@@ -69,7 +96,7 @@ function cloneRecipesForExport(recipes: Recipe[]): Recipe[] {
  */
 export async function expandBffRecipeImageRowsInPayload(
   payload: RecipeBookExportPayload,
-  onRow?: (processed: number, total: number) => void
+  onRow?: (processed: number, total: number, meta?: { recipeTitle?: string }) => void
 ): Promise<RecipeBookExportPayload> {
   const nextRows: RecipeBookRecipeImageRowExport[] = [];
   const total = payload.recipeImages.length;
@@ -105,7 +132,8 @@ export async function expandBffRecipeImageRowsInPayload(
       nextRows.push(row);
     }
     i += 1;
-    onRow?.(i, total);
+    const recipeTitle = recipeTitleForRecipeImageId(payload, row.id);
+    onRow?.(i, total, recipeTitle ? { recipeTitle } : undefined);
   }
   return { ...payload, recipeImages: nextRows };
 }
@@ -115,6 +143,16 @@ export async function exportRecipeBookJson(recipes: Recipe[]): Promise<string> {
   let recipesOut = cloneRecipesForExport(recipes);
   recipesOut = stripAllRecipeImageRefsFromRecipes(recipesOut);
   recipesOut = stripAllIngredientImageRefsFromRecipes(recipesOut);
+  recipesOut = recipesOut.map(({ pendingBookMediaHydration: _ignored, ...r }) => r as Recipe);
+
+  for (const r of recipesOut) {
+    if (!r.importSourceStableKey?.trim()) {
+      const key = await resolveImportSourceStableKey(r);
+      if (key) {
+        r.importSourceStableKey = key;
+      }
+    }
+  }
 
   const payload: RecipeBookExportPayload = {
     format: RECIPE_BOOK_FORMAT,
@@ -162,12 +200,17 @@ function assertZipArchiveFile(file: File): void {
   }
 }
 
+export interface RecipeBookZipImportOptions {
+  onProgress?: RecipeBookTransferProgressCallback;
+}
+
 /** Import depuis un fichier .zip uniquement (décompression puis même pipeline que `importRecipeBookFromJson`). */
 export async function importRecipeBookFromZipFile(
   file: File,
-  onProgress?: RecipeBookTransferProgressCallback
-): Promise<{ importedCount: number }> {
+  options?: RecipeBookZipImportOptions
+): Promise<{ importedCount: number; slimArchiveMedia: boolean; skippedDuplicateCount: number }> {
   assertZipArchiveFile(file);
+  const onProgress = options?.onProgress;
   onProgress?.(2, "Lecture du fichier…");
   const buf = new Uint8Array(await file.arrayBuffer());
   onProgress?.(6, "Décompression…");
@@ -175,7 +218,9 @@ export async function importRecipeBookFromZipFile(
   const mapInner = (pct: number, stage: string) => {
     onProgress?.(6 + Math.round((pct / 100) * 94), stage);
   };
-  return importRecipeBookFromJson(text, { onProgress: mapInner });
+  return importRecipeBookFromJson(text, {
+    onProgress: mapInner
+  });
 }
 
 export interface RecipeBookJsonImportOptions {
@@ -185,29 +230,67 @@ export interface RecipeBookJsonImportOptions {
 export async function importRecipeBookFromJson(
   text: string,
   options?: RecipeBookJsonImportOptions
-): Promise<{ importedCount: number }> {
+): Promise<{
+  importedCount: number;
+  slimArchiveMedia: boolean;
+  skippedDuplicateCount: number;
+}> {
   const onProgress = options?.onProgress;
   onProgress?.(8, "Analyse de l’archive…");
   let payload = parseRecipeBookExport(text);
   if (payload.recipes.length === 0) {
     onProgress?.(100, "Aucune recette dans le fichier");
-    return { importedCount: 0 };
+    return { importedCount: 0, slimArchiveMedia: false, skippedDuplicateCount: 0 };
+  }
+
+  onProgress?.(10, "Vérification des doublons…");
+  const stableKeyByRecipeIndex = await Promise.all(
+    payload.recipes.map((r) => resolveImportSourceStableKey(r))
+  );
+  const existingList = await dexieRecipeService.listRecipes();
+  const existingStableKeys = new Set(
+    existingList
+      .map((r) => r.importSourceStableKey?.trim())
+      .filter((k): k is string => Boolean(k))
+  );
+  const deduped = filterRecipeBookExportPayloadForDedup(
+    payload,
+    stableKeyByRecipeIndex,
+    existingStableKeys
+  );
+  payload = deduped.payload;
+  const skippedDuplicateCount = deduped.skippedDuplicateCount;
+
+  if (payload.recipes.length === 0) {
+    onProgress?.(100, "Aucune recette nouvelle (toutes étaient déjà importées).");
+    return { importedCount: 0, slimArchiveMedia: false, skippedDuplicateCount };
   }
 
   const runRehydrate = shouldRehydrateRecipeMediaAfterImport(payload);
 
-  payload = await expandBffRecipeImageRowsInPayload(payload, (done, total) => {
+  payload = await expandBffRecipeImageRowsInPayload(payload, (done, total, meta) => {
     const span = 34;
     const base = 12;
     const frac = total > 0 ? done / total : 1;
-    onProgress?.(base + Math.round(frac * span), "Téléchargement des images distantes…");
+    const pct = base + Math.round(frac * span);
+    const title = meta?.recipeTitle;
+    onProgress?.(
+      pct,
+      title
+        ? `Téléchargement des images — ${title} (${done}/${total})`
+        : `Téléchargement des images distantes… (${done}/${total})`
+    );
   });
 
   onProgress?.(48, "Préparation de l’import…");
-  const { recipes, recipeImageRows, ingredientImageRows, cookingStepImageRows } =
+  let { recipes, recipeImageRows, ingredientImageRows, cookingStepImageRows } =
     prepareImportFromExportV1(payload);
+  if (runRehydrate && recipes.length > 0) {
+    recipes = recipes.map((r) => ({ ...r, pendingBookMediaHydration: true }));
+  }
 
   onProgress?.(52, "Écriture locale…");
+  const nRecipes = recipes.length;
   await db.transaction(
     "rw",
     db.recipes,
@@ -221,7 +304,17 @@ export async function importRecipeBookFromJson(
       for (const row of ingredientImageRows) {
         await db.ingredientImages.add(row);
       }
-      for (const recipe of recipes) {
+      for (let ri = 0; ri < recipes.length; ri++) {
+        const recipe = recipes[ri]!;
+        const label = formatRecipeTitleForProgress(recipe.title);
+        const pct =
+          nRecipes > 0 ? 52 + Math.round(((ri + 0.5) / nRecipes) * 4) : 54;
+        onProgress?.(
+          pct,
+          nRecipes > 1
+            ? `Import de la recette (${ri + 1}/${nRecipes}) : ${label}`
+            : `Import de la recette : ${label}`
+        );
         await dexieRecipeService.createRecipe(recipe);
       }
       for (const row of cookingStepImageRows) {
@@ -231,26 +324,11 @@ export async function importRecipeBookFromJson(
   );
 
   onProgress?.(56, "Enregistrement terminé");
-
-  if (runRehydrate && recipes.length > 0) {
-    onProgress?.(58, "Mise à jour des visuels (images)…");
-    const n = recipes.length;
-    for (let i = 0; i < n; i++) {
-      const recipe = recipes[i]!;
-      try {
-        await rehydrateRecipeMediaAfterArchiveImport(recipe.id);
-      } catch {
-        /* erreurs réseau / BFF : l’import reste valide */
-      }
-      onProgress?.(
-        58 + Math.floor((41 * (i + 1)) / n),
-        `Images : recette ${i + 1} / ${n}…`
-      );
-    }
-  } else {
-    onProgress?.(92, "Finalisation…");
-  }
-
+  onProgress?.(92, "Finalisation…");
   onProgress?.(100, "Terminé");
-  return { importedCount: recipes.length };
+  return {
+    importedCount: recipes.length,
+    slimArchiveMedia: runRehydrate,
+    skippedDuplicateCount
+  };
 }

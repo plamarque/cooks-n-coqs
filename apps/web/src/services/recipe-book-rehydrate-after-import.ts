@@ -32,7 +32,7 @@ async function tryStoreImageFromGeneratedKey(key: string): Promise<string | unde
 
 /**
  * Reconstruit photo principale, icônes ingrédients et images d’étapes (cache BFF puis IA).
- * Ne lève pas d’erreur : best-effort après import d’archive légère.
+ * Ne lève pas d’erreur : best-effort ; remet `pendingBookMediaHydration` à false en fin de parcours.
  */
 export async function rehydrateRecipeMediaAfterArchiveImport(recipeId: string): Promise<void> {
   let recipe = await db.recipes.get(recipeId);
@@ -128,5 +128,11 @@ export async function rehydrateRecipeMediaAfterArchiveImport(recipeId: string): 
     }
   } catch {
     /* ignore */
+  }
+
+  try {
+    await dexieRecipeService.updateRecipe(recipeId, { pendingBookMediaHydration: false });
+  } catch {
+    /* recette supprimée entre-temps */
   }
 }

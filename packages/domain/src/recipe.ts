@@ -61,6 +61,17 @@ export interface Recipe {
   source?: ImportSource;
   /** IDs des images sources (captures d'écran importées), consultables en vignettes */
   sourceImageIds?: string[];
+  /**
+   * Import cahier « léger » (sans images embarquées) : tant que vrai, le client peut
+   * compléter photo / icônes / images d’étapes à la première ouverture détail (best-effort).
+   * Non inclus dans l’export ZIP du cahier.
+   */
+  pendingBookMediaHydration?: boolean;
+  /**
+   * Clé opaque pour dédoublonnage à l’import cahier (ex. SHA-256 hex d’une URL source normalisée).
+   * Absente si aucune source URL exploitable.
+   */
+  importSourceStableKey?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -119,7 +119,7 @@ export function resolvedExportProfile(payload: RecipeBookExportPayload): Require
   };
 }
 
-/** Archives « texte seul » : réhydratation médias après import (cache BFF / IA). */
+/** Archives « texte seul » : les recettes importées portent `pendingBookMediaHydration` (réhydratation à l’ouverture détail). */
 export function shouldRehydrateRecipeMediaAfterImport(payload: RecipeBookExportPayload): boolean {
   const p = resolvedExportProfile(payload);
   return !p.includeRecipeImages && !p.includeIngredientImages && !p.includeCookingStepImages;
@@ -151,6 +151,60 @@ export function collectIngredientImageIdsFromRecipes(recipes: Recipe[]): Set<str
     }
   }
   return ids;
+}
+
+/**
+ * Retire les recettes dont la clé stable est déjà vue (base locale ou doublon dans le fichier).
+ * Réduit les tableaux d’images pour ne garder que ce qui est encore référencé.
+ */
+export function filterRecipeBookExportPayloadForDedup(
+  payload: RecipeBookExportPayload,
+  stableKeyByRecipeIndex: ReadonlyArray<string | undefined>,
+  existingStableKeys: ReadonlySet<string>
+): { payload: RecipeBookExportPayload; skippedDuplicateCount: number } {
+  if (stableKeyByRecipeIndex.length !== payload.recipes.length) {
+    throw new RecipeBookImportError("Erreur interne : clés de dédoublonnage incohérentes.");
+  }
+
+  const seen = new Set(existingStableKeys);
+  let skippedDuplicateCount = 0;
+  const keptRecipes: Recipe[] = [];
+
+  for (let i = 0; i < payload.recipes.length; i++) {
+    const recipe = payload.recipes[i]!;
+    const key = stableKeyByRecipeIndex[i];
+    if (key && seen.has(key)) {
+      skippedDuplicateCount += 1;
+      continue;
+    }
+    const withKey: Recipe = {
+      ...recipe,
+      importSourceStableKey: key ?? recipe.importSourceStableKey
+    };
+    keptRecipes.push(withKey);
+    if (key) {
+      seen.add(key);
+    }
+  }
+
+  const keptRecipeIds = new Set(keptRecipes.map((r) => r.id));
+  const recipeImgIds = collectRecipeImageIdsFromRecipes(keptRecipes);
+  const ingImgIds = collectIngredientImageIdsFromRecipes(keptRecipes);
+
+  const recipeImages = payload.recipeImages.filter((row) => recipeImgIds.has(row.id));
+  const ingredientImages = payload.ingredientImages.filter((row) => ingImgIds.has(row.id));
+  const cookingStepImages = payload.cookingStepImages.filter((row) => keptRecipeIds.has(row.recipeId));
+
+  return {
+    payload: {
+      ...payload,
+      recipes: keptRecipes,
+      recipeImages,
+      ingredientImages,
+      cookingStepImages
+    },
+    skippedDuplicateCount
+  };
 }
 
 function filterStepMediaToDeclaredImages(
