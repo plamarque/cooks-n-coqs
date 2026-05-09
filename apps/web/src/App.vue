@@ -4,6 +4,7 @@ import Button from "primevue/button";
 import Card from "primevue/card";
 import ConfirmDialog from "primevue/confirmdialog";
 import Dialog from "primevue/dialog";
+import ProgressBar from "primevue/progressbar";
 import ProgressSpinner from "primevue/progressspinner";
 import { useConfirm } from "primevue/useconfirm";
 import type {
@@ -29,8 +30,8 @@ import {
   storeImageFromUrl
 } from "./services/recipe-service";
 import {
-  exportRecipeBookJson,
-  importRecipeBookFromJson,
+  exportRecipeBookZipBlob,
+  importRecipeBookFromZipFile,
   RecipeBookImportError
 } from "./services/recipe-book-transfer-service";
 import { db } from "./storage/db";
@@ -130,7 +131,11 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 const recipeBookFileInputRef = ref<HTMLInputElement | null>(null);
 const exportBookDialogVisible = ref(false);
 const exportBookBusy = ref(false);
+const exportBookProgress = ref(0);
+const exportBookStage = ref("");
 const recipeBookImportBusy = ref(false);
+const recipeBookImportProgress = ref(0);
+const recipeBookImportStage = ref("");
 const formImageInputRef = ref<HTMLInputElement | null>(null);
 const pasteFieldRef = ref<HTMLTextAreaElement | null>(null);
 const pasteFieldRowRef = ref<HTMLElement | null>(null);
@@ -1220,6 +1225,8 @@ function openExportBookDialog(): void {
 async function runExportRecipeBook(scope: "all" | "filtered"): Promise<void> {
   clearMessages();
   exportBookBusy.value = true;
+  exportBookProgress.value = 0;
+  exportBookStage.value = "";
   try {
     const list =
       scope === "all" ? await dexieRecipeService.listRecipes() : recipes.value;
@@ -1231,11 +1238,13 @@ async function runExportRecipeBook(scope: "all" | "filtered"): Promise<void> {
           : "Aucune recette dans la liste actuelle (modifiez filtres ou recherche).";
       return;
     }
-    const json = await exportRecipeBookJson(list);
+    const blob = await exportRecipeBookZipBlob(list, (pct, stage) => {
+      exportBookProgress.value = pct;
+      exportBookStage.value = stage;
+    });
     const d = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
-    const fname = `cookies-recettes-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
-    const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+    const fname = `cookies-recettes-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.zip`;
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1252,6 +1261,8 @@ async function runExportRecipeBook(scope: "all" | "filtered"): Promise<void> {
     setError(error);
   } finally {
     exportBookBusy.value = false;
+    exportBookProgress.value = 0;
+    exportBookStage.value = "";
   }
 }
 
@@ -1268,9 +1279,13 @@ async function onRecipeBookFileChange(event: Event): Promise<void> {
   }
   clearMessages();
   recipeBookImportBusy.value = true;
+  recipeBookImportProgress.value = 0;
+  recipeBookImportStage.value = "";
   try {
-    const text = await file.text();
-    const { importedCount } = await importRecipeBookFromJson(text);
+    const { importedCount } = await importRecipeBookFromZipFile(file, (pct, stage) => {
+      recipeBookImportProgress.value = pct;
+      recipeBookImportStage.value = stage;
+    });
     await refresh();
     feedbackType.value = "success";
     feedback.value =
@@ -1286,6 +1301,8 @@ async function onRecipeBookFileChange(event: Event): Promise<void> {
     }
   } finally {
     recipeBookImportBusy.value = false;
+    recipeBookImportProgress.value = 0;
+    recipeBookImportStage.value = "";
   }
 }
 
@@ -2168,10 +2185,17 @@ onUnmounted(() => {
       :closable="true"
     >
       <p class="export-book-help">
-        Génère un fichier JSON à copier vers un autre appareil (messagerie, AirDrop…). Les images
-        locales sont incluses. À l’import, les recettes sont toujours ajoutées (pas de fusion avec
-        les fiches existantes).
+        Téléchargement en fichier .zip (recommandé sur iOS : plus simple à enregistrer dans Fichiers et
+        à partager qu’un .json seul). Le zip contient un JSON version 3, léger (texte et structure —
+        pas de photos ni d’icônes embarquées). Les URLs vidéo des étapes sont conservées. Après
+        import, l’application retélécharge ou régénère les images via le BFF ; les captures et photos
+        hors cache BFF ne sont pas reconstituables. L’import ne prend en charge que les fichiers
+        .zip.
       </p>
+      <div v-if="exportBookBusy" class="export-book-progress" aria-live="polite">
+        <ProgressBar :value="exportBookProgress" style="width: 100%; height: 0.65rem" />
+        <p class="transfer-progress-stage">{{ exportBookStage }}</p>
+      </div>
       <div class="stack export-book-actions">
         <Button
           label="Tout le cahier"
@@ -2389,8 +2413,14 @@ onUnmounted(() => {
         class="import-analyzing"
         aria-live="polite"
       >
-        <ProgressSpinner style="width: 2.5rem; height: 2.5rem" strokeWidth="4" />
-        <p>{{ importBusy ? importBusyLabel(importSourceType) : "Import de l’archive…" }}</p>
+        <template v-if="recipeBookImportBusy">
+          <ProgressBar :value="recipeBookImportProgress" style="width: 100%; height: 0.65rem" />
+          <p class="transfer-progress-stage">{{ recipeBookImportStage }}</p>
+        </template>
+        <template v-else>
+          <ProgressBar mode="indeterminate" style="width: 100%; height: 0.65rem" />
+          <p class="transfer-progress-stage">{{ importBusyLabel(importSourceType) }}</p>
+        </template>
       </div>
 
       <div class="stack add-choice-import-stack">
@@ -2436,7 +2466,7 @@ onUnmounted(() => {
           @click="triggerFilePick"
         />
         <Button
-          label="Importer une archive (.json)"
+          label="Importer une archive (.zip)"
           icon="pi pi-file-import"
           severity="secondary"
           outlined
@@ -2448,7 +2478,7 @@ onUnmounted(() => {
       <input
         ref="recipeBookFileInputRef"
         type="file"
-        accept="application/json,.json"
+        accept="application/zip,.zip"
         class="hidden-file-input"
         @change="onRecipeBookFileChange"
       />

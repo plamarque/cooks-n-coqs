@@ -1,16 +1,24 @@
-import type { Recipe, RecipeImage, IngredientImage } from "@cookies-et-coquilettes/domain";
+import type { Recipe, RecipeImage, IngredientImage, InstructionStep, StepMedium } from "@cookies-et-coquilettes/domain";
 import type { CookingStepImage } from "../storage/db";
 
-/** Identifiant de format dans le JSON exporté (v1). */
+/** Identifiant de format dans le JSON exporté. */
 export const RECIPE_BOOK_FORMAT = "cookies-et-coquilettes-recipe-book" as const;
-export const RECIPE_BOOK_VERSION = 1 as const;
 
-export type RecipeBookImageRowExport = Pick<
-  RecipeImage,
-  "id" | "mimeType" | "sizeBytes" | "createdAt" | "width" | "height"
-> & {
-  dataBase64: string;
-};
+/** Version courante émise à l’export (archive légère sans blobs d’images). */
+export const RECIPE_BOOK_EXPORT_VERSION = 3 as const;
+export type RecipeBookExportVersion = 1 | 2 | typeof RECIPE_BOOK_EXPORT_VERSION;
+
+/** @deprecated alias de RECIPE_BOOK_EXPORT_VERSION */
+export const RECIPE_BOOK_VERSION = RECIPE_BOOK_EXPORT_VERSION;
+
+/** Ligne d’image recette : inline (base64) ou référence cache BFF (sans blob). */
+export type RecipeBookRecipeImageRowExport =
+  | (Pick<RecipeImage, "id" | "mimeType" | "sizeBytes" | "createdAt" | "width" | "height"> & {
+      dataBase64: string;
+    })
+  | (Pick<RecipeImage, "id" | "mimeType" | "sizeBytes" | "createdAt" | "width" | "height"> & {
+      bffGeneratedKey: string;
+    });
 
 export type RecipeBookIngredientImageRowExport = Pick<
   IngredientImage,
@@ -26,15 +34,30 @@ export type RecipeBookCookingStepImageRowExport = Pick<
   dataBase64: string;
 };
 
-export interface RecipeBookExportV1 {
+/** Métadonnées d’export (v2) ; absent en v1 = comportement « tout inclus ». */
+export interface RecipeBookExportProfile {
+  includeIngredientImages?: boolean;
+  includeCookingStepImages?: boolean;
+  includeRecipeImages?: boolean;
+}
+
+export interface RecipeBookExportPayload {
   format: typeof RECIPE_BOOK_FORMAT;
-  version: typeof RECIPE_BOOK_VERSION;
+  version: RecipeBookExportVersion;
   exportedAt: string;
+  /** Présent à partir de la v2 d’archive. */
+  exportProfile?: RecipeBookExportProfile;
   recipes: Recipe[];
-  recipeImages: RecipeBookImageRowExport[];
+  recipeImages: RecipeBookRecipeImageRowExport[];
   ingredientImages: RecipeBookIngredientImageRowExport[];
   cookingStepImages: RecipeBookCookingStepImageRowExport[];
 }
+
+/** @deprecated utiliser RecipeBookRecipeImageRowExport */
+export type RecipeBookImageRowExport = Extract<RecipeBookRecipeImageRowExport, { dataBase64: string }>;
+
+/** @deprecated utiliser RecipeBookExportPayload */
+export type RecipeBookExportV1 = RecipeBookExportPayload;
 
 export class RecipeBookImportError extends Error {
   constructor(message: string) {
@@ -67,6 +90,41 @@ export function newImportTransferId(): string {
   });
 }
 
+export function isRecipeImageRowBffRef(
+  row: RecipeBookRecipeImageRowExport
+): row is Extract<RecipeBookRecipeImageRowExport, { bffGeneratedKey: string }> {
+  return typeof (row as { bffGeneratedKey?: string }).bffGeneratedKey === "string";
+}
+
+/** Profil effectif à l’import (v1 = tout inclus ; v3 = jamais d’images dans le fichier). */
+export function resolvedExportProfile(payload: RecipeBookExportPayload): Required<RecipeBookExportProfile> {
+  if (payload.version === 3) {
+    return {
+      includeIngredientImages: false,
+      includeCookingStepImages: false,
+      includeRecipeImages: false
+    };
+  }
+  if (payload.version === 1 || !payload.exportProfile) {
+    return {
+      includeIngredientImages: true,
+      includeCookingStepImages: true,
+      includeRecipeImages: true
+    };
+  }
+  return {
+    includeIngredientImages: payload.exportProfile.includeIngredientImages !== false,
+    includeCookingStepImages: payload.exportProfile.includeCookingStepImages !== false,
+    includeRecipeImages: payload.exportProfile.includeRecipeImages !== false
+  };
+}
+
+/** Archives « texte seul » : réhydratation médias après import (cache BFF / IA). */
+export function shouldRehydrateRecipeMediaAfterImport(payload: RecipeBookExportPayload): boolean {
+  const p = resolvedExportProfile(payload);
+  return !p.includeRecipeImages && !p.includeIngredientImages && !p.includeCookingStepImages;
+}
+
 /** Collecte les IDs d’images recette (table `images`) référencés par les recettes. */
 export function collectRecipeImageIdsFromRecipes(recipes: Recipe[]): Set<string> {
   const ids = new Set<string>();
@@ -95,6 +153,73 @@ export function collectIngredientImageIdsFromRecipes(recipes: Recipe[]): Set<str
   return ids;
 }
 
+function filterStepMediaToDeclaredImages(
+  media: StepMedium[] | undefined,
+  declaredRecipeImageIds: Set<string>
+): StepMedium[] | undefined {
+  if (!media?.length) return media;
+  const next = media
+    .map((medium) => {
+      if (medium.type === "image" && !declaredRecipeImageIds.has(medium.imageId)) {
+        return null;
+      }
+      return medium;
+    })
+    .filter((m): m is StepMedium => m != null);
+  return next.length ? next : undefined;
+}
+
+/** Retire les références d’images recette absentes du fichier (export léger ou incomplet). */
+export function stripUndeclaredRecipeImageRefs(recipes: Recipe[], declaredRecipeImageIds: Set<string>): Recipe[] {
+  return recipes.map((recipe) => ({
+    ...recipe,
+    imageId: recipe.imageId && declaredRecipeImageIds.has(recipe.imageId) ? recipe.imageId : undefined,
+    sourceImageIds: recipe.sourceImageIds?.filter((id) => declaredRecipeImageIds.has(id)),
+    steps: recipe.steps.map((step: InstructionStep) => ({
+      ...step,
+      media: filterStepMediaToDeclaredImages(step.media, declaredRecipeImageIds)
+    }))
+  }));
+}
+
+/** Retire les `imageId` d’ingrédient absents du fichier (icônes régénérables à la lecture). */
+export function stripUndeclaredIngredientImageRefs(
+  recipes: Recipe[],
+  declaredIngredientImageIds: Set<string>
+): Recipe[] {
+  return recipes.map((recipe) => ({
+    ...recipe,
+    ingredients: recipe.ingredients.map((ing) => ({
+      ...ing,
+      imageId: ing.imageId && declaredIngredientImageIds.has(ing.imageId) ? ing.imageId : undefined
+    }))
+  }));
+}
+
+/** Retire toutes les références aux images recette (export archive légère). */
+export function stripAllRecipeImageRefsFromRecipes(recipes: Recipe[]): Recipe[] {
+  return recipes.map((recipe) => ({
+    ...recipe,
+    imageId: undefined,
+    sourceImageIds: undefined,
+    steps: recipe.steps.map((step) => ({
+      ...step,
+      media: step.media?.filter((m) => m.type !== "image")
+    }))
+  }));
+}
+
+/** Retire tous les `imageId` d’ingrédients (icônes régénérables après import). */
+export function stripAllIngredientImageRefsFromRecipes(recipes: Recipe[]): Recipe[] {
+  return recipes.map((recipe) => ({
+    ...recipe,
+    ingredients: recipe.ingredients.map((ing) => ({
+      ...ing,
+      imageId: undefined
+    }))
+  }));
+}
+
 export function base64ToBlob(base64: string, mimeType: string): Blob {
   const binary = atob(base64);
   const len = binary.length;
@@ -105,8 +230,8 @@ export function base64ToBlob(base64: string, mimeType: string): Blob {
   return new Blob([bytes], { type: mimeType || "application/octet-stream" });
 }
 
-/** Parse et valide la structure minimale d’un export v1 (sans toucher à la base). */
-export function parseRecipeBookExportV1(text: string): RecipeBookExportV1 {
+/** Parse et valide la structure minimale d’une archive (v1, v2 ou v3). */
+export function parseRecipeBookExport(text: string): RecipeBookExportPayload {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text) as unknown;
@@ -118,10 +243,11 @@ export function parseRecipeBookExportV1(text: string): RecipeBookExportV1 {
   }
   const obj = parsed as Record<string, unknown>;
   if (obj.format !== RECIPE_BOOK_FORMAT) {
-    throw new RecipeBookImportError("Ce fichier n’est pas une archive Cookies & Coquillettes.");
+    throw new RecipeBookImportError("Ce fichier n’est pas une archive Cookies & Coquilettes.");
   }
-  if (obj.version !== RECIPE_BOOK_VERSION) {
-    throw new RecipeBookImportError(`Version d’archive non supportée : ${String(obj.version)}.`);
+  const ver = obj.version;
+  if (ver !== 1 && ver !== 2 && ver !== RECIPE_BOOK_EXPORT_VERSION) {
+    throw new RecipeBookImportError(`Version d’archive non supportée : ${String(ver)}.`);
   }
   if (typeof obj.exportedAt !== "string") {
     throw new RecipeBookImportError("Champ exportedAt manquant ou invalide.");
@@ -138,7 +264,12 @@ export function parseRecipeBookExportV1(text: string): RecipeBookExportV1 {
   if (!Array.isArray(obj.cookingStepImages)) {
     throw new RecipeBookImportError("Liste cookingStepImages manquante.");
   }
-  return obj as unknown as RecipeBookExportV1;
+  return obj as unknown as RecipeBookExportPayload;
+}
+
+/** @deprecated utiliser parseRecipeBookExport */
+export function parseRecipeBookExportV1(text: string): RecipeBookExportPayload {
+  return parseRecipeBookExport(text);
 }
 
 function remapRecipeImageRefs(
@@ -186,16 +317,32 @@ function remapRecipeImageRefs(
 
 /**
  * Construit les recettes et lignes Dexie prêtes à l’écriture, avec nouveaux IDs
- * (aucune collision avec une base existante).
+ * (aucune collision avec une base existante). Les lignes `recipeImages` ne
+ * doivent contenir que des entrées **inline** (`dataBase64`) ; les références
+ * BFF doivent être développées avant l’appel.
  */
-export function prepareImportFromExportV1(payload: RecipeBookExportV1): {
+export function prepareImportFromExportV1(payload: RecipeBookExportPayload): {
   recipes: Recipe[];
   recipeImageRows: Array<RecipeImage & { blob: Blob }>;
   ingredientImageRows: Array<IngredientImage & { blob: Blob }>;
   cookingStepImageRows: Array<CookingStepImage & { blob: Blob }>;
 } {
+  for (const row of payload.recipeImages) {
+    if (isRecipeImageRowBffRef(row)) {
+      throw new RecipeBookImportError(
+        "Archive interne invalide : image recette par clé BFF non développée avant import."
+      );
+    }
+  }
+
+  const declaredRecipeImageIds = new Set(payload.recipeImages.map((r) => r.id));
+  const declaredIngredientImageIds = new Set(payload.ingredientImages.map((r) => r.id));
+
+  let recipesIn = stripUndeclaredIngredientImageRefs(payload.recipes, declaredIngredientImageIds);
+  recipesIn = stripUndeclaredRecipeImageRefs(recipesIn, declaredRecipeImageIds);
+
   const recipeIdMap = new Map<string, string>();
-  for (const r of payload.recipes) {
+  for (const r of recipesIn) {
     recipeIdMap.set(r.id, newImportTransferId());
   }
 
@@ -209,10 +356,7 @@ export function prepareImportFromExportV1(payload: RecipeBookExportV1): {
     ingredientImageIdMap.set(row.id, newImportTransferId());
   }
 
-  const declaredRecipeImageIds = new Set(payload.recipeImages.map((r) => r.id));
-  const declaredIngredientImageIds = new Set(payload.ingredientImages.map((r) => r.id));
-
-  for (const recipe of payload.recipes) {
+  for (const recipe of recipesIn) {
     const needRecipe = collectRecipeImageIdsFromRecipes([recipe]);
     for (const id of needRecipe) {
       if (!declaredRecipeImageIds.has(id)) {
@@ -227,7 +371,7 @@ export function prepareImportFromExportV1(payload: RecipeBookExportV1): {
     }
   }
 
-  const recipes: Recipe[] = payload.recipes.map((r) => {
+  const recipes: Recipe[] = recipesIn.map((r) => {
     const newId = recipeIdMap.get(r.id)!;
     const withImages = remapRecipeImageRefs(r, recipeImageIdMap, ingredientImageIdMap);
     return { ...withImages, id: newId };
@@ -235,14 +379,15 @@ export function prepareImportFromExportV1(payload: RecipeBookExportV1): {
 
   const recipeImageRows: Array<RecipeImage & { blob: Blob }> = payload.recipeImages.map((row) => {
     const newId = recipeImageIdMap.get(row.id)!;
-    const blob = base64ToBlob(row.dataBase64, row.mimeType);
+    const inline = row as Extract<RecipeBookRecipeImageRowExport, { dataBase64: string }>;
+    const blob = base64ToBlob(inline.dataBase64, inline.mimeType);
     return {
       id: newId,
-      mimeType: row.mimeType,
-      sizeBytes: row.sizeBytes,
-      createdAt: row.createdAt,
-      width: row.width,
-      height: row.height,
+      mimeType: inline.mimeType,
+      sizeBytes: inline.sizeBytes,
+      createdAt: inline.createdAt,
+      width: inline.width,
+      height: inline.height,
       blob
     };
   });

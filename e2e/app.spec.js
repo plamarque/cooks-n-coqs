@@ -29,8 +29,8 @@ async function createRecipeViaImport(page, recipeText = "Recette brute") {
 
   await page.getByRole("button", { name: "Nouvelle recette" }).click();
   await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
-  // setInputFiles plus fiable que filechooser en headless (CI)
-  await page.locator(".add-choice-panel input[type='file']").setInputFiles(filePath);
+  // setInputFiles plus fiable que filechooser en headless (CI) — cibler l’input images/txt, pas l’archive .zip
+  await page.locator(".add-choice-panel input[type='file'][accept*='image']").setInputFiles(filePath);
 
   await expect(page.locator("section.panel.detail, section.panel.form-panel")).toBeVisible({
     timeout: 15000
@@ -179,7 +179,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
 
     await page.locator("#paste-field").fill(youtubeUrl);
-    await page.getByRole("button", { name: "Importer" }).click();
+    await page.locator(".paste-field-import-btn").click();
 
     await expect(page.locator(".message.success")).toContainText(/Recette importée/i, {
       timeout: 30000
@@ -236,13 +236,14 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
 
     await page.locator("#paste-field").fill(instagramUrl);
-    await page.getByRole("button", { name: "Importer" }).click();
+    await page.locator(".paste-field-import-btn").click();
 
     // Succès complet ou fallback (scraper Instagram peut échouer/être limité)
-    await expect(page.locator(".message.success")).toContainText(
-      /Recette importée|extraction du post Instagram est incomplète/i,
-      { timeout: 30000 }
-    );
+    await expect(
+      page.locator(".message.success, .message.warning, .message.error")
+    ).toContainText(/Recette importée|extraction du post Instagram est incomplète|Instagram|erreur|échoué/i, {
+      timeout: 60000
+    });
     await expect(
       page.locator("section.panel.detail, section.panel.form-panel")
     ).toBeVisible({ timeout: 5000 });

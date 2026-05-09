@@ -24,7 +24,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 10. Suppression définitive d’une recette avec confirmation explicite.
 11. Sauvegarde explicite du formulaire recette (`Enregistrer` / `Annuler`).
 12. Import direct : création immédiate de la recette, édition possible à tout moment.
-13. Export et import du cahier : fichier JSON téléchargeable (tout le cahier ou la liste filtrée affichée), import depuis l’écran « Nouvelle recette », sans dédoublonnement ni fusion automatique avec les fiches existantes.
+13. Export et import du cahier : fichier **.zip** téléchargeable (tout le cahier ou la liste filtrée affichée), import **.zip** depuis l’écran « Nouvelle recette », sans dédoublonnement ni fusion automatique avec les fiches existantes.
 
 ### Hors périmètre v1
 
@@ -50,10 +50,11 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 ### Export / import du cahier
 
 1. Depuis la liste des recettes, l’utilisateur peut lancer un export : **tout le cahier** ou **uniquement les recettes correspondant aux filtres et à la recherche affichés** (même périmètre que la liste à l’écran).
-2. L’export produit un **fichier JSON** versionné, téléchargeable sur l’appareil ; il contient les fiches recettes et les **images locales** associées (photo recette, captures source, images d’étapes, icônes ingrédients, cache d’illustrations d’étapes mode cuisine le cas échéant). Les URLs vidéo d’étapes sont conservées telles quelles.
-3. Depuis l’écran « Nouvelle recette », l’utilisateur peut **importer** un fichier d’archive JSON ; chaque recette du fichier est **ajoutée** au stockage local.
+2. L’export produit un **fichier .zip** téléchargeable (contient un **JSON** version **v3** à l’entrée conventionnelle `recipe-book.json`), toujours **léger** : texte et structure des recettes uniquement — **aucune image** dans le fichier (pas de blobs, pas de références d’images locales ; les **URLs vidéo** d’étapes sont conservées). Le format zip vise notamment **iOS** (Fichiers, partage). Il n’existe **pas d’options d’export** dans l’interface : un seul flux d’export.
+3. Depuis l’écran « Nouvelle recette », l’utilisateur peut **importer** une archive **.zip** uniquement ; chaque recette du fichier est **ajoutée** au stockage local. Le JSON interne suit les mêmes règles qu’aux points suivants (**v1 / v2 / v3** à l’import). Pendant l’**export** ou l’**import** du cahier, l’interface affiche une **progression** (barre et libellé d’étape) car ces opérations peuvent être longues (compression, écriture locale, réhydratation des images via le BFF). Pour les archives **sans images embarquées** (notamment v3, ou v2 avec profil « tout désactivé »), après création des fiches l’application tente de **réhydrater** la photo principale, les icônes ingrédients et les images d’étapes via le **cache BFF** (`GET /api/generated-images/:key` après clé déterministe) puis en repli sur la **génération IA** côté BFF ; les échecs réseau n’annulent pas l’import. Les archives **v1** ou **v2** avec images incluses se comportent comme auparavant (blobs dans le fichier, pas de réhydratation automatique globale). **Limite** : les **captures d’écran** et **photos importées fichier** qui ne sont **pas** dans le cache BFF déterministe **ne sont pas reconstituables** à partir d’un export v3.
 4. **Aucune détection ni fusion de doublons** : les recettes importées coexistent avec les fiches déjà présentes (titres ou contenus identiques possibles en parallèle). À l’import, de **nouveaux identifiants** sont attribués aux recettes et aux blobs pour ne pas écraser les données existantes.
 5. Le transfert est **manuel** (copie du fichier par l’utilisateur, ex. messagerie ou AirDrop) ; il ne constitue pas une synchronisation cloud multi-appareils.
+6. Le BFF expose des points d’accès **sans génération** pour obtenir des **clés de cache** déterministes (`POST .../cache-key/recipe-image`, `.../cooking-step-image`, `.../ingredient-image`) ; le client peut ensuite lire l’image en cache via `GET /api/generated-images/:key` (notamment lors de la **réhydratation** après import d’archive légère).
 
 ### Organisation et recherche rapide
 

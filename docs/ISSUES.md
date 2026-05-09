@@ -7,6 +7,7 @@ Aucun bug bloquant documenté.
 ## Limitations
 
 - `share_target` PWA non pris en charge par Safari (iOS/macOS) et Firefox ; fallback manuel via collage/presse-papiers requis.
+- Export cahier v3 (ZIP léger) : pas de blobs dans le fichier ; la **réhydratation** après import peut rester longue et réseau-dépendante. Pistes futures : **écriture fichier chunkée** (File System Access API), **upload temporaire** (hors principe local-only par défaut) — non planifié.
 
 ## Différé
 

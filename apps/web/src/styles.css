@@ -1392,8 +1392,12 @@ body {
 .import-analyzing {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 0.75rem;
+  width: 100%;
+  max-width: 22rem;
+  margin-left: auto;
+  margin-right: auto;
   padding: 1.5rem;
   margin-bottom: 1rem;
   background: rgba(31, 79, 70, 0.06);
@@ -1405,6 +1409,21 @@ body {
   color: #3e4b46;
 }
 
+.transfer-progress-stage {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #3e4b46;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.export-book-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
 .export-book-help {
   margin: 0 0 1rem;
   line-height: 1.45;
@@ -1414,6 +1433,26 @@ body {
 
 .export-book-actions {
   gap: 0.65rem;
+}
+
+.export-book-options {
+  margin-bottom: 1rem;
+  gap: 0.5rem;
+}
+
+.export-option-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #3e4b46;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.export-option-row input {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
 }
 
 .add-choice-buttons {

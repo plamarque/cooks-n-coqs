@@ -223,6 +223,58 @@ app.post("/api/generate-recipe-image", async (req, res) => {
   res.json({ imageUrl });
 });
 
+/** Clé de cache uniquement (pas d’appel IA) — pour archives export légères. */
+app.post("/api/generated-images/cache-key/recipe-image", (req, res) => {
+  const title = req.body?.title as string | undefined;
+  const ingredients = req.body?.ingredients as Array<{ label?: string }> | undefined;
+  const steps = req.body?.steps as Array<{ text?: string }> | undefined;
+
+  if (!title?.trim()) {
+    res.status(400).json({ error: "title is required" });
+    return;
+  }
+
+  const input = {
+    title: title.trim(),
+    ingredients: Array.isArray(ingredients)
+      ? ingredients.map((i) => ({ label: String(i?.label ?? "").trim() }))
+      : [],
+    steps: Array.isArray(steps)
+      ? steps.map((s) => ({ text: String(s?.text ?? "").trim() }))
+      : []
+  };
+
+  const imageOpts = { model: getImageModel("recipe"), quality: getImageQuality("recipe") };
+  const key = buildRecipeImageCacheKey(input, imageOpts);
+  res.json({ key });
+});
+
+app.post("/api/generated-images/cache-key/cooking-step-image", (req, res) => {
+  const stepText = req.body?.stepText as string | undefined;
+  if (!stepText?.trim()) {
+    res.status(400).json({ error: "stepText is required" });
+    return;
+  }
+
+  const input = { stepText: stepText.trim() };
+  const imageOpts = { model: getImageModel("cooking_step"), quality: getImageQuality("cooking_step") };
+  const key = buildCookingStepImageCacheKey(input, imageOpts);
+  res.json({ key });
+});
+
+app.post("/api/generated-images/cache-key/ingredient-image", (req, res) => {
+  const label = req.body?.label as string | undefined;
+  if (!label?.trim()) {
+    res.status(400).json({ error: "label is required" });
+    return;
+  }
+
+  const input = { label: label.trim() };
+  const imageOpts = { model: getImageModel("ingredient"), quality: getImageQuality("ingredient") };
+  const key = buildIngredientImageCacheKey(input, imageOpts);
+  res.json({ key });
+});
+
 app.post("/api/generate-ingredient-image", async (req, res) => {
   const label = req.body?.label as string | undefined;
   if (!label?.trim()) {
