@@ -21,8 +21,15 @@ import { isRecipeValidForSave } from "@cookies-et-coquilettes/domain";
 import RecipeImage from "./components/RecipeImage.vue";
 import IngredientImage from "./components/IngredientImage.vue";
 import IngredientDetailModal from "./components/IngredientDetailModal.vue";
+import ProximityQrShareOverlay from "./components/ProximityQrShareOverlay.vue";
 import StepMentionedIngredientIcons from "./components/StepMentionedIngredientIcons.vue";
 import { seedIfEmpty } from "./seed/seed-if-empty";
+import { isModeAShareableSourceUrl } from "./services/proximity-deep-link-core";
+import {
+  closeProximityShareSession,
+  openProximityModeAShareSession
+} from "./services/proximity-share-session";
+import { ProximityTransfer } from "./services/proximity-transfer-service";
 import {
   dexieRecipeService,
   getImageBlobUrl,
@@ -202,6 +209,10 @@ const cookingModeRecipeId = ref<string | null>(null);
 const selectedIngredientForModal = ref<IngredientLine | null>(null);
 const ingredientModalVisible = ref(false);
 const ingredientImageRefreshKey = ref(0);
+
+const proximityShareVisible = ref(false);
+const proximityShareLink = ref("");
+const proximityShareTitle = ref<string | undefined>(undefined);
 
 const FEATURE_PORTIONS_ENABLED = true;
 const baseUrl = import.meta.env.BASE_URL;
@@ -592,6 +603,10 @@ function formToRecipe(existing?: Recipe): Recipe {
 
 const selectedRecipe = computed(() =>
   recipes.value.find((recipe) => recipe.id === selectedRecipeId.value) ?? null
+);
+
+const canShareModeA = computed(() =>
+  isModeAShareableSourceUrl(selectedRecipe.value?.source?.url)
 );
 
 const formRecipeSourceImageIds = computed(
@@ -1343,13 +1358,38 @@ watch(activeFilters, async () => {
 watch(selectedRecipeId, () => {
   cookingStepIndex.value = 0;
   showCookingIngredients.value = false;
+  closeProximityShareOverlay();
 });
 
 watch(viewMode, (mode) => {
   if (mode === "ADD_CHOICE") {
     scheduleAdjustPasteFieldHeight();
   }
+  if (mode !== "DETAIL") {
+    closeProximityShareOverlay();
+  }
 });
+
+watch(canShareModeA, (shareable) => {
+  if (!shareable && proximityShareVisible.value) {
+    closeProximityShareOverlay();
+  }
+});
+
+/** Évite un QR stale si l’URL source ou le titre change alors que le Mode A reste éligible. */
+watch(
+  () =>
+    [selectedRecipe.value?.source?.url, selectedRecipe.value?.title] as const,
+  (next, prev) => {
+    if (!proximityShareVisible.value || prev === undefined) {
+      return;
+    }
+    if (next[0] === prev[0] && next[1] === prev[1]) {
+      return;
+    }
+    closeProximityShareOverlay();
+  }
+);
 
 watch(importBusy, () => {
   if (viewMode.value === "ADD_CHOICE") {
@@ -1680,6 +1720,61 @@ async function backToList(): Promise<void> {
   }
   viewMode.value = "LIST";
   formRecipeId.value = null;
+}
+
+function applyProximityShareSession(session: {
+  visible: boolean;
+  deepLinkUrl: string;
+  recipeTitle?: string;
+}): void {
+  proximityShareVisible.value = session.visible;
+  proximityShareLink.value = session.deepLinkUrl;
+  proximityShareTitle.value = session.recipeTitle;
+}
+
+/** Ferme l’overlay et réinitialise lien/titre (détail inchangé). */
+function closeProximityShareOverlay(): void {
+  applyProximityShareSession(
+    closeProximityShareSession({
+      visible: proximityShareVisible.value,
+      deepLinkUrl: proximityShareLink.value,
+      recipeTitle: proximityShareTitle.value
+    })
+  );
+}
+
+/** Partage proximité Mode A : overlay QR uniquement (pas de drop BFF ni écriture carnet). */
+function openProximityModeAShare(): void {
+  const recipe = selectedRecipe.value;
+  const sourceUrl = recipe?.source?.url;
+  if (!recipe || !isModeAShareableSourceUrl(sourceUrl)) {
+    return;
+  }
+  clearMessages();
+  ingredientModalVisible.value = false;
+  selectedIngredientForModal.value = null;
+  try {
+    const link = ProximityTransfer.buildModeALink(sourceUrl!, recipe.title);
+    applyProximityShareSession(openProximityModeAShareSession(link, recipe.title));
+  } catch (error) {
+    closeProximityShareOverlay();
+    errorMessage.value =
+      error instanceof Error
+        ? error.message
+        : "Impossible de préparer le partage de cette recette.";
+  }
+}
+
+/** Fermer / dismiss : masque l’overlay et reset session ; le détail (viewMode) reste inchangé. */
+function onProximityShareVisibleUpdate(visible: boolean): void {
+  if (visible) {
+    if (!proximityShareLink.value.trim()) {
+      return;
+    }
+    proximityShareVisible.value = true;
+    return;
+  }
+  closeProximityShareOverlay();
 }
 
 function addIngredient(): void {
@@ -2874,6 +2969,16 @@ onUnmounted(() => {
             @click="openEditForm(selectedRecipe)"
           />
           <Button
+            v-if="canShareModeA"
+            label="Partager"
+            text
+            icon="pi pi-share-alt"
+            size="small"
+            class="recipe-detail-action"
+            aria-label="Partager cette recette"
+            @click="openProximityModeAShare"
+          />
+          <Button
             severity="danger"
             text
             size="small"
@@ -2992,6 +3097,12 @@ onUnmounted(() => {
         :recipe="selectedRecipe"
         :refresh-key="ingredientImageRefreshKey"
         @image-updated="ingredientImageRefreshKey++"
+      />
+      <ProximityQrShareOverlay
+        :visible="proximityShareVisible"
+        :deep-link-url="proximityShareLink"
+        :recipe-title="proximityShareTitle"
+        @update:visible="onProximityShareVisibleUpdate"
       />
 
       <h3>Préparation</h3>

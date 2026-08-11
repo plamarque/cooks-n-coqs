@@ -11,7 +11,8 @@ function resolvePwaOrigin(): string {
 }
 
 function resolveBasePath(): string {
-  return import.meta.env.BASE_URL;
+  // Vite peut exposer BASE_URL="" ; `||` couvre nullish et chaîne vide.
+  return import.meta.env?.BASE_URL || "/";
 }
 
 /** Seam partage proximité (AD-14) : construction de liens deep link PWA, sans Dexie ni BFF. */

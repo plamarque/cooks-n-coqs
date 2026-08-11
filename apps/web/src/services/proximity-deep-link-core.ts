@@ -51,6 +51,11 @@ function normalizeHttpSourceUrl(value: string | null): string | undefined {
   }
 }
 
+/** Gate UI Mode A : URL source éligible au partage QR (http(s) normalisable). */
+export function isModeAShareableSourceUrl(sourceUrl: string | null | undefined): boolean {
+  return normalizeHttpSourceUrl(sourceUrl ?? null) !== undefined;
+}
+
 function invalidIntent(reason: string): ProximityIntentInvalid {
   return { ok: false, reason };
 }
