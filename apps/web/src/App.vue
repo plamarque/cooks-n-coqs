@@ -22,9 +22,25 @@ import RecipeImage from "./components/RecipeImage.vue";
 import IngredientImage from "./components/IngredientImage.vue";
 import IngredientDetailModal from "./components/IngredientDetailModal.vue";
 import ProximityQrShareOverlay from "./components/ProximityQrShareOverlay.vue";
+import ProximityReceiveConfirmOverlay from "./components/ProximityReceiveConfirmOverlay.vue";
+import ProximityReceiveInstallLanding from "./components/ProximityReceiveInstallLanding.vue";
+import ProximityReceiveUpdateBarrier from "./components/ProximityReceiveUpdateBarrier.vue";
 import StepMentionedIngredientIcons from "./components/StepMentionedIngredientIcons.vue";
 import { seedIfEmpty } from "./seed/seed-if-empty";
 import { isModeAShareableSourceUrl } from "./services/proximity-deep-link-core";
+import {
+  isProximityDisplayStandalone,
+  isProximityReceiveCapable
+} from "./services/proximity-receive-display";
+import {
+  cancelProximityReceiveSession,
+  confirmProximityReceiveSession,
+  continueProximityReceiveFromInstall,
+  createIdleProximityReceiveSession,
+  isProximityReceiveConfirmOverlayVisible,
+  openProximityReceiveSession,
+  type ProximityReceiveSession
+} from "./services/proximity-receive-session";
 import {
   closeProximityShareSession,
   openProximityModeAShareSession
@@ -70,7 +86,10 @@ import {
   clearShareImportParamsFromWindowLocation,
   readShareImportPayloadFromWindow
 } from "./services/share-target-service";
-import { consumeProximityIntentFromWindow } from "./services/proximity-receive-service";
+import {
+  clearProximityIntent,
+  consumeProximityIntentFromWindow
+} from "./services/proximity-receive-service";
 
 type ViewMode = "LIST" | "DETAIL" | "FORM" | "ADD_CHOICE";
 type FormMode = "CREATE" | "EDIT";
@@ -213,6 +232,17 @@ const ingredientImageRefreshKey = ref(0);
 const proximityShareVisible = ref(false);
 const proximityShareLink = ref("");
 const proximityShareTitle = ref<string | undefined>(undefined);
+
+const proximityReceiveSession = ref<ProximityReceiveSession>(createIdleProximityReceiveSession());
+const proximityReceiveInstallVisible = computed(
+  () => proximityReceiveSession.value.phase === "install"
+);
+const proximityReceiveUpdateVisible = computed(
+  () => proximityReceiveSession.value.phase === "update"
+);
+const proximityReceiveConfirmVisible = computed(() =>
+  isProximityReceiveConfirmOverlayVisible(proximityReceiveSession.value)
+);
 
 const FEATURE_PORTIONS_ENABLED = true;
 const baseUrl = import.meta.env.BASE_URL;
@@ -1087,8 +1117,55 @@ async function importFromClipboardFallback(): Promise<void> {
   }
 }
 
+function applyProximityReceiveSession(session: ProximityReceiveSession): void {
+  proximityReceiveSession.value = session;
+}
+
+/**
+ * Seam réception CAP-2/CAP-3 : intent mémoire → install | màj | confirm.
+ * Ne strippe pas les query `/r` ; pas d’IndexedDB ni import/BFF.
+ */
 function bootstrapProximityReceiveFromUrl(): void {
-  consumeProximityIntentFromWindow(baseUrl);
+  const result = consumeProximityIntentFromWindow(baseUrl);
+  if (!result || "ok" in result) {
+    applyProximityReceiveSession(createIdleProximityReceiveSession());
+    return;
+  }
+
+  applyProximityReceiveSession(
+    openProximityReceiveSession({
+      intent: result,
+      isStandalone: isProximityDisplayStandalone(),
+      isCapable: isProximityReceiveCapable()
+    })
+  );
+}
+
+function onProximityReceiveContinueFromInstall(): void {
+  applyProximityReceiveSession(
+    continueProximityReceiveFromInstall(
+      proximityReceiveSession.value,
+      isProximityReceiveCapable()
+    )
+  );
+}
+
+/** Confirmer = consentement mémoire only (hook story 4) — zéro Dexie / create / BFF. */
+function onProximityReceiveConfirm(): void {
+  applyProximityReceiveSession(confirmProximityReceiveSession(proximityReceiveSession.value));
+}
+
+/** Annuler = clear intent + dismiss UI ; IndexedDB inchangé. */
+function onProximityReceiveCancel(): void {
+  clearProximityIntent();
+  applyProximityReceiveSession(cancelProximityReceiveSession(proximityReceiveSession.value));
+}
+
+function onProximityReceiveConfirmVisibleUpdate(visible: boolean): void {
+  // Ne pas traiter le masquage post-Confirmer (`confirmed=true`) comme Annuler.
+  if (!visible && isProximityReceiveConfirmOverlayVisible(proximityReceiveSession.value)) {
+    onProximityReceiveCancel();
+  }
 }
 
 async function consumeShareTargetPayloadFromUrl(): Promise<void> {
@@ -2415,6 +2492,22 @@ onUnmounted(() => {
         />
       </div>
     </Dialog>
+    <ProximityReceiveInstallLanding
+      :visible="proximityReceiveInstallVisible"
+      :display-title="proximityReceiveSession.displayTitle"
+      @continue="onProximityReceiveContinueFromInstall"
+    />
+    <ProximityReceiveUpdateBarrier
+      :visible="proximityReceiveUpdateVisible"
+      @cancel="onProximityReceiveCancel"
+    />
+    <ProximityReceiveConfirmOverlay
+      :visible="proximityReceiveConfirmVisible"
+      :display-title="proximityReceiveSession.displayTitle"
+      @confirm="onProximityReceiveConfirm"
+      @cancel="onProximityReceiveCancel"
+      @update:visible="onProximityReceiveConfirmVisibleUpdate"
+    />
     <section v-if="errorMessage" class="message error">{{ errorMessage }}</section>
     <section v-else-if="feedback" :class="['message', feedbackType === 'warning' ? 'warning' : 'success']">{{ feedback }}</section>
 
