@@ -1,6 +1,26 @@
-import { defineConfig } from "vite";
+import { copyFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { defineConfig, type Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { VitePWA } from "vite-plugin-pwa";
+
+/** GitHub Pages sert 404.html pour les chemins inconnus ; copie index.html pour le cold open `/r`. */
+function spa404Fallback(): Plugin {
+  return {
+    name: "spa-404-fallback",
+    closeBundle() {
+      const distDir = resolve(__dirname, "dist");
+      const indexPath = resolve(distDir, "index.html");
+      const fallbackPath = resolve(distDir, "404.html");
+      if (!existsSync(indexPath)) {
+        throw new Error(
+          `spa-404-fallback: index.html introuvable dans ${distDir} — build incomplet ou dist absent.`
+        );
+      }
+      copyFileSync(indexPath, fallbackPath);
+    }
+  };
+}
 
 const basePath = process.env.VITE_BASE_PATH || "/";
 
@@ -43,6 +63,8 @@ export default defineConfig({
           }
         }
       }
-    })
+    }),
+    // Après VitePWA pour copier le index.html final (évite 404.html obsolète).
+    spa404Fallback()
   ]
 });

@@ -63,6 +63,7 @@ import {
   clearShareImportParamsFromWindowLocation,
   readShareImportPayloadFromWindow
 } from "./services/share-target-service";
+import { consumeProximityIntentFromWindow } from "./services/proximity-receive-service";
 
 type ViewMode = "LIST" | "DETAIL" | "FORM" | "ADD_CHOICE";
 type FormMode = "CREATE" | "EDIT";
@@ -1069,6 +1070,10 @@ async function importFromClipboardFallback(): Promise<void> {
   } finally {
     clipboardBusy.value = false;
   }
+}
+
+function bootstrapProximityReceiveFromUrl(): void {
+  consumeProximityIntentFromWindow(baseUrl);
 }
 
 async function consumeShareTargetPayloadFromUrl(): Promise<void> {
@@ -2198,6 +2203,7 @@ onMounted(async () => {
   }
   await seedIfEmpty();
   await refresh();
+  bootstrapProximityReceiveFromUrl();
   await consumeShareTargetPayloadFromUrl();
 });
 

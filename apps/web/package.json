@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && npm run verify:spa-fallback",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "test:unit": "node --import tsx --test test/*.test.ts"
+    "test:unit": "node --import tsx --test test/*.test.ts",
+    "verify:spa-fallback": "node --input-type=module -e \"import { existsSync, readFileSync } from 'node:fs'; import { resolve } from 'node:path'; const d=resolve(process.cwd(),'dist'); const i=resolve(d,'index.html'); const f=resolve(d,'404.html'); if(!existsSync(i)||!existsSync(f)){ console.error('verify:spa-fallback: dist/index.html ou dist/404.html manquant — lancer npm run build depuis apps/web'); process.exit(1); } if(readFileSync(i,'utf8')!==readFileSync(f,'utf8')){ console.error('verify:spa-fallback: dist/404.html diffère de dist/index.html'); process.exit(1); }\""
   },
   "dependencies": {
     "@cookies-et-coquilettes/domain": "0.1.0",
