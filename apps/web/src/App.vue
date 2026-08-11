@@ -87,8 +87,14 @@ import {
   readShareImportPayloadFromWindow
 } from "./services/share-target-service";
 import {
+  importProximityModeAAfterConfirm,
+  resolveProximityPostConfirmAction
+} from "./services/proximity-receive-import";
+import {
+  clearProximityDeepLinkParamsFromWindowLocation,
   clearProximityIntent,
-  consumeProximityIntentFromWindow
+  consumeProximityIntentFromWindow,
+  getProximityIntent
 } from "./services/proximity-receive-service";
 
 type ViewMode = "LIST" | "DETAIL" | "FORM" | "ADD_CHOICE";
@@ -1150,9 +1156,69 @@ function onProximityReceiveContinueFromInstall(): void {
   );
 }
 
-/** Confirmer = consentement mémoire only (hook story 4) — zéro Dexie / create / BFF. */
-function onProximityReceiveConfirm(): void {
+/**
+ * Confirmer : consentement mémoire puis import Mode A (parse → dédup → create).
+ * Mode B : no-op écriture (story 6) — overlay masqué, intent conservé.
+ */
+async function onProximityReceiveConfirm(): Promise<void> {
+  // Anti double-clic / réentrance pendant un import déjà en cours.
+  if (importBusy.value) {
+    return;
+  }
+
   applyProximityReceiveSession(confirmProximityReceiveSession(proximityReceiveSession.value));
+
+  const intent = getProximityIntent();
+  const postConfirmAction = resolveProximityPostConfirmAction(intent);
+
+  if (postConfirmAction !== "mode-a") {
+    if (postConfirmAction === "invalid") {
+      clearProximityIntent();
+      clearProximityDeepLinkParamsFromWindowLocation();
+      applyProximityReceiveSession(createIdleProximityReceiveSession());
+    }
+    // Mode B : pas de burn / create ici (story 6).
+    return;
+  }
+
+  if (!intent || "ok" in intent || intent.mode !== "a") {
+    return;
+  }
+
+  clearMessages();
+  importBusy.value = true;
+  importSourceType.value = "url";
+  try {
+    const result = await importProximityModeAAfterConfirm(intent.sourceUrl, {
+      importFromUrl: (url) => bffImportService.importFromUrl(url),
+      listRecipes: () => dexieRecipeService.listRecipes(),
+      createRecipe: (recipe) => dexieRecipeService.createRecipe(recipe)
+    });
+
+    if (result.status === "skipped") {
+      feedbackType.value = "warning";
+      feedback.value = "Cette recette est déjà dans votre carnet.";
+    } else {
+      selectedRecipeId.value = result.recipe.id;
+      favoriteOnly.value = false;
+      await refresh();
+      viewMode.value = "DETAIL";
+      feedbackType.value = "success";
+      feedback.value = "Recette importée.";
+      startAsyncImageForRecipe(result.recipe.id, result.draft);
+      void hydrateStepMediaFromDraft(result.recipe.id, result.recipe.steps, result.draft.steps).then(
+        () => refresh()
+      );
+    }
+  } catch (error) {
+    setError(error);
+  } finally {
+    importBusy.value = false;
+    importSourceType.value = null;
+    clearProximityIntent();
+    clearProximityDeepLinkParamsFromWindowLocation();
+    applyProximityReceiveSession(createIdleProximityReceiveSession());
+  }
 }
 
 /** Annuler = clear intent + dismiss UI ; IndexedDB inchangé. */
