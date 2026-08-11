@@ -9,3 +9,13 @@ dist
 e2e/tmp
 playwright-report/
 test-results/
+.bmad-loop/runs/
+.bmad-loop/cache/
+.bmad-loop/policy.toml
+_bmad/render/
+_bmad/config.user.toml
+_bmad/config.user.yaml
+_bmad/custom/config.user.toml
+_bmad-output/
+__pycache__/
+*.pyc
