@@ -2,7 +2,7 @@
 
 ## Bugs
 
-Aucun bug bloquant documenté.
+- Import URL — `servingsBase` parfois absent alors que la source indique les portions (ex. Marmiton « 4 bons appétits », yield tableau / QuantitativeValue, ou portions seulement dans le HTML). **Résolu** (2026-08-12) : parsing BFF élargi + fallback HTML motifs FR ; régression couverte par `apps/bff/test/parsing-client-servings.test.ts`.
 
 ## Limitations
 

@@ -54,13 +54,48 @@ function parseIso8601DurationToMinutes(value: string | undefined): number | unde
   return hours * 60 + minutes + Math.round(seconds / 60);
 }
 
-function parseServings(value: unknown): number | undefined {
-  if (typeof value === "number" && value > 0) return value;
-  if (typeof value === "string") {
-    const m = value.match(/(\d+)/);
-    if (m) return parseInt(m[1], 10);
+/** Motifs FR courants pour portions (premier entier > 0). */
+const SERVINGS_FR_PATTERN =
+  /(\d+)\s*(?:bons?\s+app[eé]tits?|personnes?|portions?|pers\.?\b)/gi;
+
+function matchServingsFr(text: string): number | undefined {
+  for (const match of text.matchAll(SERVINGS_FR_PATTERN)) {
+    const n = parseInt(match[1], 10);
+    if (n > 0) return n;
   }
   return undefined;
+}
+
+/** Premier entier > 0 dans un recipeYield Schema.org (string, number, tableau, QuantitativeValue). */
+export function parseServings(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const fromFr = matchServingsFr(value);
+    if (fromFr !== undefined) return fromFr;
+    const m = value.match(/(\d+)/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > 0) return n;
+    }
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const parsed = parseServings(item);
+      if (parsed !== undefined) return parsed;
+    }
+    return undefined;
+  }
+  if (value && typeof value === "object" && "value" in value) {
+    return parseServings((value as { value: unknown }).value);
+  }
+  return undefined;
+}
+
+export function extractServingsFromHtml(html: string): number | undefined {
+  return matchServingsFr(html);
 }
 
 const UNIT_PATTERN =
@@ -497,7 +532,7 @@ function mergeHtmlInlineStepMediaIntoDraft(
   return { ...draft, steps: nextSteps };
 }
 
-function extractRecipeFromJsonLd(html: string, baseUrl: string): ParsedRecipeDraft | null {
+export function extractRecipeFromJsonLd(html: string, baseUrl: string): ParsedRecipeDraft | null {
   const $ = cheerio.load(html);
   const scripts = $('script[type="application/ld+json"]');
   for (let i = 0; i < scripts.length; i++) {
@@ -539,10 +574,13 @@ function extractRecipeFromJsonLd(html: string, baseUrl: string): ParsedRecipeDra
                 ? new URL(imageUrl, baseUrl).href
                 : undefined;
 
+          const servingsBase =
+            parseServings(item.recipeYield) ?? extractServingsFromHtml(html);
+
           return {
             title: String(name).trim(),
             category: "SALE",
-            servingsBase: parseServings(item.recipeYield),
+            servingsBase,
             ingredients,
             steps: steps.filter((s) => s.text),
             prepTimeMin: parseIso8601DurationToMinutes(item.prepTime),

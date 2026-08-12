@@ -168,7 +168,7 @@ Ordre de priorité côté BFF :
 
 1. **Scraper Instagram (`instagram-url-direct`)** — pour les URLs `instagram.com` (post/reel/tv), extraction de la caption + médias du post ; le texte est ensuite envoyé au parseur LLM, sinon fallback enrichi.
 2. **YouTube (oEmbed + description HTML)** — pour les URLs `youtube.com` / `youtu.be`, appel oEmbed (thumbnail, titre) et fetch HTML pour `og:description` ou `ytInitialPlayerResponse` ; si la description est suffisante, envoi au parseur LLM ; sinon draft avec titre + poster.
-3. **JSON-LD Schema.org** — si la page contient un bloc `application/ld+json` de type `Recipe`, extraction directe (titre, ingrédients, étapes avec texte et médias d’étape en best effort : plusieurs `image` par nœud d’instruction, champs `video` / `VideoObject` avec `contentUrl` ou `embedUrl`), image principale, portions, temps.
+3. **JSON-LD Schema.org** — si la page contient un bloc `application/ld+json` de type `Recipe`, extraction directe (titre, ingrédients, étapes avec texte et médias d’étape en best effort : plusieurs `image` par nœud d’instruction, champs `video` / `VideoObject` avec `contentUrl` ou `embedUrl`), image principale, portions (`recipeYield` : nombre, chaîne, tableau ou `QuantitativeValue` ; si non exploitable, motifs FR dans le HTML/meta : *N personnes*, *N portions*, *N bons appétits*, *N pers*), temps.
 4. **OpenAI** — si pas de JSON-LD ou extraction incomplète : envoi du texte brut à l’API avec un prompt structuré pour remplir les champs du formulaire.
 5. **Fallback** — draft minimal éditable.
 
