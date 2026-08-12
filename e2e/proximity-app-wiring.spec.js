@@ -131,12 +131,28 @@ async function readCapturedProximityDeepLink(page) {
   return page.evaluate(() => window.__e2eProximityDeepLink);
 }
 
+/** Scrim DESIGN via pt.mask — classe sur le mask + fond rgba(29,31,28,0.45). */
+async function expectProximityScrimMask(page, maskClass) {
+  const mask = page.locator(`.${maskClass}`);
+  await expect(mask).toBeVisible();
+  const bg = await mask.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {
+      backgroundColor: cs.backgroundColor,
+      maskVar: cs.getPropertyValue("--px-mask-background").trim()
+    };
+  });
+  expect(bg.backgroundColor).toBe("rgba(29, 31, 28, 0.45)");
+  expect(bg.maskVar).toBe("rgba(29, 31, 28, 0.45)");
+}
+
 test.describe("Câblage App.vue proximité", () => {
   test("bootstrap Mode A hors standalone → overlay install (DW-2, DW-7)", async ({ page }) => {
     const u = encodeURIComponent(MODE_A_SOURCE);
     await page.goto(`/r?m=a&u=${u}&title=Tarte`);
 
     await expect(page.locator(".proximity-receive-install-dialog")).toBeVisible();
+    await expectProximityScrimMask(page, "proximity-receive-install-mask");
     await expect(page.getByRole("heading", { name: /Installer Cookies/i })).toBeVisible();
     await expect(page.getByRole("button", { name: "Continuer vers la recette" })).toBeVisible();
     await expect(page.locator(".message.error")).toHaveCount(0);
@@ -144,6 +160,7 @@ test.describe("Câblage App.vue proximité", () => {
 
     await page.getByRole("button", { name: "Continuer vers la recette" }).click();
     await expect(page.locator(".proximity-receive-confirm-dialog")).toBeVisible();
+    await expectProximityScrimMask(page, "proximity-receive-confirm-mask");
   });
 
   test("Partager Mode A (seed Coquillettes) → overlay QR (DW-3)", async ({ page }) => {
@@ -157,6 +174,7 @@ test.describe("Câblage App.vue proximité", () => {
     await page.getByRole("button", { name: "Partager cette recette" }).click();
 
     await expect(page.locator(".proximity-qr-share-dialog")).toBeVisible();
+    await expectProximityScrimMask(page, "proximity-qr-share-mask");
     await expect(page.getByRole("img", { name: "QR de partage proximité" })).toBeVisible();
 
     const captured = await readCapturedProximityDeepLink(page);

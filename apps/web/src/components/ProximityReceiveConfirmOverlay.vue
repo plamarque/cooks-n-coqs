@@ -36,6 +36,7 @@ function onVisibleUpdate(value: boolean) {
     :style="{ width: 'min(96vw, 22rem)' }"
     :content-style="{ padding: '1.25rem 1rem 1rem' }"
     class="proximity-receive-confirm-dialog"
+    :pt="{ mask: { class: 'proximity-receive-confirm-mask' } }"
     aria-labelledby="proximity-receive-confirm-title"
     @update:visible="onVisibleUpdate"
   >
@@ -117,7 +118,9 @@ function onVisibleUpdate(value: boolean) {
   overflow: hidden;
 }
 
-.p-dialog-mask:has(.proximity-receive-confirm-dialog) {
-  background-color: rgba(29, 31, 28, 0.45);
+/* Scrim DESIGN via pt.mask : --px-mask-background pour l’anim Aura, background en secours. */
+.proximity-receive-confirm-mask {
+  --px-mask-background: rgba(29, 31, 28, 0.45);
+  background: rgba(29, 31, 28, 0.45);
 }
 </style>

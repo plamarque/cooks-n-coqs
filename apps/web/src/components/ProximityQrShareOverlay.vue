@@ -32,6 +32,7 @@ function close() {
     :style="{ width: 'min(96vw, 22rem)' }"
     :content-style="{ padding: '1.25rem 1rem 1rem' }"
     class="proximity-qr-share-dialog"
+    :pt="{ mask: { class: 'proximity-qr-share-mask' } }"
     aria-labelledby="proximity-qr-share-title"
     @update:visible="(v: boolean) => emit('update:visible', v)"
   >
@@ -151,14 +152,15 @@ function close() {
 </style>
 
 <style>
-/* Scrim DESIGN : derrière le sheet QR (PrimeVue mask). */
 .proximity-qr-share-dialog.p-dialog {
   border-radius: 1rem;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
   overflow: hidden;
 }
 
-.p-dialog-mask:has(.proximity-qr-share-dialog) {
-  background-color: rgba(29, 31, 28, 0.45);
+/* Scrim DESIGN via pt.mask : --px-mask-background pour l’anim Aura, background en secours. */
+.proximity-qr-share-mask {
+  --px-mask-background: rgba(29, 31, 28, 0.45);
+  background: rgba(29, 31, 28, 0.45);
 }
 </style>
