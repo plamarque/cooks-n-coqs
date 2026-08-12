@@ -7,7 +7,9 @@ import {
 } from "@cookies-et-coquilettes/domain";
 import {
   buildRecipeFromProximityDraft,
+  clearProximityModeBRetainedPayload,
   importProximityModeAAfterConfirm,
+  importProximityModeBAfterConfirm,
   PARSE_FAIL_MESSAGE,
   resolveProximityPostConfirmAction
 } from "../src/services/proximity-receive-import";
@@ -47,24 +49,29 @@ function sampleDraft(overrides: Partial<ParsedRecipeDraft> = {}): ParsedRecipeDr
 }
 
 /**
- * Miroir du garde App : Annuler / hors Mode A → jamais d’appel au seam import.
- * Compteurs = spy sur importProximityModeAAfterConfirm + create.
+ * Miroir du garde App : Annuler / Mode A / Mode B → seams correspondants.
+ * Compteurs = spy sur import Mode A / Mode B.
  */
 async function runPostConfirmLikeApp(options: {
   userAction: "confirm" | "cancel";
   intent: Parameters<typeof resolveProximityPostConfirmAction>[0];
   importModeA: () => Promise<void>;
-}): Promise<{ importModeACalls: number }> {
+  importModeB?: () => Promise<void>;
+}): Promise<{ importModeACalls: number; importModeBCalls: number }> {
   let importModeACalls = 0;
+  let importModeBCalls = 0;
   if (options.userAction === "cancel") {
-    return { importModeACalls };
+    return { importModeACalls, importModeBCalls };
   }
   const action = resolveProximityPostConfirmAction(options.intent);
   if (action === "mode-a") {
     importModeACalls += 1;
     await options.importModeA();
+  } else if (action === "mode-b") {
+    importModeBCalls += 1;
+    await options.importModeB?.();
   }
-  return { importModeACalls };
+  return { importModeACalls, importModeBCalls };
 }
 
 test("importProximityModeAAfterConfirm — crée avec importSourceStableKey", async () => {
@@ -163,12 +170,14 @@ test("Annuler — n’appelle ni importProximityModeAAfterConfirm ni create", as
   assert.equal(createCalls, 0);
 });
 
-test("Confirmer Mode B — resolveProximityPostConfirmAction = mode-b (pas d’import)", async () => {
+test("Confirmer Mode B — miroir App : consume + create (seam story 6)", async () => {
+  clearProximityModeBRetainedPayload();
   const intent = { mode: "b" as const, ticketId: "ticket-1", title: "Tarte" };
   assert.equal(resolveProximityPostConfirmAction(intent), "mode-b");
 
   let createCalls = 0;
-  const { importModeACalls } = await runPostConfirmLikeApp({
+  let consumeCalls = 0;
+  const { importModeACalls, importModeBCalls } = await runPostConfirmLikeApp({
     userAction: "confirm",
     intent,
     importModeA: async () => {
@@ -179,11 +188,32 @@ test("Confirmer Mode B — resolveProximityPostConfirmAction = mode-b (pas d’i
           createCalls += 1;
         }
       });
+    },
+    importModeB: async () => {
+      await importProximityModeBAfterConfirm(intent.ticketId, {
+        consumeDrop: async (id) => {
+          consumeCalls += 1;
+          assert.equal(id, "ticket-1");
+          return {
+            title: "Tarte",
+            category: "SUCRE",
+            ingredients: [{ id: "", order: 1, label: "Farine", isScalable: false, rawText: "Farine" }],
+            steps: [{ id: "", order: 1, text: "Mélanger." }]
+          };
+        },
+        listRecipes: async () => [],
+        createRecipe: async () => {
+          createCalls += 1;
+        },
+        newId: () => "bob-from-mirror"
+      });
     }
   });
 
   assert.equal(importModeACalls, 0);
-  assert.equal(createCalls, 0);
+  assert.equal(importModeBCalls, 1);
+  assert.equal(consumeCalls, 1);
+  assert.equal(createCalls, 1);
 });
 
 test("importProximityModeAAfterConfirm — parse fail : pas de put", async () => {

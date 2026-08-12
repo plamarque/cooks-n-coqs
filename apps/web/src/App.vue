@@ -42,6 +42,15 @@ import {
   type ProximityReceiveSession
 } from "./services/proximity-receive-session";
 import {
+  createProximityDrop,
+  consumeProximityDrop,
+  ProximityDropClientError
+} from "./services/proximity-drop-client";
+import {
+  proximityDropEnvelopeToPostBody,
+  recipeToProximityDropEnvelope
+} from "./services/proximity-mode-b-envelope";
+import {
   closeProximityShareSession,
   openProximityModeAShareSession
 } from "./services/proximity-share-session";
@@ -87,8 +96,12 @@ import {
   readShareImportPayloadFromWindow
 } from "./services/share-target-service";
 import {
+  clearProximityModeBRetainedPayload,
+  getProximityModeBRetainedPayload,
   importProximityModeAAfterConfirm,
-  resolveProximityPostConfirmAction
+  importProximityModeBAfterConfirm,
+  resolveProximityPostConfirmAction,
+  retryProximityModeBCreateFromMemory
 } from "./services/proximity-receive-import";
 import {
   clearProximityDeepLinkParamsFromWindowLocation,
@@ -238,6 +251,9 @@ const ingredientImageRefreshKey = ref(0);
 const proximityShareVisible = ref(false);
 const proximityShareLink = ref("");
 const proximityShareTitle = ref<string | undefined>(undefined);
+/** Mode de l’overlay QR ouvert — évite de fermer un QR Mode B via `canShareModeA` seul. */
+const proximityShareMode = ref<"a" | "b" | null>(null);
+const proximityShareBusy = ref(false);
 
 const proximityReceiveSession = ref<ProximityReceiveSession>(createIdleProximityReceiveSession());
 const proximityReceiveInstallVisible = computed(
@@ -644,6 +660,9 @@ const selectedRecipe = computed(() =>
 const canShareModeA = computed(() =>
   isModeAShareableSourceUrl(selectedRecipe.value?.source?.url)
 );
+
+/** Partager : Mode A si URL http(s), sinon Mode B (copie locale / sans URL fiable). */
+const canShareProximity = computed(() => Boolean(selectedRecipe.value));
 
 const formRecipeSourceImageIds = computed(
   () => recipes.value.find((r) => r.id === formRecipeId.value)?.sourceImageIds ?? []
@@ -1157,8 +1176,8 @@ function onProximityReceiveContinueFromInstall(): void {
 }
 
 /**
- * Confirmer : consentement mémoire puis import Mode A (parse → dédup → create).
- * Mode B : no-op écriture (story 6) — overlay masqué, intent conservé.
+ * Confirmer : consentement mémoire puis import Mode A (parse → dédup → create)
+ * ou Mode B (GET burn → dédup optionnelle → create Bob-ids).
  */
 async function onProximityReceiveConfirm(): Promise<void> {
   // Anti double-clic / réentrance pendant un import déjà en cours.
@@ -1171,29 +1190,89 @@ async function onProximityReceiveConfirm(): Promise<void> {
   const intent = getProximityIntent();
   const postConfirmAction = resolveProximityPostConfirmAction(intent);
 
-  if (postConfirmAction !== "mode-a") {
-    if (postConfirmAction === "invalid") {
-      clearProximityIntent();
-      clearProximityDeepLinkParamsFromWindowLocation();
-      applyProximityReceiveSession(createIdleProximityReceiveSession());
-    }
-    // Mode B : pas de burn / create ici (story 6).
+  if (postConfirmAction === "invalid") {
+    clearProximityIntent();
+    clearProximityDeepLinkParamsFromWindowLocation();
+    applyProximityReceiveSession(createIdleProximityReceiveSession());
+    clearProximityModeBRetainedPayload();
     return;
   }
 
-  if (!intent || "ok" in intent || intent.mode !== "a") {
+  if (postConfirmAction === "mode-a") {
+    if (!intent || "ok" in intent || intent.mode !== "a") {
+      clearProximityIntent();
+      clearProximityDeepLinkParamsFromWindowLocation();
+      applyProximityReceiveSession(createIdleProximityReceiveSession());
+      clearProximityModeBRetainedPayload();
+      return;
+    }
+
+    clearMessages();
+    importBusy.value = true;
+    importSourceType.value = "url";
+    try {
+      const result = await importProximityModeAAfterConfirm(intent.sourceUrl, {
+        importFromUrl: (url) => bffImportService.importFromUrl(url),
+        listRecipes: () => dexieRecipeService.listRecipes(),
+        createRecipe: (recipe) => dexieRecipeService.createRecipe(recipe)
+      });
+
+      if (result.status === "skipped") {
+        feedbackType.value = "warning";
+        feedback.value = "Cette recette est déjà dans votre carnet.";
+      } else {
+        selectedRecipeId.value = result.recipe.id;
+        favoriteOnly.value = false;
+        await refresh();
+        viewMode.value = "DETAIL";
+        feedbackType.value = "success";
+        feedback.value = "Recette importée.";
+        startAsyncImageForRecipe(result.recipe.id, result.draft);
+        void hydrateStepMediaFromDraft(result.recipe.id, result.recipe.steps, result.draft.steps).then(
+          () => refresh()
+        );
+      }
+    } catch (error) {
+      setError(error);
+    } finally {
+      importBusy.value = false;
+      importSourceType.value = null;
+      clearProximityIntent();
+      clearProximityDeepLinkParamsFromWindowLocation();
+      applyProximityReceiveSession(createIdleProximityReceiveSession());
+      clearProximityModeBRetainedPayload();
+    }
+    return;
+  }
+
+  // Mode B
+  if (!intent || "ok" in intent || intent.mode !== "b") {
+    clearProximityIntent();
+    clearProximityDeepLinkParamsFromWindowLocation();
+    applyProximityReceiveSession(createIdleProximityReceiveSession());
+    clearProximityModeBRetainedPayload();
     return;
   }
 
   clearMessages();
   importBusy.value = true;
   importSourceType.value = "url";
+  const modeBDeps = {
+    consumeDrop: (ticketId: string) => consumeProximityDrop(ticketId),
+    listRecipes: () => dexieRecipeService.listRecipes(),
+    createRecipe: (recipe: Recipe) => dexieRecipeService.createRecipe(recipe)
+  };
   try {
-    const result = await importProximityModeAAfterConfirm(intent.sourceUrl, {
-      importFromUrl: (url) => bffImportService.importFromUrl(url),
-      listRecipes: () => dexieRecipeService.listRecipes(),
-      createRecipe: (recipe) => dexieRecipeService.createRecipe(recipe)
-    });
+    let result;
+    try {
+      result = await importProximityModeBAfterConfirm(intent.ticketId, modeBDeps);
+    } catch (firstError) {
+      // Retry mémoire uniquement si burn OK + payload retenu (échec create).
+      if (!getProximityModeBRetainedPayload()) {
+        throw firstError;
+      }
+      result = await retryProximityModeBCreateFromMemory(modeBDeps);
+    }
 
     if (result.status === "skipped") {
       feedbackType.value = "warning";
@@ -1218,12 +1297,14 @@ async function onProximityReceiveConfirm(): Promise<void> {
     clearProximityIntent();
     clearProximityDeepLinkParamsFromWindowLocation();
     applyProximityReceiveSession(createIdleProximityReceiveSession());
+    clearProximityModeBRetainedPayload();
   }
 }
 
-/** Annuler = clear intent + dismiss UI ; IndexedDB inchangé. */
+/** Annuler = clear intent + dismiss UI ; IndexedDB inchangé (pas de GET Mode B). */
 function onProximityReceiveCancel(): void {
   clearProximityIntent();
+  clearProximityModeBRetainedPayload();
   applyProximityReceiveSession(cancelProximityReceiveSession(proximityReceiveSession.value));
 }
 
@@ -1514,12 +1595,13 @@ watch(viewMode, (mode) => {
 });
 
 watch(canShareModeA, (shareable) => {
-  if (!shareable && proximityShareVisible.value) {
+  // Ne fermer que l’overlay Mode A si l’URL source cesse d’être éligible.
+  if (!shareable && proximityShareVisible.value && proximityShareMode.value === "a") {
     closeProximityShareOverlay();
   }
 });
 
-/** Évite un QR stale si l’URL source ou le titre change alors que le Mode A reste éligible. */
+/** Évite un QR stale si l’URL source ou le titre change alors que l’overlay est ouvert. */
 watch(
   () =>
     [selectedRecipe.value?.source?.url, selectedRecipe.value?.title] as const,
@@ -1873,6 +1955,9 @@ function applyProximityShareSession(session: {
   proximityShareVisible.value = session.visible;
   proximityShareLink.value = session.deepLinkUrl;
   proximityShareTitle.value = session.recipeTitle;
+  if (!session.visible) {
+    proximityShareMode.value = null;
+  }
 }
 
 /** Ferme l’overlay et réinitialise lien/titre (détail inchangé). */
@@ -1884,6 +1969,17 @@ function closeProximityShareOverlay(): void {
       recipeTitle: proximityShareTitle.value
     })
   );
+  proximityShareMode.value = null;
+  proximityShareBusy.value = false;
+}
+
+/** Partage proximité : Mode A (URL) ou Mode B (drop ticket) selon la gate. */
+async function openProximityShare(): Promise<void> {
+  if (canShareModeA.value) {
+    openProximityModeAShare();
+    return;
+  }
+  await openProximityModeBShare();
 }
 
 /** Partage proximité Mode A : overlay QR uniquement (pas de drop BFF ni écriture carnet). */
@@ -1898,6 +1994,7 @@ function openProximityModeAShare(): void {
   selectedIngredientForModal.value = null;
   try {
     const link = ProximityTransfer.buildModeALink(sourceUrl!, recipe.title);
+    proximityShareMode.value = "a";
     applyProximityShareSession(openProximityModeAShareSession(link, recipe.title));
   } catch (error) {
     closeProximityShareOverlay();
@@ -1905,6 +2002,41 @@ function openProximityModeAShare(): void {
       error instanceof Error
         ? error.message
         : "Impossible de préparer le partage de cette recette.";
+  }
+}
+
+/** Partage Mode B : envelope → POST drop → QR `m=b&t=` (pas d’écriture Dexie). */
+async function openProximityModeBShare(): Promise<void> {
+  const recipe = selectedRecipe.value;
+  if (!recipe || isModeAShareableSourceUrl(recipe.source?.url)) {
+    return;
+  }
+  if (proximityShareBusy.value) {
+    return;
+  }
+
+  clearMessages();
+  ingredientModalVisible.value = false;
+  selectedIngredientForModal.value = null;
+  proximityShareBusy.value = true;
+
+  try {
+    const envelope = recipeToProximityDropEnvelope(recipe);
+    const body = proximityDropEnvelopeToPostBody(envelope);
+    const { id } = await createProximityDrop(body);
+    const link = ProximityTransfer.buildModeBLink(id, recipe.title);
+    proximityShareMode.value = "b";
+    applyProximityShareSession(openProximityModeAShareSession(link, recipe.title));
+  } catch (error) {
+    closeProximityShareOverlay();
+    errorMessage.value =
+      error instanceof ProximityDropClientError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : "Impossible de préparer le partage de cette recette.";
+  } finally {
+    proximityShareBusy.value = false;
   }
 }
 
@@ -3128,14 +3260,15 @@ onUnmounted(() => {
             @click="openEditForm(selectedRecipe)"
           />
           <Button
-            v-if="canShareModeA"
+            v-if="canShareProximity"
             label="Partager"
             text
             icon="pi pi-share-alt"
             size="small"
             class="recipe-detail-action"
             aria-label="Partager cette recette"
-            @click="openProximityModeAShare"
+            :disabled="proximityShareBusy"
+            @click="openProximityShare"
           />
           <Button
             severity="danger"
