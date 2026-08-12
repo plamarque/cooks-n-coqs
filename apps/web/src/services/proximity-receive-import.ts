@@ -8,6 +8,7 @@ import type {
 } from "@cookies-et-coquilettes/domain";
 import { resolveImportSourceStableKey } from "@cookies-et-coquilettes/domain";
 import type { ProximityParseResult } from "./proximity-deep-link-core";
+import { PROXIMITY_DROP_UNAVAILABLE_MESSAGE } from "./proximity-drop-client";
 
 /** Résultat du seam Mode A post-confirm (AD-17) — sans UI. */
 export type ProximityModeAImportResult =
@@ -41,8 +42,8 @@ export type ProximityPostConfirmAction = "mode-a" | "mode-b" | "invalid";
 export const PARSE_FAIL_MESSAGE =
   "L'import de la recette a échoué. Vérifiez le lien ou redemandez le partage.";
 
-export const MODE_B_PAYLOAD_INVALID_MESSAGE =
-  "Ce partage n'est plus disponible. Redemandez-le à la personne qui vous l'a envoyé.";
+/** Aligné CAP-7 indisponible (payload burn inutilisable). */
+export const MODE_B_PAYLOAD_INVALID_MESSAGE = PROXIMITY_DROP_UNAVAILABLE_MESSAGE;
 
 export const MODE_B_RETRY_WITHOUT_PAYLOAD_MESSAGE =
   "Impossible de réessayer l'import : le contenu du partage n'est plus en mémoire.";

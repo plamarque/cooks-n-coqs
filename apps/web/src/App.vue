@@ -44,6 +44,7 @@ import {
 import {
   createProximityDrop,
   consumeProximityDrop,
+  PROXIMITY_INVALID_LINK_MESSAGE,
   ProximityDropClientError
 } from "./services/proximity-drop-client";
 import {
@@ -1148,11 +1149,22 @@ function applyProximityReceiveSession(session: ProximityReceiveSession): void {
 
 /**
  * Seam réception CAP-2/CAP-3 : intent mémoire → install | màj | confirm.
- * Ne strippe pas les query `/r` ; pas d’IndexedDB ni import/BFF.
+ * Sur deep link `{ok:false}` (CAP-7) : bannière + strip query `/r` + idle ;
+ * sinon ne strippe pas les query ; pas d’IndexedDB ni import/BFF.
  */
 function bootstrapProximityReceiveFromUrl(): void {
   const result = consumeProximityIntentFromWindow(baseUrl);
-  if (!result || "ok" in result) {
+  if (!result) {
+    applyProximityReceiveSession(createIdleProximityReceiveSession());
+    return;
+  }
+  if ("ok" in result) {
+    // CAP-7 : deep link invalide → bannière explicite, pas d'overlay confirm.
+    clearMessages();
+    setError(new Error(PROXIMITY_INVALID_LINK_MESSAGE));
+    clearProximityIntent();
+    clearProximityDeepLinkParamsFromWindowLocation();
+    clearProximityModeBRetainedPayload();
     applyProximityReceiveSession(createIdleProximityReceiveSession());
     return;
   }
@@ -1191,6 +1203,8 @@ async function onProximityReceiveConfirm(): Promise<void> {
   const postConfirmAction = resolveProximityPostConfirmAction(intent);
 
   if (postConfirmAction === "invalid") {
+    clearMessages();
+    setError(new Error(PROXIMITY_INVALID_LINK_MESSAGE));
     clearProximityIntent();
     clearProximityDeepLinkParamsFromWindowLocation();
     applyProximityReceiveSession(createIdleProximityReceiveSession());

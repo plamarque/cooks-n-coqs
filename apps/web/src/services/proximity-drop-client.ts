@@ -26,11 +26,27 @@ export class ProximityDropClientError extends Error {
   }
 }
 
+/** CAP-7 — TTL / consommé / introuvable / payload inutilisable (EXPERIENCE). */
 export const PROXIMITY_DROP_UNAVAILABLE_MESSAGE =
-  "Ce partage n'est plus disponible. Redemandez-le à la personne qui vous l'a envoyé.";
+  "Ce partage n'est plus disponible — redemande à Alice";
+
+/** CAP-7 — hors ligne / échec fetch (distinct de l'indisponible). */
+export const PROXIMITY_DROP_NETWORK_MESSAGE =
+  "Impossible de joindre le partage — vérifiez votre connexion et réessayez.";
+
+/** CAP-7 — deep link `/r` `{ok:false}` / Confirmer invalid. */
+export const PROXIMITY_INVALID_LINK_MESSAGE = "Ce lien de partage n'est pas valide.";
 
 export const PROXIMITY_DROP_CREATE_FAIL_MESSAGE =
   "Impossible de préparer le partage de cette recette.";
+
+/** Microcopy produit selon `ProximityDropFailureReason` (pas de reason brut en UI). */
+export function userMessageForProximityFailure(reason: ProximityDropFailureReason): string {
+  if (reason === "network") {
+    return PROXIMITY_DROP_NETWORK_MESSAGE;
+  }
+  return PROXIMITY_DROP_UNAVAILABLE_MESSAGE;
+}
 
 function dropUrl(pathSuffix = ""): string {
   return `${API_BASE_URL}/api/proximity-drop${pathSuffix}`;
@@ -91,7 +107,7 @@ export async function createProximityDrop(
 export async function consumeProximityDrop(ticketId: string): Promise<unknown> {
   const id = ticketId.trim();
   if (!id) {
-    throw new ProximityDropClientError(PROXIMITY_DROP_UNAVAILABLE_MESSAGE, "not_found");
+    throw new ProximityDropClientError(userMessageForProximityFailure("not_found"), "not_found");
   }
 
   let response: Response;
@@ -101,32 +117,34 @@ export async function consumeProximityDrop(ticketId: string): Promise<unknown> {
       headers: { Accept: "application/json" }
     });
   } catch {
-    throw new ProximityDropClientError(PROXIMITY_DROP_UNAVAILABLE_MESSAGE, "network");
+    throw new ProximityDropClientError(userMessageForProximityFailure("network"), "network");
   }
 
   if (response.status === 404) {
     const body = await readJsonUnknown(response);
-    throw new ProximityDropClientError(
-      PROXIMITY_DROP_UNAVAILABLE_MESSAGE,
-      reasonFromBody(body, "not_found")
-    );
+    const reason = reasonFromBody(body, "not_found");
+    throw new ProximityDropClientError(userMessageForProximityFailure(reason), reason);
   }
 
   if (response.status === 410) {
     const body = await readJsonUnknown(response);
-    throw new ProximityDropClientError(
-      PROXIMITY_DROP_UNAVAILABLE_MESSAGE,
-      reasonFromBody(body, "expired")
-    );
+    const reason = reasonFromBody(body, "expired");
+    throw new ProximityDropClientError(userMessageForProximityFailure(reason), reason);
   }
 
   if (!response.ok) {
-    throw new ProximityDropClientError(PROXIMITY_DROP_UNAVAILABLE_MESSAGE, "invalid_response");
+    throw new ProximityDropClientError(
+      userMessageForProximityFailure("invalid_response"),
+      "invalid_response"
+    );
   }
 
   const body = await readJsonUnknown(response);
   if (body === undefined) {
-    throw new ProximityDropClientError(PROXIMITY_DROP_UNAVAILABLE_MESSAGE, "invalid_response");
+    throw new ProximityDropClientError(
+      userMessageForProximityFailure("invalid_response"),
+      "invalid_response"
+    );
   }
   return body;
 }

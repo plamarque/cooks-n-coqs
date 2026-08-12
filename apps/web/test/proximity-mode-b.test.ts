@@ -7,10 +7,13 @@ import {
 } from "@cookies-et-coquilettes/domain";
 import {
   PROXIMITY_DROP_CREATE_FAIL_MESSAGE,
+  PROXIMITY_DROP_NETWORK_MESSAGE,
   PROXIMITY_DROP_UNAVAILABLE_MESSAGE,
+  PROXIMITY_INVALID_LINK_MESSAGE,
   ProximityDropClientError,
   consumeProximityDrop,
-  createProximityDrop
+  createProximityDrop,
+  userMessageForProximityFailure
 } from "../src/services/proximity-drop-client";
 import {
   proximityDropEnvelopeToPostBody,
@@ -22,6 +25,7 @@ import {
   parseProximityDeepLinkSearch
 } from "../src/services/proximity-deep-link-core";
 import {
+  MODE_B_PAYLOAD_INVALID_MESSAGE,
   clearProximityModeBRetainedPayload,
   getProximityModeBRetainedPayload,
   importProximityModeBAfterConfirm,
@@ -32,8 +36,14 @@ import {
 import { ProximityTransfer } from "../src/services/proximity-transfer-service";
 import {
   cancelProximityReceiveSession,
+  createIdleProximityReceiveSession,
   openProximityReceiveSession
 } from "../src/services/proximity-receive-session";
+import {
+  clearProximityIntent,
+  consumeProximityIntentFromWindow,
+  getProximityIntent
+} from "../src/services/proximity-receive-service";
 
 const ORIGIN = "https://example.github.io";
 const SOURCE_URL = "https://example.com/recipes/tiramisu";
@@ -355,20 +365,20 @@ test("Annuler Mode B — miroir App : cancel n'appelle pas consumeDrop", async (
   assert.equal(consumeCalls, 1);
 });
 
-test("Drop indispo — GET 410/404/réseau : pas de create", async () => {
+test("Drop indispo — GET 410/404 : message indisponible CAP-7, pas de create", async () => {
   clearProximityModeBRetainedPayload();
 
-  for (const status of [410, 404] as const) {
+  for (const { status, reason } of [
+    { status: 410 as const, reason: "expired" as const },
+    { status: 410 as const, reason: "consumed" as const },
+    { status: 404 as const, reason: "not_found" as const }
+  ]) {
     let createCalls = 0;
     const restoreFetch = mockFetchSequence([
       async () =>
-        new Response(
-          JSON.stringify({
-            error: status === 410 ? "expired" : "not found",
-            reason: status === 410 ? "expired" : "not_found"
-          }),
-          { status }
-        )
+        new Response(JSON.stringify({ error: reason, reason }), {
+          status
+        })
     ]);
     try {
       await assert.rejects(
@@ -382,7 +392,9 @@ test("Drop indispo — GET 410/404/réseau : pas de create", async () => {
           }),
         (err: unknown) => {
           assert.ok(err instanceof ProximityDropClientError);
+          assert.equal(err.reason, reason);
           assert.equal(err.message, PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
+          assert.notEqual(err.message, PROXIMITY_DROP_NETWORK_MESSAGE);
           return true;
         }
       );
@@ -392,7 +404,10 @@ test("Drop indispo — GET 410/404/réseau : pas de create", async () => {
       restoreFetch();
     }
   }
+});
 
+test("Drop hors ligne — GET throw : message réseau distinct, pas de create", async () => {
+  clearProximityModeBRetainedPayload();
   let createCalls = 0;
   const restoreFetch = mockFetchSequence([
     async () => {
@@ -412,6 +427,8 @@ test("Drop indispo — GET 410/404/réseau : pas de create", async () => {
       (err: unknown) => {
         assert.ok(err instanceof ProximityDropClientError);
         assert.equal(err.reason, "network");
+        assert.equal(err.message, PROXIMITY_DROP_NETWORK_MESSAGE);
+        assert.notEqual(err.message, PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
         return true;
       }
     );
@@ -450,6 +467,7 @@ test("Alice Mode B — envelope vide (titre seul) refusée", () => {
 
 test("Bob Mode B — payload invalide / vide après consume : pas de create", async () => {
   clearProximityModeBRetainedPayload();
+  assert.equal(MODE_B_PAYLOAD_INVALID_MESSAGE, PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
   for (const payload of [null, {}, { title: "" }, { title: "Seul titre", ingredients: [], steps: [] }]) {
     let createCalls = 0;
     await assert.rejects(
@@ -461,7 +479,11 @@ test("Bob Mode B — payload invalide / vide après consume : pas de create", as
             createCalls += 1;
           }
         }),
-      /n'est plus disponible/
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.equal(err.message, PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
+        return true;
+      }
     );
     assert.equal(createCalls, 0);
     assert.equal(getProximityModeBRetainedPayload(), null);
@@ -513,17 +535,137 @@ test("Bob Mode B — retry mémoire seulement si payload retenu", async () => {
     () =>
       importProximityModeBAfterConfirm("no-retain", {
         consumeDrop: async () => {
-          throw new ProximityDropClientError(PROXIMITY_DROP_UNAVAILABLE_MESSAGE, "network");
+          throw new ProximityDropClientError(PROXIMITY_DROP_NETWORK_MESSAGE, "network");
         },
         listRecipes: async () => [],
         createRecipe: async () => {
           createCalls += 1;
         }
       }),
-    (err: unknown) => err instanceof ProximityDropClientError && err.reason === "network"
+    (err: unknown) =>
+      err instanceof ProximityDropClientError &&
+      err.reason === "network" &&
+      err.message === PROXIMITY_DROP_NETWORK_MESSAGE
   );
   assert.equal(createCalls, 0);
   assert.equal(getProximityModeBRetainedPayload(), null);
+});
+
+test("userMessageForProximityFailure — network ≠ indisponible", () => {
+  assert.equal(userMessageForProximityFailure("network"), PROXIMITY_DROP_NETWORK_MESSAGE);
+  assert.equal(userMessageForProximityFailure("expired"), PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
+  assert.equal(userMessageForProximityFailure("consumed"), PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
+  assert.equal(userMessageForProximityFailure("not_found"), PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
+  assert.equal(userMessageForProximityFailure("invalid_response"), PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
+  assert.equal(userMessageForProximityFailure("bad_request"), PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
+  assert.notEqual(userMessageForProximityFailure("invalid_response"), PROXIMITY_DROP_NETWORK_MESSAGE);
+  assert.notEqual(PROXIMITY_DROP_NETWORK_MESSAGE, PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
+});
+
+/**
+ * Miroir App `bootstrapProximityReceiveFromUrl` + Confirmer invalid :
+ * ok:false / invalid → setError lien invalide + idle (pas d'overlay confirm).
+ */
+function mirrorAppBootstrapAndInvalidConfirm(options: {
+  pathname: string;
+  search: string;
+  basePath: string;
+}): { errorMessage: string; sessionPhase: string; intent: ReturnType<typeof getProximityIntent> } {
+  clearProximityIntent();
+  let errorMessage = "";
+  const setError = (error: unknown) => {
+    errorMessage = error instanceof Error ? error.message : "Une erreur est survenue.";
+  };
+
+  // @ts-expect-error — mock window minimal
+  const previousWindow = globalThis.window;
+  // @ts-expect-error — mock window minimal
+  globalThis.window = {
+    location: {
+      pathname: options.pathname,
+      search: options.search,
+      hash: ""
+    },
+    history: { replaceState() {} }
+  };
+
+  try {
+    const result = consumeProximityIntentFromWindow(options.basePath);
+    let session = createIdleProximityReceiveSession();
+    if (!result) {
+      session = createIdleProximityReceiveSession();
+    } else if ("ok" in result) {
+      errorMessage = ""; // clearMessages
+      setError(new Error(PROXIMITY_INVALID_LINK_MESSAGE));
+      clearProximityIntent();
+      clearProximityModeBRetainedPayload();
+      session = createIdleProximityReceiveSession();
+    } else {
+      session = openProximityReceiveSession({
+        intent: result,
+        isStandalone: true,
+        isCapable: true
+      });
+    }
+
+    return { errorMessage, sessionPhase: session.phase, intent: getProximityIntent() };
+  } finally {
+    if (previousWindow === undefined) {
+      // @ts-expect-error — restaure
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+    clearProximityIntent();
+  }
+}
+
+test("CAP-7 lien invalide — bootstrap ok:false → message + idle, pas confirm", () => {
+  const { errorMessage, sessionPhase, intent } = mirrorAppBootstrapAndInvalidConfirm({
+    pathname: "/r",
+    search: "?m=z",
+    basePath: "/"
+  });
+  assert.equal(errorMessage, PROXIMITY_INVALID_LINK_MESSAGE);
+  assert.equal(sessionPhase, "idle");
+  assert.equal(intent, null);
+});
+
+/**
+ * Miroir App `onProximityReceiveConfirm` branche invalid :
+ * resolve → setError(lien invalide) + clear intent + idle.
+ */
+function mirrorAppConfirmInvalid(
+  intent: Parameters<typeof resolveProximityPostConfirmAction>[0]
+): { errorMessage: string; sessionPhase: string; intent: ReturnType<typeof getProximityIntent> } {
+  clearProximityIntent();
+  let errorMessage = "stale-feedback";
+  const setError = (error: unknown) => {
+    errorMessage = error instanceof Error ? error.message : "Une erreur est survenue.";
+  };
+
+  const postConfirmAction = resolveProximityPostConfirmAction(intent);
+  let session = createIdleProximityReceiveSession();
+  if (postConfirmAction === "invalid") {
+    errorMessage = ""; // clearMessages
+    setError(new Error(PROXIMITY_INVALID_LINK_MESSAGE));
+    clearProximityIntent();
+    clearProximityModeBRetainedPayload();
+    session = createIdleProximityReceiveSession();
+  }
+
+  return { errorMessage, sessionPhase: session.phase, intent: getProximityIntent() };
+}
+
+test("CAP-7 Confirmer invalid — message lien invalide, pas silence", () => {
+  const { errorMessage, sessionPhase, intent } = mirrorAppConfirmInvalid({
+    ok: false,
+    reason: "Paramètre m manquant ou vide."
+  });
+  assert.equal(errorMessage, PROXIMITY_INVALID_LINK_MESSAGE);
+  assert.notEqual(errorMessage, PROXIMITY_DROP_UNAVAILABLE_MESSAGE);
+  assert.equal(sessionPhase, "idle");
+  assert.equal(intent, null);
 });
 
 /**
