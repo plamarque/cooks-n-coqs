@@ -61,6 +61,10 @@ import {
   PROXIMITY_MODE_B_TICKET_ID_LENGTH
 } from "./utils/qr-payload-capacity";
 import {
+  proximityShareContentFingerprint,
+  shouldCloseProximityShareForStaleContent
+} from "./utils/proximity-share-content-fingerprint";
+import {
   dexieRecipeService,
   getImageBlobUrl,
   storeImageFromFile,
@@ -1619,15 +1623,20 @@ watch(canShareModeA, (shareable) => {
   }
 });
 
-/** Évite un QR stale si l’URL source ou le titre change alors que l’overlay est ouvert. */
+/**
+ * Évite un QR stale si le contenu partageable diverge (url, titre, servings,
+ * ingrédients, étapes) alors que l’overlay est ouvert.
+ */
 watch(
-  () =>
-    [selectedRecipe.value?.source?.url, selectedRecipe.value?.title] as const,
+  () => proximityShareContentFingerprint(selectedRecipe.value),
   (next, prev) => {
-    if (!proximityShareVisible.value || prev === undefined) {
-      return;
-    }
-    if (next[0] === prev[0] && next[1] === prev[1]) {
+    if (
+      !shouldCloseProximityShareForStaleContent({
+        overlayVisible: proximityShareVisible.value,
+        previousFingerprint: prev,
+        nextFingerprint: next
+      })
+    ) {
       return;
     }
     closeProximityShareOverlay();
