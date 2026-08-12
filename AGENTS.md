@@ -1,49 +1,34 @@
-# Agents
+<!-- bmad:context -->
+<!-- Verified 2026-08-11 against 2e7335dc510fd870a493129a245866d4cd7620ef. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
 
-## Sources de vérité (normatifs)
+## cooks-n-coqs
 
-- **docs/SPEC.md** — Ce que le système fait ; contrat fonctionnel.
-- **docs/DOMAIN.md** — Vocabulaire et règles du domaine.
-- **docs/ARCH.md** — Structure et technologies.
-- **docs/WORKFLOW.md** — Quand mettre à jour quel document.
-- **docs/ADR/** — Décisions d’architecture.
+Cookies & Coquillettes — PWA recettes (Vue 3 / Vite) + BFF Express + package domaine partagé ; monorepo npm workspaces, Node 20. Données utilisateur en IndexedDB côté client. Docs et planning dans `docs/` ; setup/commandes dans `docs/DEVELOPMENT.md`.
 
-Ne pas contredire ces documents. Le code et les changements doivent s’y aligner.
+## Policy
 
-## Suivi et opérationnels (non normatifs)
+- Ne jamais créer ni modifier `.env` sans autorisation explicite de Patrice ; partir de `.env.example` seulement si demandé.
+- Sources de vérité normatives : `docs/SPEC.md`, `docs/DOMAIN.md`, `docs/ARCH.md`, `docs/WORKFLOW.md`, `docs/ADR/` — ne pas les contredire ; y aligner code et changements.
+- Suivi non normatif : `docs/PLAN.md`, `docs/ISSUES.md` ; opérationnel : `docs/DEVELOPMENT.md`.
+- Avant de changer comportement ou structure : lire SPEC, DOMAIN et ARCH. Mettre à jour les docs normatifs quand le comportement ou la structure change ; garder PLAN/ISSUES factuels.
 
-- **docs/PLAN.md** — Livraison : tranches, jalons, statut des tâches. Utiliser pour le suivi, pas pour définir le comportement.
-- **docs/ISSUES.md** — Bugs, limitations, travail différé. Utiliser uniquement pour le suivi des problèmes.
-- **docs/DEVELOPMENT.md** — Configuration, commandes, contribution. Opérationnel uniquement.
+## Where things are
 
-## Workflow pour les agents
+- Front : `apps/web` (`@cookies-et-coquilettes/web`)
+- BFF : `apps/bff` (`@cookies-et-coquilettes/bff`)
+- Règles et types partagés : `packages/domain` — ne pas réimplémenter validation, scaling ou dédup ailleurs
+- Comment lancer / tester / déployer : `docs/DEVELOPMENT.md` (ne pas recopier les scripts npm ici)
 
-1. Lire SPEC, DOMAIN et ARCH avant de modifier le comportement ou la structure.
-2. Utiliser PLAN pour « quoi faire ensuite » et ISSUES pour « ce qui est cassé ou différé ».
-3. Lors de la mise à jour des docs : modifier les docs normatifs quand le comportement ou la structure change ; garder les docs de suivi factuels.
+## Running and verifying
 
-## Cursor Cloud specific instructions
+- Sous `npm run dev`, `scripts/start-dev.sh` écrase `VITE_BFF_URL` avec l’IP LAN ; pour respecter `.env`, lancer `dev:web` / `dev:bff` séparément.
+- E2E YouTube, Instagram et import fichier : BFF démarré requis (`npm run dev:bff`) ; sans BFF ces tests sont ignorés.
+- CI ne lance pas les unit tests (e2e + typecheck au deploy) — `npm run test:unit` reste à faire en local quand tu touches la logique.
+- Logique ajoutée/changée dans `apps/web/src/utils` (ou extraite depuis des composants) : ajouter/mettre à jour des tests dans `apps/web/test` et lancer `npm run test:unit`.
 
-### Overview
+## Conventions that differ from defaults
 
-Cookies & Coquillettes is an npm-workspaces monorepo (Node 20) with three packages:
-- `apps/web` — Vue 3 PWA frontend (Vite, port 5173)
-- `apps/bff` — Express BFF for recipe parsing/AI (tsx watch, port 8787)
-- `packages/domain` — Shared domain types and rules
+- Tests unitaires : runner Node (`node --test` / `tsx`), pas Vitest/Jest.
+- Dans `packages/domain`, jumeaux `.ts` + `.js` : les tests importent le `.js` — les garder alignés quand tu modifies les règles.
 
-No external database or Docker is required. All user data is stored client-side in IndexedDB.
-
-### Running services
-
-Standard commands are documented in `docs/DEVELOPMENT.md`. Key notes:
-- Copy `.env.example` to `.env` before first run. Set `VITE_BFF_URL=http://localhost:8787` and `CORS_ORIGIN=http://localhost:5173` for local dev.
-- `OPENAI_API_KEY` is optional; without it the BFF falls back to JSON-LD extraction only.
-- `npm run dev` starts both web + BFF concurrently via `scripts/start-dev.sh`. To run them separately: `npm run dev:web` / `npm run dev:bff`.
-- The BFF uses `tsx watch` for hot-reload; dependency changes require restarting the process.
-
-### Testing
-
-- **Unit tests**: `npm run test:unit` (Node built-in test runner on `packages/domain` + `apps/web/test`).
-- **Frontend utility rule**: when adding/changing logic in `apps/web/src/utils` (or extracting helper logic from components), add/update targeted unit tests in `apps/web/test` and run `npm run test:unit -w @cookies-et-coquilettes/web` (or the root `npm run test:unit`).
-- **Type checking**: `npm run typecheck` (vue-tsc for web, tsc for BFF).
-- **E2E tests**: `npm run test:e2e` (builds the web app, starts a preview server on port 4174, runs Playwright). Requires `npx playwright install chromium` first. Les tests YouTube, Instagram et import fichier nécessitent le BFF démarré (`npm run dev:bff`) ; sans BFF ils sont ignorés.
+<!-- /bmad:context -->
