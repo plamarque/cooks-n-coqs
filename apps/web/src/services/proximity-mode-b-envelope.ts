@@ -5,11 +5,53 @@ import type {
   ParsedRecipeDraft,
   Recipe
 } from "@cookies-et-coquilettes/domain";
+import { scaleIngredientsFromBase } from "@cookies-et-coquilettes/domain";
+
+/**
+ * Quantité envelope = base de capture (AD-17 / DW-13).
+ * Avec `quantityBase` : l’utiliser. Sans : re-scaler `quantity` de servingsCurrent
+ * vers servingsBase via le domaine si les portions divergent ; sinon garder `quantity`.
+ */
+function quantityAtCaptureBase(
+  ingredient: IngredientLine,
+  servingsBase: number | undefined,
+  servingsCurrent: number | undefined
+): number | undefined {
+  if (ingredient.isScalable && ingredient.quantityBase != null) {
+    return ingredient.quantityBase;
+  }
+
+  const quantity = ingredient.quantity;
+  if (
+    ingredient.isScalable &&
+    ingredient.quantityBase == null &&
+    quantity != null &&
+    Number.isFinite(quantity) &&
+    servingsBase != null &&
+    servingsCurrent != null &&
+    Number.isFinite(servingsBase) &&
+    Number.isFinite(servingsCurrent) &&
+    servingsBase > 0 &&
+    servingsCurrent > 0 &&
+    servingsBase !== servingsCurrent
+  ) {
+    // Reverse scale : quantity affichée = « base » à servingsCurrent → cible servingsBase.
+    return scaleIngredientsFromBase(
+      [{ ...ingredient, quantityBase: quantity, isScalable: true }],
+      servingsBase,
+      servingsCurrent
+    )[0]?.quantity;
+  }
+
+  return quantity;
+}
 
 /**
  * Envelope Mode B (AD-17) : draft soft ParsedRecipeDraft-compatible.
  * Pas d’ids durables Alice, pas de blobs / imageId / sourceImageIds requis.
- * Quantités = base de capture (`quantityBase` si présent) aux servings de capture.
+ * Quantités = base de capture : `quantityBase` si présent ; sinon re-scale
+ * `quantity` de servingsCurrent vers servingsBase via le domaine quand les
+ * portions divergent ; sinon `quantity` telle quelle.
  */
 export function recipeToProximityDropEnvelope(recipe: Recipe): ParsedRecipeDraft {
   const title = (recipe.title ?? "").trim();
@@ -21,10 +63,11 @@ export function recipeToProximityDropEnvelope(recipe: Recipe): ParsedRecipeDraft
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map((ingredient, index) => {
       const label = (ingredient.label ?? "").trim();
-      const quantity =
-        ingredient.isScalable && ingredient.quantityBase != null
-          ? ingredient.quantityBase
-          : ingredient.quantity;
+      const quantity = quantityAtCaptureBase(
+        ingredient,
+        recipe.servingsBase,
+        recipe.servingsCurrent
+      );
 
       const line: IngredientLine = {
         id: "",

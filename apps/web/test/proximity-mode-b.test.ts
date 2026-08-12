@@ -167,6 +167,85 @@ test("envelope Mode B — sans ids Alice / blobs ; quantityBase aux servings de 
   assert.equal(ing0.quantity, 200);
 });
 
+test("envelope Mode B — scalable sans quantityBase : quantity re-scalée vers servingsBase", () => {
+  const recipe = sampleLocalRecipe({
+    ingredients: [
+      {
+        id: "alice-ing-1",
+        order: 1,
+        label: "Farine",
+        quantity: 400,
+        unit: "g",
+        isScalable: true,
+        rawText: "Farine"
+      }
+    ]
+  });
+  assert.equal(recipe.ingredients[0]?.quantityBase, undefined);
+  assert.equal(recipe.servingsBase, 4);
+  assert.equal(recipe.servingsCurrent, 8);
+
+  const envelope = recipeToProximityDropEnvelope(recipe);
+  assert.equal(envelope.ingredients[0]?.quantity, 200);
+});
+
+test("envelope Mode B — scalable sans quantityBase, portions égales : garder quantity", () => {
+  const recipe = sampleLocalRecipe({
+    servingsCurrent: 4,
+    ingredients: [
+      {
+        id: "alice-ing-1",
+        order: 1,
+        label: "Farine",
+        quantity: 200,
+        unit: "g",
+        isScalable: true,
+        rawText: "Farine"
+      }
+    ]
+  });
+  const envelope = recipeToProximityDropEnvelope(recipe);
+  assert.equal(envelope.ingredients[0]?.quantity, 200);
+});
+
+test("envelope Mode B — scalable sans quantityBase, servings incomplets : garder quantity", () => {
+  const recipe = sampleLocalRecipe({
+    servingsBase: undefined,
+    servingsCurrent: 8,
+    ingredients: [
+      {
+        id: "alice-ing-1",
+        order: 1,
+        label: "Farine",
+        quantity: 200,
+        unit: "g",
+        isScalable: true,
+        rawText: "Farine"
+      }
+    ]
+  });
+  const envelope = recipeToProximityDropEnvelope(recipe);
+  assert.equal(envelope.ingredients[0]?.quantity, 200);
+});
+
+test("envelope Mode B — non scalable : quantity inchangée", () => {
+  const recipe = sampleLocalRecipe({
+    ingredients: [
+      {
+        id: "alice-ing-1",
+        order: 1,
+        label: "Sel",
+        quantity: 1,
+        unit: "pincée",
+        isScalable: false,
+        rawText: "Sel"
+      }
+    ]
+  });
+  const envelope = recipeToProximityDropEnvelope(recipe);
+  assert.equal(envelope.ingredients[0]?.quantity, 1);
+});
+
 test("Alice Mode B — POST drop + lien m=b&t= (pas de JSON recette dans le QR)", async () => {
   const restoreFetch = mockFetchSequence([
     async (_input, init) => {
