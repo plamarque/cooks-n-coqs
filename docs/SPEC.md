@@ -60,7 +60,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 
 ### Partage proximité (QR)
 
-1. Depuis le détail d’une recette, l’utilisateur émetteur (Alice) peut afficher un **QR** encodant un deep link HTTPS vers l’**origine PWA** (path `/r`), pas vers le BFF.
+1. Depuis le détail d’une recette, l’utilisateur émetteur (Alice) peut afficher un **QR** encodant un deep link HTTPS vers l’**origine PWA** (path `/r`), pas vers le BFF. Si le deep link est trop long pour un QR level M, le partage échoue avec une erreur explicite (pas de QR illisible).
 2. **Mode A** — si la recette a une URL source http(s) partageable : le lien porte `m=a` et `u` (URL encodée), plus `title` optionnel ; aucun dépôt BFF.
 3. **Mode B** — sinon (copie locale / sans URL fiable) : Alice envoie au BFF une **fiche brouillon** (titre, ingrédients, étapes ; **ids Alice et blobs/images stripés à l’envoi**) via `POST /api/proximity-drop`, reçoit un ticket, et le QR porte `m=b` et `t` (id opaque) + `title` optionnel ; le JSON recette n’est **pas** dans le QR.
 4. Le destinataire (Bob) ouvre le lien prioritairement via la **caméra système** ; si la PWA n’est pas installée ou trop ancienne, un écran d’installation / mise à jour permet de reprendre le **même** lien.

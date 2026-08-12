@@ -57,6 +57,10 @@ import {
 } from "./services/proximity-share-session";
 import { ProximityTransfer } from "./services/proximity-transfer-service";
 import {
+  assertQrPayloadFitsLevelM,
+  PROXIMITY_MODE_B_TICKET_ID_LENGTH
+} from "./utils/qr-payload-capacity";
+import {
   dexieRecipeService,
   getImageBlobUrl,
   storeImageFromFile,
@@ -2007,7 +2011,8 @@ function openProximityModeAShare(): void {
   ingredientModalVisible.value = false;
   selectedIngredientForModal.value = null;
   try {
-    const link = ProximityTransfer.buildModeALink(sourceUrl!, recipe.title);
+    const link = ProximityTransfer.buildModeALink(sourceUrl!, recipe.title).trim();
+    assertQrPayloadFitsLevelM(link);
     proximityShareMode.value = "a";
     applyProximityShareSession(openProximityModeAShareSession(link, recipe.title));
   } catch (error) {
@@ -2035,12 +2040,22 @@ async function openProximityModeBShare(): Promise<void> {
   proximityShareBusy.value = true;
 
   try {
-    const envelope = recipeToProximityDropEnvelope(recipe);
+    // Snapshot titre : même valeur pour pré-contrôle, envelope et lien final (évite dérive pendant le await).
+    const title = recipe.title;
+    // Pré-contrôle capacité avec un ticket de même longueur que le BFF (évite drop orphelin).
+    assertQrPayloadFitsLevelM(
+      ProximityTransfer.buildModeBLink(
+        "x".repeat(PROXIMITY_MODE_B_TICKET_ID_LENGTH),
+        title
+      ).trim()
+    );
+    const envelope = recipeToProximityDropEnvelope({ ...recipe, title });
     const body = proximityDropEnvelopeToPostBody(envelope);
     const { id } = await createProximityDrop(body);
-    const link = ProximityTransfer.buildModeBLink(id, recipe.title);
+    const link = ProximityTransfer.buildModeBLink(id, title).trim();
+    assertQrPayloadFitsLevelM(link);
     proximityShareMode.value = "b";
-    applyProximityShareSession(openProximityModeAShareSession(link, recipe.title));
+    applyProximityShareSession(openProximityModeAShareSession(link, title));
   } catch (error) {
     closeProximityShareOverlay();
     errorMessage.value =

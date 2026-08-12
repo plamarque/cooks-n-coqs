@@ -3,6 +3,10 @@ import { computed } from "vue";
 import Dialog from "primevue/dialog";
 import Button from "primevue/button";
 import { QrcodeSvg } from "qrcode.vue";
+import {
+  QR_PAYLOAD_TOO_LARGE_MESSAGE,
+  qrPayloadFitsLevelM
+} from "../utils/qr-payload-capacity";
 
 const props = defineProps<{
   visible: boolean;
@@ -16,6 +20,12 @@ const emit = defineEmits<{
 
 const trimmedDeepLink = computed(() => props.deepLinkUrl.trim());
 const hasDeepLink = computed(() => trimmedDeepLink.value.length > 0);
+const canRenderQr = computed(
+  () => hasDeepLink.value && qrPayloadFitsLevelM(trimmedDeepLink.value)
+);
+const payloadTooLarge = computed(
+  () => hasDeepLink.value && !qrPayloadFitsLevelM(trimmedDeepLink.value)
+);
 
 function close() {
   emit("update:visible", false);
@@ -45,7 +55,7 @@ function close() {
         Scanne avec l’appareil photo de l’autre téléphone
       </p>
       <div
-        v-if="hasDeepLink"
+        v-if="canRenderQr"
         class="proximity-qr-share-frame"
         role="img"
         aria-label="QR de partage proximité"
@@ -60,6 +70,9 @@ function close() {
           class="proximity-qr-share-svg"
         />
       </div>
+      <p v-else-if="payloadTooLarge" class="proximity-qr-share-error" role="alert">
+        {{ QR_PAYLOAD_TOO_LARGE_MESSAGE }}
+      </p>
       <p v-else class="proximity-qr-share-error" role="alert">
         Impossible d’afficher le QR : lien de partage manquant.
       </p>
