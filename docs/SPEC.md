@@ -25,14 +25,16 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 11. Sauvegarde explicite du formulaire recette (`Enregistrer` / `Annuler`).
 12. Import direct : création immédiate de la recette, édition possible à tout moment.
 13. Export et import du cahier : fichier **.zip** téléchargeable (tout le cahier ou la liste filtrée affichée), import **.zip** depuis l’écran « Nouvelle recette », avec **dédoublonnage best-effort** par clé source stable (voir Export / import du cahier) ; pas de fusion automatique de contenu entre fiches distinctes.
+14. Partage proximité par **QR** (deep link HTTPS PWA `/r`) : **Mode A** (URL source réimportable) ou **Mode B** (ticket vers dépôt BFF éphémère) ; réception avec confirmation explicite avant écriture locale (voir Partage proximité).
 
 ### Hors périmètre v1
 
-1. Partage social sortant comme fonctionnalité prioritaire.
+1. Partage social sortant (réseaux sociaux, messagerie comme canal principal) — distinct du **partage proximité QR** (dans le périmètre).
 2. Transformation vidéo -> recette structurée.
 3. Liste de courses intégrée.
 4. Synchronisation cloud multi-appareils.
 5. Estimation automatique fiable du temps de recette par IA.
+6. Transfert P2P / WebRTC / NFC / Bluetooth comme canal primaire de proximité (reporté hors v1).
 
 ## Capacités fonctionnelles détaillées
 
@@ -55,6 +57,17 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 4. **Dédoublonnage à l’import cahier (best-effort)** : lorsque la recette porte une **`importSourceStableKey`** (dérivée d’une URL `source` normalisée, ou déjà présente dans le JSON exporté), l’application **ignore** l’import de toute recette de l’archive partageant cette clé avec une recette **déjà stockée** ou avec une recette **déjà retenue** plus haut dans le même fichier. **Sans clé** (ex. saisie manuelle sans URL exploitable), aucun dédoublonnage n’est appliqué pour cette fiche. **Limites** : deux recettes distinctes partageant la même URL de source seraient considérées comme un seul import ; les anciennes fiches sans clé ni URL exploitable ne sont pas recoupées automatiquement. À l’import, de **nouveaux identifiants** sont toujours attribués aux recettes **effectivement importées** et à leurs blobs pour ne pas écraser les données existantes.
 5. Le transfert est **manuel** (copie du fichier par l’utilisateur, ex. messagerie ou AirDrop) ; il ne constitue pas une synchronisation cloud multi-appareils.
 6. Le BFF expose des points d’accès **sans génération** pour obtenir des **clés de cache** déterministes (`POST .../cache-key/recipe-image`, `.../cooking-step-image`, `.../ingredient-image`) ; le client peut ensuite lire l’image en cache via `GET /api/generated-images/:key` (notamment lors de la complétion des visuels à l’ouverture d’une recette issue d’archive légère).
+
+### Partage proximité (QR)
+
+1. Depuis le détail d’une recette, l’utilisateur émetteur (Alice) peut afficher un **QR** encodant un deep link HTTPS vers l’**origine PWA** (path `/r`), pas vers le BFF.
+2. **Mode A** — si la recette a une URL source http(s) partageable : le lien porte `m=a` et `u` (URL encodée), plus `title` optionnel ; aucun dépôt BFF.
+3. **Mode B** — sinon (copie locale / sans URL fiable) : Alice envoie au BFF une **fiche brouillon** (titre, ingrédients, étapes ; **ids Alice et blobs/images stripés à l’envoi**) via `POST /api/proximity-drop`, reçoit un ticket, et le QR porte `m=b` et `t` (id opaque) + `title` optionnel ; le JSON recette n’est **pas** dans le QR.
+4. Le destinataire (Bob) ouvre le lien prioritairement via la **caméra système** ; si la PWA n’est pas installée ou trop ancienne, un écran d’installation / mise à jour permet de reprendre le **même** lien.
+5. Avant toute écriture IndexedDB, l’application affiche un **titre** (claim `title` ou libellé non autoritatif dérivé) et exige **Confirmer** ; **Annuler** n’écrit rien et, en Mode B, n’appelle pas le GET de consommation. Fermer ou quitter l’écran de réception **sans Confirmer** a la même sémantique qu’**Annuler** (aucune écriture, aucun GET Mode B).
+6. Après Confirmer : **Mode A** réutilise le **pipeline d’import URL / parse BFF existant** (pas un second pipeline), puis crée la recette (avec dédup par clé source stable si applicable) ; **Mode B** consomme le dépôt (`GET` burn-after-read, TTL **15 min**), mappe un brouillon sans ids Alice ni blobs obligatoires, puis crée avec des ids mintés côté Bob. Le burn serveur n’a lieu qu’après Confirmer.
+7. **Dédup** : si une `importSourceStableKey` (ou URL permettant de la dériver) correspond déjà au cahier, l’import est **ignoré** (pas d’écriture) — mêmes helpers domaine que l’import cahier. Sans clé (Mode B typique sans URL), pas de dédup inventée : create si confirmé.
+8. Erreurs explicites (pas de fiche fantôme) : lien `/r` invalide ; dépôt expiré, déjà consommé ou introuvable ; échec réseau ; échec de parse Mode A après confirm — l’utilisateur est invité à redemander le partage si besoin.
 
 ### Organisation et recherche rapide
 
