@@ -101,6 +101,11 @@ import {
 } from "./utils/step-media";
 import { extractStepTimerDurationSeconds } from "./utils/step-timer";
 import {
+  ingredientIdsForStepSave,
+  resolveMentionedIngredientsForStep,
+  withBoundIngredientIdsForForm
+} from "./utils/step-ingredient-mentions";
+import {
   clearShareImportParamsFromWindowLocation,
   readShareImportPayloadFromWindow
 } from "./services/share-target-service";
@@ -136,6 +141,10 @@ interface StepInput {
   id: string;
   text: string;
   media: FormStepMedium[];
+  /** Mentions persistées (import BFF) — optionnel. */
+  ingredientIds?: string[];
+  /** Texte d’étape auquel les `ingredientIds` étaient liés à l’import / chargement. */
+  ingredientIdsBoundText?: string;
 }
 
 interface RecipeFormState {
@@ -151,6 +160,8 @@ interface RecipeFormState {
   source?: ImportSource;
   imageUrl?: string;
   imageId?: string | null;
+  /** Baseline des ids d’ingrédients au moment de l’import / chargement (CREATE/EDIT). */
+  importedIngredientIdsBaseline?: string[];
 }
 
 interface CookingSessionTimingSummary {
@@ -277,23 +288,6 @@ const proximityReceiveConfirmVisible = computed(() =>
 
 const FEATURE_PORTIONS_ENABLED = true;
 const baseUrl = import.meta.env.BASE_URL;
-const INGREDIENT_TOKEN_STOPWORDS = new Set([
-  "de",
-  "du",
-  "des",
-  "le",
-  "la",
-  "les",
-  "au",
-  "aux",
-  "un",
-  "une",
-  "et",
-  "ou",
-  "a",
-  "avec",
-  "pour"
-]);
 
 const form = ref<RecipeFormState>(emptyForm());
 const confirm = useConfirm();
@@ -415,65 +409,11 @@ function playStepTimerFinishedSignal(): void {
   }, 900);
 }
 
-function normalizeForIngredientMatching(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function extractIngredientSearchTerms(label: string): string[] {
-  const normalizedLabel = normalizeForIngredientMatching(label);
-  if (!normalizedLabel) {
-    return [];
-  }
-
-  const labelTokens = normalizedLabel
-    .split(" ")
-    .filter(
-      (token) =>
-        token.length >= 3 && !INGREDIENT_TOKEN_STOPWORDS.has(token)
-    );
-  return Array.from(new Set([normalizedLabel, ...labelTokens]));
-}
-
-function stepMentionsIngredient(stepTextNormalized: string, ingredientLabel: string): boolean {
-  const terms = extractIngredientSearchTerms(ingredientLabel);
-  if (terms.length === 0 || !stepTextNormalized) {
-    return false;
-  }
-
-  return terms.some((term) => {
-    if (term.includes(" ")) {
-      return stepTextNormalized.includes(term);
-    }
-    const pluralSuffix = term.endsWith("s") || term.endsWith("x") ? "" : "(?:s|x)?";
-    const tokenPattern = new RegExp(
-      `(^|[^a-z0-9])${escapeRegExp(term)}${pluralSuffix}([^a-z0-9]|$)`
-    );
-    return tokenPattern.test(stepTextNormalized);
-  });
-}
-
-function getMentionedIngredientsForStep(
-  step: { text: string },
-  ingredients: IngredientLine[]
-): IngredientLine[] {
-  const normalized = normalizeForIngredientMatching(step.text);
-  if (!normalized) return [];
-  return [...ingredients]
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    .filter((ing) => stepMentionsIngredient(normalized, ing.label));
-}
-
 function toForm(recipe: Recipe): RecipeFormState {
+  const sortedIngredients =
+    recipe.ingredients.length > 0
+      ? [...recipe.ingredients].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      : [];
   return {
     title: recipe.title,
     category: recipe.category,
@@ -483,10 +423,8 @@ function toForm(recipe: Recipe): RecipeFormState {
     cookTimeMin: recipe.cookTimeMin ? String(recipe.cookTimeMin) : "",
     restTimeMin: recipe.restTimeMin ? String(recipe.restTimeMin) : "",
     ingredients:
-      recipe.ingredients.length > 0
-        ? [...recipe.ingredients]
-            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-            .map((ingredient) => ({
+      sortedIngredients.length > 0
+        ? sortedIngredients.map((ingredient) => ({
               id: ingredient.id,
               label: ingredient.label,
               quantity:
@@ -500,18 +438,49 @@ function toForm(recipe: Recipe): RecipeFormState {
       recipe.steps.length > 0
         ? recipe.steps
             .sort((a, b) => a.order - b.order)
-            .map((step) => ({
-              id: step.id,
-              text: step.text,
-              media: stepMediaToFormDrafts(step.media)
-            }))
+            .map((step) =>
+              withBoundIngredientIdsForForm(
+                {
+                  id: step.id,
+                  text: step.text,
+                  media: stepMediaToFormDrafts(step.media),
+                  ...(step.ingredientIds?.length
+                    ? { ingredientIds: [...step.ingredientIds] }
+                    : {})
+                },
+                new Set(
+                  sortedIngredients
+                    .map((i) => i.id)
+                    .filter(Boolean)
+                )
+              )
+            )
         : [emptyStep()],
     source: recipe.source,
-    imageId: recipe.imageId
+    imageId: recipe.imageId,
+    importedIngredientIdsBaseline: sortedIngredients
+      .filter((i) => i.label?.trim())
+      .map((i) => i.id)
+      .filter(Boolean)
   };
 }
 
 function draftToForm(draft: ParsedRecipeDraft): RecipeFormState {
+  const sortedIngredients =
+    draft.ingredients.length > 0
+      ? [...draft.ingredients].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      : [];
+  const formIngredients =
+    sortedIngredients.length > 0
+      ? sortedIngredients.map((ingredient) => ({
+          id: ingredient.id || randomId(),
+          label: ingredient.label,
+          quantity: ingredient.quantity !== undefined ? String(ingredient.quantity) : "",
+          unit: ingredient.unit ?? "",
+          isScalable: ingredient.isScalable,
+          imageId: ingredient.imageId
+        }))
+      : [emptyIngredient()];
   return {
     title: draft.title,
     category: draft.category,
@@ -522,31 +491,29 @@ function draftToForm(draft: ParsedRecipeDraft): RecipeFormState {
     restTimeMin: draft.restTimeMin ? String(draft.restTimeMin) : "",
     imageUrl: draft.imageUrl,
     imageId: undefined,
-    ingredients:
-      draft.ingredients.length > 0
-        ? [...draft.ingredients]
-            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-            .map((ingredient) => ({
-              id: ingredient.id || randomId(),
-              label: ingredient.label,
-              quantity:
-                ingredient.quantity !== undefined ? String(ingredient.quantity) : "",
-              unit: ingredient.unit ?? "",
-              isScalable: ingredient.isScalable,
-              imageId: ingredient.imageId
-            }))
-        : [emptyIngredient()],
+    ingredients: formIngredients,
     steps:
       draft.steps.length > 0
         ? draft.steps
             .sort((a, b) => a.order - b.order)
-            .map((step) => ({
-              id: step.id || randomId(),
-              text: step.text,
-              media: draftsFromParsedStepMedia(step.media)
-            }))
+            .map((step) =>
+              withBoundIngredientIdsForForm(
+                {
+                  id: step.id || randomId(),
+                  text: step.text,
+                  media: draftsFromParsedStepMedia(step.media),
+                  ...(step.ingredientIds?.length
+                    ? { ingredientIds: [...step.ingredientIds] }
+                    : {})
+                },
+                new Set(formIngredients.map((i) => i.id))
+              )
+            )
         : [emptyStep()],
-    source: draft.source
+    source: draft.source,
+    importedIngredientIdsBaseline: formIngredients
+      .filter((i) => i.label.trim())
+      .map((i) => i.id)
   };
 }
 
@@ -616,6 +583,8 @@ function formToRecipe(existing?: Recipe): Recipe {
     })
     .filter((ingredient): ingredient is NonNullable<typeof ingredient> => ingredient !== null);
 
+  const currentIngredientIds = new Set(ingredients.map((i) => i.id));
+
   const steps = form.value.steps
     .map((step, index) => {
       const text = step.text.trim();
@@ -623,11 +592,25 @@ function formToRecipe(existing?: Recipe): Recipe {
         return null;
       }
       const media = syncFormMediaToRecipePartial(step.media);
+      const ingredientIds = ingredientIdsForStepSave(
+        {
+          id: step.id,
+          text,
+          ingredientIds: step.ingredientIds,
+          ingredientIdsBoundText: step.ingredientIdsBoundText
+        },
+        currentIngredientIds,
+        {
+          existing,
+          importedIngredientIdsBaseline: form.value.importedIngredientIdsBaseline
+        }
+      );
       return {
         id: step.id,
         order: index + 1,
         text,
-        ...(media ? { media } : {})
+        ...(media ? { media } : {}),
+        ...(ingredientIds?.length ? { ingredientIds } : {})
       };
     })
     .filter((step): step is NonNullable<typeof step> => step !== null);
@@ -965,15 +948,7 @@ const currentStepMentionedIngredients = computed(() => {
   if (!recipe || !step) {
     return [];
   }
-
-  const normalizedStepText = normalizeForIngredientMatching(step.text);
-  if (!normalizedStepText) {
-    return [];
-  }
-
-  return [...recipe.ingredients]
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    .filter((ingredient) => stepMentionsIngredient(normalizedStepText, ingredient.label));
+  return resolveMentionedIngredientsForStep(step, recipe.ingredients);
 });
 const selectedRecipeIngredientsSorted = computed(() => {
   const recipe = selectedRecipe.value;
@@ -987,7 +962,7 @@ const prepStepMentionedIngredients = computed(() => {
   const ingredients = selectedRecipeIngredientsSorted.value;
   const map = new Map<string, IngredientLine[]>();
   for (const step of steps) {
-    map.set(step.id, getMentionedIngredientsForStep(step, ingredients));
+    map.set(step.id, resolveMentionedIngredientsForStep(step, ingredients));
   }
   return map;
 });
@@ -2240,16 +2215,39 @@ async function triggerStepImageGeneration(stepId: string): Promise<void> {
 async function buildStepsResolvedFromForm(): Promise<InstructionStep[]> {
   const list: InstructionStep[] = [];
   let order = 0;
+  const existing =
+    formMode.value === "EDIT" && formRecipeId.value
+      ? recipes.value.find((recipe) => recipe.id === formRecipeId.value)
+      : undefined;
+  const currentIngredientIds = new Set(
+    form.value.ingredients
+      .filter((i) => i.label.trim())
+      .map((i) => i.id)
+  );
   for (const step of form.value.steps) {
     const text = step.text.trim();
     if (!text) continue;
     order += 1;
     const media = await resolveFormStepMediaForSave(step.media);
+    const ingredientIds = ingredientIdsForStepSave(
+      {
+        id: step.id,
+        text,
+        ingredientIds: step.ingredientIds,
+        ingredientIdsBoundText: step.ingredientIdsBoundText
+      },
+      currentIngredientIds,
+      {
+        existing,
+        importedIngredientIdsBaseline: form.value.importedIngredientIdsBaseline
+      }
+    );
     list.push({
       id: step.id,
       order,
       text,
-      ...(media?.length ? { media } : {})
+      ...(media?.length ? { media } : {}),
+      ...(ingredientIds?.length ? { ingredientIds } : {})
     });
   }
   return list;

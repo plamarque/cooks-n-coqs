@@ -61,6 +61,49 @@ test("tryLightFirstStepReorder: numéros cohérents désordonnés → tri, confi
   );
 });
 
+test("rematchReorderedSteps: conserve ingredientIds", () => {
+  const source: ParsedInstructionStep[] = [
+    {
+      id: "c",
+      order: 1,
+      text: "Cuire le tout",
+      ingredientIds: ["ing-c"]
+    },
+    {
+      id: "a",
+      order: 2,
+      text: "Mélanger",
+      ingredientIds: ["ing-a", "ing-b"]
+    },
+    { id: "b", order: 3, text: "Reposer" }
+  ];
+  const out = rematchReorderedSteps(source, [
+    { text: "Mélanger" },
+    { text: "Reposer" },
+    { text: "Cuire le tout" }
+  ]);
+  assert.deepEqual(
+    out.map((s) => s.id),
+    ["a", "b", "c"]
+  );
+  assert.deepEqual(out[0]?.ingredientIds, ["ing-a", "ing-b"]);
+  assert.equal(out[1]?.ingredientIds, undefined);
+  assert.deepEqual(out[2]?.ingredientIds, ["ing-c"]);
+});
+
+test("tryLightFirstStepReorder: confiant préserve ingredientIds", () => {
+  const input: ParsedInstructionStep[] = [
+    { id: "a", order: 1, text: "3. Cuire", ingredientIds: ["ing-x"] },
+    { id: "b", order: 2, text: "1. Mélanger", ingredientIds: ["ing-y"] },
+    { id: "c", order: 3, text: "2. Reposer" }
+  ];
+  const result = tryLightFirstStepReorder(input);
+  assert.equal(result.confident, true);
+  assert.deepEqual(result.steps[0]?.ingredientIds, ["ing-y"]);
+  assert.equal(result.steps[1]?.ingredientIds, undefined);
+  assert.deepEqual(result.steps[2]?.ingredientIds, ["ing-x"]);
+});
+
 test("tryLightFirstStepReorder: confiant préserve media", () => {
   const input = [
     step("a", 1, "3. Cuire", [{ type: "image", imageUrl: "https://ex/a.jpg" }]),

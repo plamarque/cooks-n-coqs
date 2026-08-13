@@ -163,6 +163,7 @@ app.post("/api/import/reorder-steps", async (req, res) => {
         id?: string;
         order?: number;
         text?: string;
+        ingredientIds?: string[];
         media?: Array<{ type: string; imageUrl?: string; url?: string }>;
       }>
     | undefined;
@@ -186,10 +187,25 @@ app.post("/api/import/reorder-steps", async (req, res) => {
           return null;
         })
         .filter((m): m is NonNullable<typeof m> => m !== null);
+      const ingredientIds = Array.isArray(s.ingredientIds)
+        ? (() => {
+            const out: string[] = [];
+            const seen = new Set<string>();
+            for (const id of s.ingredientIds) {
+              if (typeof id !== "string") continue;
+              const trimmed = id.trim();
+              if (!trimmed || seen.has(trimmed)) continue;
+              seen.add(trimmed);
+              out.push(trimmed);
+            }
+            return out;
+          })()
+        : undefined;
       return {
         id: s.id ?? `step-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         order: typeof s.order === "number" ? s.order : 0,
         text: String(s.text).trim(),
+        ...(ingredientIds?.length ? { ingredientIds } : {}),
         ...(media.length > 0 ? { media } : {})
       };
     });

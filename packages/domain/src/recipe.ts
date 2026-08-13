@@ -29,6 +29,11 @@ export interface InstructionStep {
   text: string;
   /** Ordre d’affichage : images (blobs) et liens vidéo. */
   media?: StepMedium[];
+  /**
+   * Ids des `IngredientLine` mentionnés dans l’étape (calculés à l’import côté BFF).
+   * Absent ou vide → l’UI retombe sur le matching tokens.
+   */
+  ingredientIds?: string[];
 }
 
 /** Étape dans un brouillon d’import (URLs d’images distantes). */
@@ -37,6 +42,8 @@ export interface ParsedInstructionStep {
   order: number;
   text: string;
   media?: StepMediumDraft[];
+  /** Mentions étape↔ingrédient enrichies à l’import (ids des lignes du draft). */
+  ingredientIds?: string[];
 }
 
 export interface ImportSource {

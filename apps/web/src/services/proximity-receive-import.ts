@@ -9,6 +9,10 @@ import type {
 import { resolveImportSourceStableKey } from "@cookies-et-coquilettes/domain";
 import type { ProximityParseResult } from "./proximity-deep-link-core";
 import { PROXIMITY_DROP_UNAVAILABLE_MESSAGE } from "./proximity-drop-client";
+import {
+  filterStepIngredientIdsToKnown,
+  remapStepIngredientIds
+} from "../utils/step-ingredient-mentions";
 
 /** Résultat du seam Mode A post-confirm (AD-17) — sans UI. */
 export type ProximityModeAImportResult =
@@ -107,13 +111,18 @@ export function buildRecipeFromProximityDraft(
   const now = options.now ?? new Date().toISOString();
   const id = options.id ?? newRandomId();
   const remint = Boolean(options.remintLineIds);
+  const ingredientIdMap = new Map<string, string>();
 
   const ingredients: IngredientLine[] = [...draft.ingredients]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map((ingredient, index) => {
       const label = (ingredient.label ?? "").trim();
+      const newId = remint || !ingredient.id ? newRandomId() : ingredient.id;
+      if (ingredient.id && newId !== ingredient.id) {
+        ingredientIdMap.set(ingredient.id, newId);
+      }
       const line: IngredientLine = {
-        id: remint || !ingredient.id ? newRandomId() : ingredient.id,
+        id: newId,
         order: index + 1,
         label,
         quantity: ingredient.quantity,
@@ -130,18 +139,26 @@ export function buildRecipeFromProximityDraft(
     })
     .filter((ingredient) => Boolean(ingredient.label));
 
-  const steps: InstructionStep[] = [...draft.steps]
+  let steps: InstructionStep[] = [...draft.steps]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map((step, index) => {
       const text = (step.text ?? "").trim();
-      return {
+      const next: InstructionStep = {
         id: remint || !step.id ? newRandomId() : step.id,
         order: index + 1,
-        text
+        text,
+        ...(step.ingredientIds?.length ? { ingredientIds: [...step.ingredientIds] } : {})
         // médias : hydratation async côté UI (comme l’import URL ambiant)
       };
+      return next;
     })
     .filter((step) => Boolean(step.text));
+
+  if (ingredientIdMap.size > 0) {
+    steps = remapStepIngredientIds(steps, ingredientIdMap);
+  }
+  const validIngredientIds = new Set(ingredients.map((i) => i.id));
+  steps = filterStepIngredientIdsToKnown(steps, validIngredientIds);
 
   const source = draft.source
     ? {

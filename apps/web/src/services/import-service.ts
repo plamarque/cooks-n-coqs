@@ -1,12 +1,12 @@
 import type {
   ImportService,
   ImportType,
-  IngredientLine,
   ParsedInstructionStep,
   ParsedRecipeDraft,
-  ShareImportPayload,
-  StepMediumDraft
+  ShareImportPayload
 } from "@cookies-et-coquilettes/domain";
+import { mergeDrafts } from "../utils/merge-recipe-drafts";
+import { reorderStepsRequestBody } from "../utils/reorder-steps-request";
 
 const API_BASE_URL = import.meta.env.VITE_BFF_URL || "http://localhost:8787";
 
@@ -63,17 +63,6 @@ export async function generateCookingStepImage(stepText: string): Promise<string
   }
 }
 
-function dedupeStepMediaDrafts(media: StepMediumDraft[]): StepMediumDraft[] {
-  const seen = new Set<string>();
-  const out: StepMediumDraft[] = [];
-  for (const m of media) {
-    const key = m.type === "image" ? `i:${m.imageUrl}` : `v:${m.url}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(m);
-  }
-  return out;
-}
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
 
 async function parseResponse(response: Response): Promise<ParsedRecipeDraft> {
@@ -138,104 +127,6 @@ async function compressScreenshot(file: File): Promise<File> {
   } catch (_error) {
     return file;
   }
-}
-
-/** Extrait le numéro d'étape en début de texte (ex. "25. Égaliser...", "Étape 11 :") */
-function extractStepNumberFromText(text: string): number | undefined {
-  const m = text.match(/^(\d+)[\.\)\s\-:]|^Étape\s+(\d+)/i);
-  const n = m ? parseInt(m[1] ?? m[2] ?? "", 10) : NaN;
-  return Number.isFinite(n) && n >= 1 && n <= 999 ? n : undefined;
-}
-
-function mergeDrafts(drafts: ParsedRecipeDraft[]): ParsedRecipeDraft {
-  if (drafts.length === 0) {
-    return fallbackDraft("SCREENSHOT", "Recette importée");
-  }
-  if (drafts.length === 1) {
-    return drafts[0];
-  }
-
-  const first = drafts[0];
-  const title =
-    drafts.map((d) => d.title?.trim()).find((t) => t && t !== "Recette depuis capture") ??
-    first.title ??
-    "Recette importée";
-  const category = first.category ?? "SALE";
-  const servingsBase =
-    drafts.find((d) => typeof d.servingsBase === "number")?.servingsBase ?? first.servingsBase;
-  const prepTimeMin =
-    drafts.find((d) => typeof d.prepTimeMin === "number")?.prepTimeMin ?? first.prepTimeMin;
-  const cookTimeMin =
-    drafts.find((d) => typeof d.cookTimeMin === "number")?.cookTimeMin ?? first.cookTimeMin;
-  const restTimeMin =
-    drafts.find((d) => typeof d.restTimeMin === "number")?.restTimeMin ?? first.restTimeMin;
-  const imageUrl = drafts.find((d) => d.imageUrl)?.imageUrl ?? first.imageUrl;
-
-  const seenLabels = new Set<string>();
-  const ingredients: IngredientLine[] = [];
-  let ingIdx = 0;
-  for (const draft of drafts) {
-    for (const ing of draft.ingredients ?? []) {
-      const label = (ing.label ?? "").trim();
-      if (!label) continue;
-      const key = label.toLowerCase();
-      if (seenLabels.has(key)) continue;
-      seenLabels.add(key);
-      ingredients.push({
-        id: `ing-${ingIdx++}-${Date.now()}`,
-        label,
-        quantity: typeof ing.quantity === "number" ? ing.quantity : undefined,
-        unit: ing.unit?.trim() || undefined,
-        isScalable: Boolean(ing.isScalable)
-      });
-    }
-  }
-
-  const allSteps: Array<{
-    order: number;
-    text: string;
-    draftIdx: number;
-    media?: StepMediumDraft[];
-  }> = [];
-  drafts.forEach((draft, draftIdx) => {
-    let stepIdx = 0;
-    for (const s of draft.steps ?? []) {
-      const text = (s.text ?? "").trim();
-      if (!text) continue;
-      const fromText = extractStepNumberFromText(text);
-      const fromPayload = typeof s.order === "number" ? s.order : undefined;
-      const orderVal = fromText ?? fromPayload ?? (draftIdx * 1000 + stepIdx);
-      const media = s.media?.length ? dedupeStepMediaDrafts(s.media) : undefined;
-      allSteps.push({ order: orderVal, text, draftIdx, media });
-      stepIdx++;
-    }
-  });
-  allSteps.sort((a, b) => {
-    if (a.order !== b.order) return a.order - b.order;
-    return a.draftIdx - b.draftIdx;
-  });
-  const steps: ParsedInstructionStep[] = allSteps.map((s, idx) => ({
-    id: `step-${idx + 1}-${Date.now()}`,
-    order: idx + 1,
-    text: s.text,
-    ...(s.media?.length ? { media: s.media } : {})
-  }));
-
-  return {
-    title,
-    category,
-    servingsBase,
-    prepTimeMin,
-    cookTimeMin,
-    restTimeMin,
-    ingredients,
-    steps,
-    imageUrl,
-    source: first.source ?? {
-      type: "SCREENSHOT" as ImportType,
-      capturedAt: new Date().toISOString()
-    }
-  };
 }
 
 class BffImportService implements ImportService {
@@ -303,14 +194,7 @@ class BffImportService implements ImportService {
         const res = await fetch(`${API_BASE_URL}/api/import/reorder-steps`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            steps: merged.steps.map((s) => ({
-              id: s.id,
-              order: s.order,
-              text: s.text,
-              ...(s.media?.length ? { media: s.media } : {})
-            }))
-          })
+          body: JSON.stringify(reorderStepsRequestBody(merged.steps))
         });
         if (res.ok) {
           const data = (await res.json()) as { steps: ParsedInstructionStep[] };

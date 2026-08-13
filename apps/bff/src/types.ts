@@ -30,6 +30,8 @@ export interface InstructionStep {
   order: number;
   text: string;
   media?: StepMedium[];
+  /** Ids d’ingrédients mentionnés (enrichis à l’import). */
+  ingredientIds?: string[];
 }
 
 export interface ParsedInstructionStep {
@@ -37,6 +39,8 @@ export interface ParsedInstructionStep {
   order: number;
   text: string;
   media?: StepMediumDraft[];
+  /** Ids d’ingrédients mentionnés (enrichis à l’import). */
+  ingredientIds?: string[];
 }
 
 export interface ParsedRecipeDraft {

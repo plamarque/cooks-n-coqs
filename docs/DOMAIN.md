@@ -58,12 +58,13 @@ Attributs :
 - `order`
 - `text`
 - `media` (optionnel) : liste ordonnée de médias d’étape — image (`RecipeImage` via `imageId` dans IndexedDB) ou vidéo (URL absolue `http(s)` uniquement, non téléchargée).
+- `ingredientIds` (optionnel) : ids des `IngredientLine` de la recette mentionnés dans l’étape, calculés **une fois à l’import** côté BFF (heuristique tokens puis filet LLM `extract` si besoin). Absent ou vide → l’UI mode cuisine / préparation retombe sur le matching tokens live. Pas de backfill Dexie des recettes anciennes (v1).
 
 Types de médias : `StepMedium` = entrée `{ type: 'image', imageId }` ou `{ type: 'video', url }`.
 
 ### ParsedInstructionStep (brouillon d’import)
 
-Même structure qu’une étape pour le flux BFF → client avant persistance : les images sont des URL distantes (`imageUrl`) dans le brouillon, converties en `imageId` local après téléchargement.
+Même structure qu’une étape pour le flux BFF → client avant persistance : les images sont des URL distantes (`imageUrl`) dans le brouillon, converties en `imageId` local après téléchargement. Peut porter `ingredientIds` enrichis par le BFF.
 
 ### RecipeImage
 
@@ -106,6 +107,7 @@ Attributs :
 4. Une `Recipe` peut référencer `0..1` `ImportSource`.
 5. Une `IngredientLine` peut référencer `0..1` `IngredientImage` (via `imageId` ou résolution par label normalisé).
 6. Une `InstructionStep` peut référencer `0..N` images recette (`RecipeImage` / `db.images`) et `0..N` liens vidéo via `media`.
+7. Une `InstructionStep` peut référencer `0..N` `IngredientLine` via `ingredientIds` (mentions enrichies à l’import).
 
 ## Règles du domaine
 
@@ -128,3 +130,4 @@ Attributs :
 12. Les images d'ingrédients sont stockées localement (IndexedDB), comme les images de recette.
 13. En sortie de mode cuisine, la mise à jour proposée de `prepTimeMin` se base sur une moyenne : `(prepTimeMin actuel + durée mesurée arrondie en minutes) / 2`.
 14. **Import cahier** : si `importSourceStableKey` est défini sur une recette déjà en stock et qu’une recette du fichier partage la même clé, la recette du fichier n’est pas importée (comportement « ignorer »). À l’intérieur d’un même fichier, la **première** occurrence d’une clé l’emporte.
+15. **Mentions étape↔ingrédient** : propriétaire unique = BFF à l’import (`ingredientIds` optionnels sur les steps du draft). Le web persiste via import → `RecipeService` ; s’il remint des ids ingredient/step, il remappe `ingredientIds` dans la même transaction. Édition manuelle du texte d’étape ou de l’ensemble d’ingrédients sans réimport → omettre / clear les `ingredientIds` des steps touchées (fallback tokens). Pas d’appel LLM live en navigation cuisine.
