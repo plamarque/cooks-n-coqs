@@ -17,12 +17,23 @@ npm install
 
 ```bash
 # Dev complet (web + bff)
+# Défaut : HTTPS Tailscale si Tailscale est connecté, sinon HTTP LAN
+./scripts/start-dev.sh
+# ou équivalent :
 npm run dev
 
-# PWA Vue
+# Forcer HTTPS Tailscale (Web Share mobile)
+./scripts/start-dev.sh --https
+npm run dev -- --https
+
+# Forcer HTTP WiFi/LAN (sans Tailscale Serve)
+./scripts/start-dev.sh --http
+npm run dev -- --http
+
+# PWA Vue seule
 npm run dev:web
 
-# BFF OCR/parsing
+# BFF OCR/parsing seul
 npm run dev:bff
 
 # Build
@@ -32,7 +43,7 @@ npm run build:bff
 # Vérifications TypeScript
 npm run typecheck
 
-# Tests unitaires (domain + web)
+# Tests unitaires (domain + web + bff)
 npm run test:unit
 
 # Tests unitaires web uniquement
@@ -49,9 +60,11 @@ npm run screenshots
 npm run test:r2 -w @cookies-et-coquilettes/bff
 ```
 
-Le front est servi par défaut sur `http://localhost:5173` et le BFF sur `http://localhost:8787`.
+Le front écoute sur `http://127.0.0.1:5173` (et `0.0.0.0`). En mode **`--https`**, Tailscale Serve expose `https://….ts.net` vers Vite et `https://….ts.net:8443` vers le BFF (évite le mixed content). En mode **`--http`**, utilise l’URL réseau `http://<LAN-IP>:5173` sur le même WiFi.
 
-L’app est aussi exposée sur le réseau local (0.0.0.0) : au lancement, le script affiche l’URL réseau (ex. `http://192.168.1.x:5173`) pour accéder depuis un téléphone ou une tablette sur le même WiFi.
+### HTTPS / Web Share
+
+`navigator.share` exige HTTPS (ou `localhost`). `http://100.x…` Tailscale en clair ne suffit pas — utilise `--https` (ou le défaut quand Tailscale est connecté). Ctrl+C remet `tailscale serve reset`. Si le HMR casse derrière Serve, recharge la page à la main pour retester Partager.
 
 ## Variables d’environnement
 

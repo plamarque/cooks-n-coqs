@@ -64,6 +64,8 @@ import {
   proximityShareContentFingerprint,
   shouldCloseProximityShareForStaleContent
 } from "./utils/proximity-share-content-fingerprint";
+import { buildRecipeShareF2Text } from "./utils/recipe-share-f2";
+import { shareRecipeTextNative } from "./services/recipe-native-share";
 import {
   dexieRecipeService,
   getImageBlobUrl,
@@ -653,8 +655,9 @@ const canShareModeA = computed(() =>
   isModeAShareableSourceUrl(selectedRecipe.value?.source?.url)
 );
 
-/** Partager : Mode A si URL http(s), sinon Mode B (copie locale / sans URL fiable). */
-const canShareProximity = computed(() => Boolean(selectedRecipe.value));
+/** Partager : partage OS natif (texte F2) dès qu’une recette est ouverte. */
+const canShareRecipe = computed(() => Boolean(selectedRecipe.value));
+const nativeShareBusy = ref(false);
 
 const formRecipeSourceImageIds = computed(
   () => recipes.value.find((r) => r.id === formRecipeId.value)?.sourceImageIds ?? []
@@ -1975,13 +1978,42 @@ function closeProximityShareOverlay(): void {
   proximityShareBusy.value = false;
 }
 
-/** Partage proximité : Mode A (URL) ou Mode B (drop ticket) selon la gate. */
-async function openProximityShare(): Promise<void> {
-  if (canShareModeA.value) {
-    openProximityModeAShare();
+/** Partage OS natif : texte F2 via Web Share (fallback presse-papiers si possible). */
+async function shareSelectedRecipeNative(): Promise<void> {
+  const recipe = selectedRecipe.value;
+  if (!recipe || nativeShareBusy.value) {
     return;
   }
-  await openProximityModeBShare();
+
+  clearMessages();
+  ingredientModalVisible.value = false;
+  selectedIngredientForModal.value = null;
+  // Ferme un éventuel overlay QR résiduel (retrait produit progressif).
+  if (proximityShareVisible.value) {
+    closeProximityShareOverlay();
+  }
+
+  nativeShareBusy.value = true;
+  try {
+    const text = buildRecipeShareF2Text(recipe);
+    const result = await shareRecipeTextNative({ text });
+    if (result.ok && result.method === "clipboard") {
+      feedback.value =
+        "Recette copiée dans le presse-papiers. Colle-la dans un message pour la partager.";
+      feedbackType.value = "success";
+    } else if (!result.ok && result.reason === "needs-manual-copy") {
+      // Pas de dialogue « sélectionne le texte » : Web Share exige HTTPS.
+      // Évolution future : forcer copie presse-papiers + feedback. Voir docs/ISSUES.md.
+      errorMessage.value =
+        "Le partage OS nécessite HTTPS. En local Tailscale : vois docs/DEVELOPMENT.md (section HTTPS).";
+    } else if (!result.ok && result.reason !== "aborted") {
+      errorMessage.value = result.message ?? "Impossible de partager cette recette.";
+    }
+  } catch (error) {
+    setError(error);
+  } finally {
+    nativeShareBusy.value = false;
+  }
 }
 
 /** Partage proximité Mode A : overlay QR uniquement (pas de drop BFF ni écriture carnet). */
@@ -3296,15 +3328,16 @@ onUnmounted(() => {
             @click="openEditForm(selectedRecipe)"
           />
           <Button
-            v-if="canShareProximity"
+            v-if="canShareRecipe"
             label="Partager"
             text
             icon="pi pi-share-alt"
             size="small"
             class="recipe-detail-action"
             aria-label="Partager cette recette"
-            :disabled="proximityShareBusy"
-            @click="openProximityShare"
+            :disabled="nativeShareBusy"
+            :loading="nativeShareBusy"
+            @click="shareSelectedRecipeNative"
           />
           <Button
             severity="danger"

@@ -28,7 +28,9 @@ export default defineConfig({
   base: basePath,
   server: {
     host: true, // expose on 0.0.0.0 for local network access
-    port: 5173
+    port: 5173,
+    // Tailscale Serve (MagicDNS *.ts.net) — sinon Vite bloque l’Host header
+    allowedHosts: [".ts.net"]
   },
   plugins: [
     vue(),

@@ -23,10 +23,11 @@ Exécution des slices v1 en petites livraisons verticales. Refonte UX appliquée
 | M | Images ingrédients : icônes détail + cartes, génération IA lazy, cache IndexedDB mutualisé | Fait | — |
 | N | Import URL — YouTube (description, poster, embed) | Fait | — |
 | O | Export / import cahier (ZIP + JSON interne, tout ou liste filtrée, sans dédoublonnage ; progression UI) | Fait | — |
+| P | Partage natif OS (texte F2 ± vignette) ; retrait QR proximité | En cours | Feature SPEC `_bmad-output/specs/spec-partage-recette-distant/` ; ADR 0003 ; stories 2… |
 
 ## Idées / backlog (hors livraison v1)
 
-- **Partage recette pair-à-pair (sans serveur de contenu)** : capture besoins et slices (QR tout-en-un vs amorce P2P), sans plan d’implémentation — voir [features/PEER_RECIPE_SHARE.md](features/PEER_RECIPE_SHARE.md). Quand priorisé : mettre à jour SPEC, DOMAIN, ARCH et ajouter un ADR.
+- **P2P / WebRTC / NFC** : reportés (non rejetés) — hors chemin partage natif OS. Ancienne exploration QR : `features/PEER_RECIPE_SHARE.md` (historique ; produit = ADR 0003).
 
 ## Definition of Done par slice
 

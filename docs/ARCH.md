@@ -33,10 +33,10 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `recipe-book-rehydrate-after-import` | Complétion médias d’une recette issue d’archive légère (BFF cache puis IA), typiquement à la première ouverture détail | `apps/web/src/services/recipe-book-rehydrate-after-import.ts` |
 | `import-service` | Import URL/share/screenshot/texte + appel BFF | `apps/web/src/services/import-service.ts` |
 | `share-target-service` | Lecture/nettoyage des paramètres `share_target` au démarrage | `apps/web/src/services/share-target-service.ts` |
-| `proximity-deep-link-core` | Parse / construction du deep link PWA `/r` (params `m` / `u` / `t` / `title`) | `apps/web/src/services/proximity-deep-link-core.ts` |
-| `proximity-transfer-service` | Seam partage `ProximityTransfer` : liens Mode A/B (sans Dexie) | `apps/web/src/services/proximity-transfer-service.ts` |
-| `proximity-receive-service` | Seam réception : parse intent `/r` en mémoire session (sans écriture IndexedDB ni appel BFF) | `apps/web/src/services/proximity-receive-service.ts` |
-| `proximity-drop-store` | Dépôt éphémère Mode B (mémoire process mono-instance, TTL, burn-after-read) | `apps/bff/src/proximity-drop-store.ts` |
+| `recipe-share-f2` | Construction du texte F2 + CTA soft à partir d’une `Recipe` | `apps/web/src/utils/recipe-share-f2.ts` |
+| `recipe-share-card` (cible) | Génération locale canvas/PNG de la vignette partage (~1080×1080) | `apps/web/src/services/` ou `utils/` (à nommer à l’impl) |
+| `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte (± fichier story 4) ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
+| ~~`proximity-*` / `proximity-drop-store`~~ | **Obsolète produit** — retrait UI/`/r` puis cleanup BFF (voir ADR 0003) | à supprimer |
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
 | `db` | Schéma IndexedDB et accès tables | `apps/web/src/storage/db.ts` |
 | `ingredient-image-service` | Résolution d'image ingrédient (cache local, génération IA), stockage | `apps/web/src/services/ingredient-image-service.ts` |
@@ -81,32 +81,28 @@ Règles de contrat :
 - `POST /api/generated-images/cache-key/cooking-step-image` — corps `{ stepText }` ; réponse `{ key }` (même logique que `generate-cooking-step-image`).
 - `POST /api/generated-images/cache-key/ingredient-image` — corps `{ label }` ; réponse `{ key }` (même logique que `generate-ingredient-image`).
 
-### BFF — dépôt éphémère proximité (Mode B)
+### Partage natif (OS) — texte F2 ± vignette
 
-Coordination uniquement : le BFF ne devient pas la source de vérité des recettes (SoR = IndexedDB côté PWA).
+- SoR recettes = IndexedDB ; **pas** de dépôt / landing serveur pour le contenu partagé.
+- `recipe-share-f2` — sérialise titre, portions (si connues), ingrédients, étapes, source URL (si http(s)), puis CTA soft en dernière ligne (contrat `docs/SPEC.md` / feature SPEC `payload-f2.md`).
+- `recipe-share-card` — canvas local ~1080×1080 : photo principale (`RecipeImage` / placeholder), titre, portions, aperçu ingrédients texte, logo `public/favicon.svg` overlay haut-droite.
+- `recipe-native-share` — `navigator.share` avec `{ text }` et, si `canShare({ files })`, fichier image ; échec fichiers → partage texte seul obligatoire.
+- Import entrant du même texte : `importFromText` / `share_target` ; reconnaître en-têtes F2 ; ignorer la ligne CTA.
 
-- `POST /api/proximity-drop` — crée un ticket opaque ; corps JSON **objet** : `title` string non vide (trim) **obligatoire** côté validation BFF ; les autres champs de fiche brouillon (ingrédients, étapes, etc.) sont **acceptés et stockés tels quels** (payload opaque `Record`) ; réponse **201** `{ id, expiresAt }` ; `Cache-Control: no-store`.
-- `GET /api/proximity-drop/:id` — consomme (burn-after-read, un seul GET réussi) ; réponse **200** = le payload JSON tel que stocké au POST ; `Cache-Control: no-store`.
-- TTL v1 : **15 minutes** (`PROXIMITY_DROP_TTL_MS`).
-- Store v1 : mémoire **in-process mono-instance** (`proximity-drop-store`) — pas d’index durable, pas de comptes ; un **redémarrage du process BFF efface tous les tickets** en mémoire (comportement v1 attendu).
-- Codes d’erreur (corps JSON) :
-  - **400** (POST, body invalide) : `{ error }` (message texte, sans `reason`) ;
-  - **404** : `{ error, reason: "not_found" }` ;
-  - **410** : `{ error, reason }` avec `reason` ∈ `expired` | `consumed`.
-- Côté client : le GET burn n’est appelé **qu’après Confirmer** (pas à l’ouverture du deep link ni sur Annuler) ; après un burn réussi, le payload peut être retenu en mémoire pour retry `createRecipe` sans second GET.
+### ~~BFF — dépôt éphémère proximité (Mode B)~~ (obsolète)
 
-### Proximity (partage / réception)
+Retiré du produit (ADR 0003). Endpoints `POST/GET /api/proximity-drop` et `proximity-drop-store` : cleanup code après retrait UI/`/r` (ne plus exposer de chemin produit).
 
-- Deep link PWA origin (pas l’hôte BFF) : path `/r` ; `m=a|b` ; Mode A `u` = URL source http(s) ; Mode B `t` = id ticket ; `title` optionnel (aperçu non autoritatif).
-- `ProximityTransfer.buildModeALink` / `buildModeBLink` — construction seule ; l’UI Alice fait le `POST` Mode B puis affiche le QR.
-- Réception : barriers install/update si besoin → affichage titre → **Confirmer** avant toute écriture durable via `RecipeService` ; dédup domaine (`importSourceStableKey`) quand une clé/URL est présente ; Mode B sans clé → create si confirmé (pas de fingerprint inventé).
+### ~~Proximity (partage / réception)~~ (obsolète)
+
+Deep link `/r`, QR Mode A/B et seams `proximity-*` : hors produit ; suppression client puis BFF.
 
 ### Import service
 
 - `importFromUrl(url)`
 - `importFromShare(payload)`
 - `importFromScreenshot(file)`
-- `importFromText(text)`
+- `importFromText(text)` — y compris texte au format F2 (partage natif)
 
 Règles de contrat :
 - flux direct : `parse -> create -> détail` ; image en arrière-plan si absente,

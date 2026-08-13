@@ -2,13 +2,13 @@
 
 ## Statut
 
-Décidé
+**Superseded** par [ADR 0003 — Partage recette natif (OS / F2)](./0003-partage-recette-natif-os-f2.md)
 
 ## Contexte
 
 Cookies & Coquillettes est local-first : le cahier vit dans IndexedDB. Il fallait permettre à deux personnes proches de se transmettre une recette sans compte, sans sync cloud, et sans faire du BFF une source de vérité durable.
 
-Les options techniques (WebRTC DataChannel, NFC/Bluetooth, partage système comme canal de réception, QR HTTPS) ont été évaluées ; le code v1 livre déjà un flux QR + dépôt éphémère Mode B qu’il faut figer comme contrat normatif.
+Les options techniques (WebRTC DataChannel, NFC/Bluetooth, partage système comme canal de réception, QR HTTPS) ont été évaluées ; le code v1 a livré un flux QR + dépôt éphémère Mode B.
 
 ## Options envisagées
 
@@ -16,7 +16,7 @@ Les options techniques (WebRTC DataChannel, NFC/Bluetooth, partage système comm
 2. **WebRTC / P2P (F1)** — canal direct appareil à appareil, sans transit BFF
 3. **NFC / Bluetooth / `share_target` comme réception primaire** — APIs hétérogènes, support mobile inégal
 
-## Décision
+## Décision (historique)
 
 Choisir **QR HTTPS (F2)** comme transport v1.
 
@@ -26,10 +26,14 @@ Choisir **QR HTTPS (F2)** comme transport v1.
 - Écriture durable uniquement via `RecipeService` après consentement ; dédup domaine quand une clé/URL est présente.
 - WebRTC (et autres canaux P2P) restent **hors v1** (reportés, non rejetés définitivement).
 
-## Conséquences
+## Conséquences (historique)
 
 1. Le BFF gagne un rôle de **coordination éphémère** (proximity-drop) sans devenir SoR recettes.
 2. Le scale horizontal du Mode B exige un ADR dédié (store partagé court TTL) avant multi-instances.
-3. Seams client nommés : `proximity-deep-link-core`, `ProximityTransfer`, `proximity-receive` (+ orchestration post-confirm) — documentés dans `docs/ARCH.md`.
-4. Comportement produit détaillé dans `docs/SPEC.md` (section Partage proximité).
-5. Chiffrement client (`#` fragment) et révocation à la fermeture de l’overlay Alice restent différés ; HTTPS + TTL + one-shot suffisent pour v1.
+3. Seams client nommés : `proximity-deep-link-core`, `ProximityTransfer`, `proximity-receive` (+ orchestration post-confirm) — documentés dans `docs/ARCH.md` (désormais marqués obsolètes).
+4. Comportement produit détaillé dans `docs/SPEC.md` (section remplacée par Partage natif).
+5. Chiffrement client (`#` fragment) et révocation à la fermeture de l’overlay Alice restent différés.
+
+## Remplacé parce que
+
+Le job prioritaire est le partage **à distance** vers quelqu’un **sans** l’app (lire/cuisiner hors install), pas le face-à-face QR. Voir ADR 0003.

@@ -25,16 +25,18 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 11. Sauvegarde explicite du formulaire recette (`Enregistrer` / `Annuler`).
 12. Import direct : création immédiate de la recette, édition possible à tout moment.
 13. Export et import du cahier : fichier **.zip** téléchargeable (tout le cahier ou la liste filtrée affichée), import **.zip** depuis l’écran « Nouvelle recette », avec **dédoublonnage best-effort** par clé source stable (voir Export / import du cahier) ; pas de fusion automatique de contenu entre fiches distinctes.
-14. Partage proximité par **QR** (deep link HTTPS PWA `/r`) : **Mode A** (URL source réimportable) ou **Mode B** (ticket vers dépôt BFF éphémère) ; réception avec confirmation explicite avant écriture locale (voir Partage proximité).
+14. Partage d’une recette via le **partage système natif** (Web Share) : texte contractuel **F2** (± vignette image générée localement) ; destinataire sans app peut lire/cuisiner sans installer ; import côté utilisateur C&C via collage / `share_target` (voir Partage natif).
 
 ### Hors périmètre v1
 
-1. Partage social sortant (réseaux sociaux, messagerie comme canal principal) — distinct du **partage proximité QR** (dans le périmètre).
-2. Transformation vidéo -> recette structurée.
-3. Liste de courses intégrée.
-4. Synchronisation cloud multi-appareils.
-5. Estimation automatique fiable du temps de recette par IA.
-6. Transfert P2P / WebRTC / NFC / Bluetooth comme canal primaire de proximité (reporté hors v1).
+1. Landing / dépôt serveur de **contenu** recette (cache OG, URL de fiche hébergée) comme véhicule de partage.
+2. Partage / réception par **QR proximité** (deep link `/r`, Mode A/B, dépôt BFF) — retiré du produit.
+3. Fichier joint hors vignette image Web Share (zip/json/PDF) comme véhicule de partage V1.
+4. Transformation vidéo -> recette structurée.
+5. Liste de courses intégrée.
+6. Synchronisation cloud multi-appareils.
+7. Estimation automatique fiable du temps de recette par IA.
+8. Transfert P2P / WebRTC / NFC / Bluetooth (reporté hors v1).
 
 ## Capacités fonctionnelles détaillées
 
@@ -58,16 +60,16 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 5. Le transfert est **manuel** (copie du fichier par l’utilisateur, ex. messagerie ou AirDrop) ; il ne constitue pas une synchronisation cloud multi-appareils.
 6. Le BFF expose des points d’accès **sans génération** pour obtenir des **clés de cache** déterministes (`POST .../cache-key/recipe-image`, `.../cooking-step-image`, `.../ingredient-image`) ; le client peut ensuite lire l’image en cache via `GET /api/generated-images/:key` (notamment lors de la complétion des visuels à l’ouverture d’une recette issue d’archive légère).
 
-### Partage proximité (QR)
+### Partage natif (OS)
 
-1. Depuis le détail d’une recette, l’utilisateur émetteur (Alice) peut afficher un **QR** encodant un deep link HTTPS vers l’**origine PWA** (path `/r`), pas vers le BFF. Si le deep link est trop long pour un QR level M, le partage échoue avec une erreur explicite (pas de QR illisible).
-2. **Mode A** — si la recette a une URL source http(s) partageable : le lien porte `m=a` et `u` (URL encodée), plus `title` optionnel ; aucun dépôt BFF.
-3. **Mode B** — sinon (copie locale / sans URL fiable) : Alice envoie au BFF une **fiche brouillon** (titre, ingrédients, étapes ; **ids Alice et blobs/images stripés à l’envoi**) via `POST /api/proximity-drop`, reçoit un ticket, et le QR porte `m=b` et `t` (id opaque) + `title` optionnel ; le JSON recette n’est **pas** dans le QR.
-4. Le destinataire (Bob) ouvre le lien prioritairement via la **caméra système** ; si la PWA n’est pas installée ou trop ancienne, un écran d’installation / mise à jour permet de reprendre le **même** lien.
-5. Avant toute écriture IndexedDB, l’application affiche un **titre** (claim `title` ou libellé non autoritatif dérivé) et exige **Confirmer** ; **Annuler** n’écrit rien et, en Mode B, n’appelle pas le GET de consommation. Fermer ou quitter l’écran de réception **sans Confirmer** a la même sémantique qu’**Annuler** (aucune écriture, aucun GET Mode B).
-6. Après Confirmer : **Mode A** réutilise le **pipeline d’import URL / parse BFF existant** (pas un second pipeline), puis crée la recette (avec dédup par clé source stable si applicable) ; **Mode B** consomme le dépôt (`GET` burn-after-read, TTL **15 min**), mappe un brouillon sans ids Alice ni blobs obligatoires, puis crée avec des ids mintés côté Bob. Le burn serveur n’a lieu qu’après Confirmer.
-7. **Dédup** : si une `importSourceStableKey` (ou URL permettant de la dériver) correspond déjà au cahier, l’import est **ignoré** (pas d’écriture) — mêmes helpers domaine que l’import cahier. Sans clé (Mode B typique sans URL), pas de dédup inventée : create si confirmé.
-8. Erreurs explicites (pas de fiche fantôme) : lien `/r` invalide ; dépôt expiré, déjà consommé ou introuvable ; échec réseau ; échec de parse Mode A après confirm — l’utilisateur est invité à redemander le partage si besoin.
+1. Depuis le détail d’une recette, **une seule** action Partager ouvre le partage système natif (Web Share). Pas de partage QR proximité en parallèle.
+2. Le payload **texte** suit le contrat **F2** : en-têtes en ligne seule `Titre:`, `Portions:`, `Ingrédients:`, `Étapes:`, `Source:` (corps multiligne sous chaque en-tête). `Portions:` et `Source:` sont omis si absents. Sans URL source, le texte porte la fiche **complète** pour cuisiner hors app. Avec URL http(s), la section `Source:` la mentionne (optimisation) sans remplacer le contenu des autres blocs.
+3. **CTA install** : une seule ligne en **tout dernier**, jamais au milieu du texte :  
+   `Tu veux garder cette recette ? https://plamarque.github.io/cookies-et-coquilettes/`  
+   Aucun lien vers une landing ou un dépôt de **contenu** recette.
+4. **Vignette image** (secondaire) : générée **localement** (~1080×1080) — photo principale de la recette (placeholder sage si absente), titre en grand, portions si connues, aperçu d’ingrédients en texte, logo `favicon.svg` en **overlay haut-droite** sur la photo. Pas de faux chrome UI (retour, cœur, Cuisiner). Jointe au partage si l’OS accepte un fichier image ; sinon le partage **texte seul** doit réussir.
+5. Critère de succès principal : un destinataire **sans** l’app (ex. messagerie) peut lire et cuisiner depuis le message, sans installer C&C.
+6. Un utilisateur qui a déjà C&C peut créer une fiche via **collage** (Nouvelle recette) ou **`share_target`** du même texte F2 ; le pipeline d’import texte/share existant s’applique (reconnaissance F2 ; ignorer la ligne CTA). Friction manuelle acceptée ; pas d’import « magique » via dépôt serveur.
 
 ### Organisation et recherche rapide
 

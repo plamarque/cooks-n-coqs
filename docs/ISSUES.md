@@ -8,6 +8,7 @@
 
 - `share_target` PWA non pris en charge par Safari (iOS/macOS) et Firefox ; fallback manuel via collage/presse-papiers requis.
 - Export cahier v3 (ZIP léger) : pas de blobs dans le fichier ; la complétion des visuels à l’ouverture d’une recette peut rester longue et réseau-dépendante. Pistes futures : **écriture fichier chunkée** (File System Access API), **upload temporaire** (hors principe local-only par défaut) — non planifié.
+- **Partage natif hors HTTPS** (ex. HTTP Tailscale `100.x` / LAN) : `navigator.share` (et souvent le presse-papiers) indisponibles sans contexte sécurisé. Pour tester le vrai partage OS en local : **HTTPS via Tailscale Serve** — voir `docs/DEVELOPMENT.md`. **Évolution future** (pas de dialogue « sélectionne le texte ») : si Web Share indisponible, **copier automatiquement** le F2 dans le presse-papiers et afficher « collé — colle ailleurs ».
 
 ## Différé
 
