@@ -24,7 +24,18 @@ export interface ParseRecipeInput {
   timesExtractFn?: (snippet: string) => Promise<TimesExtractPayload | null>;
   /** Injection tests uniquement — filet `extract` de catégorie (CAP-3). */
   categoryExtractFn?: (snippet: string) => Promise<CategoryExtractPayload | null>;
+  /** Injection tests uniquement — filet `extract` des mentions étape↔ingrédient (CAP-6). */
+  mentionsExtractFn?: MentionsExtractFn;
 }
+
+export type MentionsExtractPayload = {
+  mentions?: Array<{ stepId?: string; ingredientIds?: string[] }>;
+};
+
+export type MentionsExtractFn = (input: {
+  steps: Array<{ id: string; text: string }>;
+  ingredients: Array<{ id: string; label: string }>;
+}) => Promise<MentionsExtractPayload | null>;
 
 function fallbackDraft(
   title: string,
@@ -1806,6 +1817,265 @@ Règles :
   }
 }
 
+/** Stopwords FR pour matching tokens étape↔ingrédient (miroir web). */
+const INGREDIENT_TOKEN_STOPWORDS = new Set([
+  "de",
+  "du",
+  "des",
+  "le",
+  "la",
+  "les",
+  "au",
+  "aux",
+  "un",
+  "une",
+  "et",
+  "ou",
+  "a",
+  "avec",
+  "pour"
+]);
+
+export function normalizeForIngredientMatching(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractIngredientSearchTerms(label: string): string[] {
+  const normalizedLabel = normalizeForIngredientMatching(label);
+  if (!normalizedLabel) return [];
+  const labelTokens = normalizedLabel
+    .split(" ")
+    .filter((token) => token.length >= 3 && !INGREDIENT_TOKEN_STOPWORDS.has(token));
+  return Array.from(new Set([normalizedLabel, ...labelTokens]));
+}
+
+export function stepMentionsIngredient(
+  stepTextNormalized: string,
+  ingredientLabel: string
+): boolean {
+  const terms = extractIngredientSearchTerms(ingredientLabel);
+  if (terms.length === 0 || !stepTextNormalized) return false;
+  return terms.some((term) => {
+    if (term.includes(" ")) {
+      return stepTextNormalized.includes(term);
+    }
+    const pluralSuffix = term.endsWith("s") || term.endsWith("x") ? "" : "(?:s|x)?";
+    const tokenPattern = new RegExp(
+      `(^|[^a-z0-9])${escapeRegExp(term)}${pluralSuffix}([^a-z0-9]|$)`
+    );
+    return tokenPattern.test(stepTextNormalized);
+  });
+}
+
+/** Heuristique tokens : ids d’ingrédients explicitement cités dans le texte d’étape. */
+export function resolveStepIngredientIdsHeuristic(
+  stepText: string,
+  ingredients: IngredientLine[]
+): string[] {
+  const normalized = normalizeForIngredientMatching(stepText);
+  if (!normalized || ingredients.length === 0) return [];
+  const ids: string[] = [];
+  for (const ing of ingredients) {
+    if (!ing.id || !ing.label?.trim()) continue;
+    if (stepMentionsIngredient(normalized, ing.label)) {
+      ids.push(ing.id);
+    }
+  }
+  return Array.from(new Set(ids));
+}
+
+export function parseMentionsExtractPayload(raw: string): MentionsExtractPayload | null {
+  let json = raw.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim();
+  json = json.replace(/,(\s*[}\]])/g, "$1");
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as MentionsExtractPayload;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeIngredientIds(
+  ids: unknown,
+  validIds: Set<string>
+): string[] {
+  if (!Array.isArray(ids)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (typeof id !== "string") continue;
+    const trimmed = id.trim();
+    if (!trimmed || !validIds.has(trimmed) || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+function withStepIngredientIds(
+  step: ParsedInstructionStep,
+  ids: string[]
+): ParsedInstructionStep {
+  if (ids.length === 0) {
+    const { ingredientIds: _drop, ...rest } = step;
+    return rest;
+  }
+  return { ...step, ingredientIds: ids };
+}
+
+/**
+ * Merge extract → draft : union des ids heuristiques et extract, ignore ids inconnus.
+ * Sur les étapes encore non résolues (heuristique `[]`), complete via extract ;
+ * les étapes déjà non vides gardent leurs ids (union si extract renvoie aussi cette étape).
+ */
+export function applyMentionsExtractToDraft(
+  draft: ParsedRecipeDraft,
+  extracted: MentionsExtractPayload | null | undefined
+): ParsedRecipeDraft {
+  if (!extracted || !Array.isArray(extracted.mentions) || !extracted.mentions.length) {
+    return draft;
+  }
+  const validIds = new Set(draft.ingredients.map((i) => i.id).filter(Boolean));
+  const byStep = new Map<string, string[]>();
+  for (const row of extracted.mentions) {
+    if (!row || typeof row.stepId !== "string") continue;
+    const stepId = row.stepId.trim();
+    if (!stepId) continue;
+    const incoming = sanitizeIngredientIds(row.ingredientIds, validIds);
+    const prev = byStep.get(stepId) ?? [];
+    byStep.set(stepId, Array.from(new Set([...prev, ...incoming])));
+  }
+  if (byStep.size === 0) return draft;
+
+  const steps = draft.steps.map((step) => {
+    const fromExtract = byStep.get(step.id) ?? [];
+    if (fromExtract.length === 0) return step;
+    const existing = sanitizeIngredientIds(step.ingredientIds, validIds);
+    const merged = Array.from(new Set([...existing, ...fromExtract]));
+    return withStepIngredientIds(step, merged);
+  });
+  return { ...draft, steps };
+}
+
+async function detectMentionsWithOpenAiExtract(input: {
+  steps: Array<{ id: string; text: string }>;
+  ingredients: Array<{ id: string; label: string }>;
+}): Promise<MentionsExtractPayload | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const prompt = `Tu aides une app de cuisine à lier chaque étape aux ingrédients de la liste.
+Retourne uniquement un JSON valide, sans markdown :
+{"mentions":[{"stepId":"...","ingredientIds":["..."]}]}
+
+Règles :
+- Inclure les mentions explicites ET les références indirectes (pronoms, ellipses : « ajoutez-les », « le reste », « le mélange »).
+- Ne renvoyer que des stepId et ingredientIds présents dans l’entrée.
+- Si aucune mention pour une étape, omettre l’étape ou ingredientIds: [].
+- Ne jamais inventer d’ids.
+
+Étapes :
+${JSON.stringify(input.steps)}
+
+Ingrédients :
+${JSON.stringify(input.ingredients)}`;
+
+  try {
+    const client = new OpenAI({ apiKey });
+    const completion = await client.chat.completions.create({
+      model: getChatModel("extract"),
+      temperature: 0,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const rawContent = completion.choices[0]?.message?.content?.trim();
+    if (!rawContent) return null;
+    return parseMentionsExtractPayload(rawContent);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("Recipe step ingredient mentions extract failed", error);
+    return null;
+  }
+}
+
+/**
+ * CAP-6 : attache `ingredientIds` sur chaque étape (heuristique tokens puis filet
+ * `extract` uniquement si encore non résolu). Soft-fail / sans clé → heuristique seule.
+ * Extract = union sur les étapes ciblées ; sans ingrédients → retire tout `ingredientIds` stale.
+ */
+export async function enrichStepIngredientMentions(
+  draft: ParsedRecipeDraft,
+  extractFn?: MentionsExtractFn
+): Promise<ParsedRecipeDraft> {
+  if (draft.steps.length === 0) {
+    return draft;
+  }
+  if (draft.ingredients.length === 0) {
+    return {
+      ...draft,
+      steps: draft.steps.map((step) => {
+        if (!step.ingredientIds?.length) return step;
+        const { ingredientIds: _drop, ...rest } = step;
+        return rest;
+      })
+    };
+  }
+
+  const validIds = new Set(draft.ingredients.map((i) => i.id).filter(Boolean));
+  const withHeuristic = draft.steps.map((step) => {
+    const existing = sanitizeIngredientIds(step.ingredientIds, validIds);
+    if (existing.length > 0) {
+      return withStepIngredientIds(step, existing);
+    }
+    const heuristic = resolveStepIngredientIdsHeuristic(step.text ?? "", draft.ingredients);
+    return withStepIngredientIds(step, heuristic);
+  });
+
+  const unresolved = withHeuristic.filter(
+    (step) =>
+      Boolean((step.text ?? "").trim()) &&
+      (!step.ingredientIds || step.ingredientIds.length === 0)
+  );
+
+  if (unresolved.length === 0) {
+    return { ...draft, steps: withHeuristic };
+  }
+
+  if (!extractFn && !process.env.OPENAI_API_KEY) {
+    return { ...draft, steps: withHeuristic };
+  }
+
+  const payload = {
+    steps: unresolved.map((s) => ({ id: s.id, text: s.text })),
+    ingredients: draft.ingredients
+      .filter((i) => i.id && i.label?.trim())
+      .map((i) => ({ id: i.id, label: i.label }))
+  };
+  if (payload.ingredients.length === 0) {
+    return { ...draft, steps: withHeuristic };
+  }
+
+  try {
+    const runExtract = extractFn ?? detectMentionsWithOpenAiExtract;
+    const extracted = await runExtract(payload);
+    return applyMentionsExtractToDraft({ ...draft, steps: withHeuristic }, extracted);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("Recipe step ingredient mentions extract failed", error);
+    return { ...draft, steps: withHeuristic };
+  }
+}
+
 /**
  * Réordonnancement CAP-4 light-first : heuristiques (numéros cohérents) d’abord ;
  * LLM `reorder` (luna) seulement si désordre / ambiguïté et clé présente.
@@ -2018,6 +2288,13 @@ export async function extractImageFromUrl(url: string): Promise<string | undefin
 }
 
 export async function parseRecipeWithCloud(
+  input: ParseRecipeInput
+): Promise<ParsedRecipeDraft> {
+  const draft = await parseRecipeWithCloudInner(input);
+  return enrichStepIngredientMentions(draft, input.mentionsExtractFn);
+}
+
+async function parseRecipeWithCloudInner(
   input: ParseRecipeInput
 ): Promise<ParsedRecipeDraft> {
   const sourceType = input.sourceType;

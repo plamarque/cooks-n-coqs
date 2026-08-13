@@ -304,3 +304,45 @@ test("buildRecipeFromProximityDraft — servingsBase 0 conservé (nullish, pas f
   assert.equal(recipe.servingsBase, 0);
   assert.equal(recipe.servingsCurrent, 0);
 });
+
+test("buildRecipeFromProximityDraft — remintLineIds remappe ingredientIds et drop orphelins", () => {
+  const recipe = buildRecipeFromProximityDraft(
+    sampleDraft({
+      ingredients: [
+        {
+          id: "old-mascarpone",
+          order: 1,
+          label: "Mascarpone",
+          quantity: 250,
+          unit: "g",
+          isScalable: true
+        },
+        {
+          id: "old-empty",
+          order: 2,
+          label: "   ",
+          isScalable: false
+        }
+      ],
+      steps: [
+        {
+          id: "old-step",
+          order: 1,
+          text: "Mélanger le mascarpone.",
+          ingredientIds: ["old-mascarpone", "old-empty"]
+        }
+      ]
+    }),
+    {
+      id: "r-remint",
+      now: "2026-08-12T12:00:00.000Z",
+      remintLineIds: true
+    }
+  );
+  assert.equal(recipe.ingredients.length, 1);
+  assert.notEqual(recipe.ingredients[0]?.id, "old-mascarpone");
+  assert.notEqual(recipe.steps[0]?.id, "old-step");
+  assert.deepEqual(recipe.steps[0]?.ingredientIds, [recipe.ingredients[0]!.id]);
+  assert.ok(!recipe.steps[0]?.ingredientIds?.includes("old-empty"));
+  assert.ok(!recipe.steps[0]?.ingredientIds?.includes("old-mascarpone"));
+});
