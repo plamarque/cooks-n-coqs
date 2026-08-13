@@ -9,6 +9,7 @@ import type {
   ImportType,
   ParsedInstructionStep,
   ParsedRecipeDraft,
+  RecipeCategory,
   StepMediumDraft
 } from "./types.js";
 
@@ -21,6 +22,8 @@ export interface ParseRecipeInput {
   shareTitle?: string;
   /** Injection tests uniquement — filet `extract` des temps (CAP-1). */
   timesExtractFn?: (snippet: string) => Promise<TimesExtractPayload | null>;
+  /** Injection tests uniquement — filet `extract` de catégorie (CAP-3). */
+  categoryExtractFn?: (snippet: string) => Promise<CategoryExtractPayload | null>;
 }
 
 function fallbackDraft(
@@ -388,6 +391,442 @@ export async function enrichMissingRecipeTimesWithExtract(
   }
 }
 
+const CATEGORY_EXTRACT_SNIPPET_MAX = 1500;
+
+/** Lexique FR (normalisé sans accents) — desserts / sucré. */
+const SUCRE_LEXICON = [
+  "dessert",
+  "gateau",
+  "gateaux",
+  "patisserie",
+  "viennoiserie",
+  "confiserie",
+  "tiramisu",
+  "fondant",
+  "brownie",
+  "cookie",
+  "cookies",
+  "muffin",
+  "cupcake",
+  "mousse au chocolat",
+  "mousse chocolat",
+  "creme brulee",
+  "creme caramel",
+  "flan",
+  "clafoutis",
+  "madeleine",
+  "financier",
+  "macaron",
+  "eclair",
+  "chou a la creme",
+  "profiterole",
+  "profiteroles",
+  "panna cotta",
+  "pannacotta",
+  "cheesecake",
+  "crumble",
+  "tarte tatin",
+  "tarte au citron",
+  "tarte aux pommes",
+  "tarte aux fraises",
+  "foret noire",
+  "millefeuille",
+  "opera",
+  "kouign",
+  "canele",
+  "pain d epices",
+  "pain perdu",
+  "riz au lait",
+  "ile flottante",
+  "meringue",
+  "pavlova",
+  "sorbet",
+  "glace",
+  "parfait",
+  "gaufre",
+  "gaufres",
+  "beignet",
+  "beignets",
+  "donut",
+  "donuts",
+  "sable",
+  "biscuits",
+  "compote",
+  "confiture",
+  "nougat",
+  "caramel",
+  "chocolat chaud",
+  "moelleux au chocolat",
+  "fondant au chocolat",
+  "banana bread",
+  "sweet",
+  "sweets",
+  "cake",
+  "cakes",
+  "pastry",
+  "pastries"
+];
+
+/** Lexique FR (normalisé sans accents) — plats salés. */
+const SALE_LEXICON = [
+  "poulet",
+  "boeuf",
+  "veau",
+  "porc",
+  "agneau",
+  "canard",
+  "dinde",
+  "poisson",
+  "saumon",
+  "thon",
+  "cabillaud",
+  "crevette",
+  "crevettes",
+  "moules",
+  "quiche",
+  "pizza",
+  "pates",
+  "lasagne",
+  "lasagnes",
+  "risotto",
+  "blanquette",
+  "bourguignon",
+  "boeuf bourguignon",
+  "tajine",
+  "tagine",
+  "curry",
+  "soupe",
+  "potage",
+  "veloute",
+  "gratin",
+  "burger",
+  "sandwich",
+  "omelette",
+  "frittata",
+  "roti",
+  "escalope",
+  "cotelette",
+  "saucisse",
+  "charcuterie",
+  "fromage sale",
+  "plat principal",
+  "main course",
+  "main dish",
+  "savory",
+  "savoury",
+  "appetizer",
+  "aperitif",
+  "entree salee"
+];
+
+/** Catégories Schema.org / mots-clés mappés → SUCRE. */
+const SUCRE_CATEGORY_KEYWORDS = [
+  "dessert",
+  "desserts",
+  "patisserie",
+  "viennoiserie",
+  "confiserie",
+  "sweet",
+  "sweets",
+  "gouter",
+  "sucre",
+  "sucree",
+  "sucres"
+];
+
+/** Catégories Schema.org / mots-clés mappés → SALE. */
+const SALE_CATEGORY_KEYWORDS = [
+  "main course",
+  "main dish",
+  "plat principal",
+  "plats principaux",
+  "entree",
+  "entrees",
+  "savory",
+  "savoury",
+  "sale",
+  "salee",
+  "sales",
+  "aperitif",
+  "appetizer",
+  "starter",
+  "side dish",
+  "viande",
+  "poisson",
+  "soupe"
+];
+
+function normalizeForCategoryMatch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/['’]/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function textHasCategoryTerm(haystack: string, term: string): boolean {
+  const h = normalizeForCategoryMatch(haystack);
+  const t = normalizeForCategoryMatch(term);
+  if (!h || !t) return false;
+  // Mot simple ou expression multi-mots : bornes de token (évite les sous-chaînes).
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`);
+  return re.test(h);
+}
+
+function flattenSchemaStringList(value: unknown): string[] {
+  if (value == null) return [];
+  if (typeof value === "string") {
+    return value
+      .split(/[,;|]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => flattenSchemaStringList(item));
+  }
+  return [];
+}
+
+export type CategorySignalKind = "SUCRE" | "SALE" | "ambiguous" | "none";
+
+export type CategoryClassifyResult = {
+  kind: CategorySignalKind;
+  category: RecipeCategory;
+  /** Signal univoque SUCRE ou SALE (lexique / mot-clé mappé) — pas un défaut. */
+  explicit: boolean;
+};
+
+export type CategorySignals = {
+  title?: string;
+  meta?: string;
+  keywords?: string[];
+};
+
+/**
+ * Classification CAP-3 : lexique FR + mots-clés Schema.org mappables.
+ * Signaux contradictoires → ambiguous (catégorie provisoire SALE).
+ * Aucun indice → none (défaut SALE).
+ */
+export function classifyCategoryFromSignals(signals: CategorySignals): CategoryClassifyResult {
+  const title = signals.title ?? "";
+  const meta = signals.meta ?? "";
+  const keywords = signals.keywords ?? [];
+  const corpus = [title, meta, ...keywords].filter(Boolean).join(" \n ");
+
+  let sucreHits = 0;
+  let saleHits = 0;
+
+  for (const kw of keywords) {
+    if (typeof kw !== "string") continue;
+    if (SUCRE_CATEGORY_KEYWORDS.some((term) => textHasCategoryTerm(kw, term))) sucreHits += 1;
+    if (SALE_CATEGORY_KEYWORDS.some((term) => textHasCategoryTerm(kw, term))) saleHits += 1;
+  }
+
+  for (const term of SUCRE_LEXICON) {
+    if (textHasCategoryTerm(corpus, term)) sucreHits += 1;
+  }
+  for (const term of SALE_LEXICON) {
+    if (textHasCategoryTerm(corpus, term)) saleHits += 1;
+  }
+
+  if (sucreHits > 0 && saleHits === 0) {
+    return { kind: "SUCRE", category: "SUCRE", explicit: true };
+  }
+  if (saleHits > 0 && sucreHits === 0) {
+    return { kind: "SALE", category: "SALE", explicit: true };
+  }
+  if (sucreHits > 0 && saleHits > 0) {
+    return { kind: "ambiguous", category: "SALE", explicit: false };
+  }
+  return { kind: "none", category: "SALE", explicit: false };
+}
+
+export function extractCategoryMetaFromHtml(html: string): string {
+  const $ = cheerio.load(html);
+  return (
+    $('meta[name="description"]').attr("content") ||
+    $('meta[property="og:description"]').attr("content") ||
+    ""
+  );
+}
+
+export function extractCategoryKeywordsFromHtml(html: string): string[] {
+  const $ = cheerio.load(html);
+  const scripts = $('script[type="application/ld+json"]');
+  const out: string[] = [];
+  for (let i = 0; i < scripts.length; i++) {
+    const content = $(scripts[i]).html();
+    if (!content) continue;
+    try {
+      const data = JSON.parse(content) as SchemaRecipe | { "@graph"?: SchemaRecipe[] };
+      const items: SchemaRecipe[] = Array.isArray(data)
+        ? data
+        : "@graph" in data && Array.isArray(data["@graph"])
+          ? data["@graph"]
+          : [data as SchemaRecipe];
+      for (const item of items) {
+        const type = item["@type"];
+        if (type === "Recipe" || (Array.isArray(type) && type.includes("Recipe"))) {
+          out.push(...flattenSchemaStringList(item.recipeCategory));
+          out.push(...flattenSchemaStringList(item.keywords));
+        }
+      }
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+  return out;
+}
+
+export function buildCategoryExtractSnippet(html: string, title?: string): string {
+  const meta = extractCategoryMetaFromHtml(html);
+  const keywords = extractCategoryKeywordsFromHtml(html);
+  const parts = [title?.trim() || "", meta, keywords.join(", ")].filter(Boolean);
+  return parts.join("\n").replace(/\s+/g, " ").trim().slice(0, CATEGORY_EXTRACT_SNIPPET_MAX);
+}
+
+export type CategoryExtractPayload = {
+  category?: string | null;
+};
+
+export function parseCategoryExtractPayload(raw: string): CategoryExtractPayload | null {
+  let json = raw.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim();
+  json = json.replace(/,(\s*[}\]])/g, "$1");
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as CategoryExtractPayload;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeExtractedCategory(value: unknown): RecipeCategory | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = normalizeForCategoryMatch(value).toUpperCase();
+  if (normalized === "SUCRE" || normalized === "SALE") return normalized;
+  return undefined;
+}
+
+/** Applique un résultat extract si la valeur est SUCRE ou SALE. */
+export function applyCategoryExtractToDraft(
+  draft: ParsedRecipeDraft,
+  extracted: CategoryExtractPayload | null | undefined
+): ParsedRecipeDraft {
+  if (!extracted) return draft;
+  const next = normalizeExtractedCategory(extracted.category);
+  if (!next || draft.category === next) return draft;
+  return { ...draft, category: next };
+}
+
+async function detectCategoryWithOpenAiExtract(
+  snippet: string
+): Promise<CategoryExtractPayload | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const prompt = `Tu aides une app de cuisine à classer une recette française en SUCRE (dessert / pâtisserie / sucré) ou SALE (plat salé).
+Retourne uniquement un JSON valide, sans markdown :
+{"category": "SUCRE"|"SALE"|null}
+
+Règles :
+- SUCRE = dessert, gâteau, pâtisserie, glace, confiserie.
+- SALE = plat principal, entrée salée, viande, poisson, légumes salés.
+- Si trop ambigu, mets null.
+- Ne retourne jamais de texte hors JSON.
+
+Extrait :
+${snippet}`;
+
+  try {
+    const client = new OpenAI({ apiKey });
+    const completion = await client.chat.completions.create({
+      model: getChatModel("extract"),
+      temperature: 0,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const rawContent = completion.choices[0]?.message?.content?.trim();
+    if (!rawContent) return null;
+    return parseCategoryExtractPayload(rawContent);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("Recipe category extract failed", error);
+    return null;
+  }
+}
+
+/**
+ * Filet CAP-3 : si la catégorie n’est pas classée explicitement (lexique / mots-clés),
+ * appelle `getChatModel("extract")` sur un extrait court en cas d’ambiguïté.
+ * Ne bloque jamais l’import ; défaut SALE sans indices ou en soft-fail.
+ */
+export async function enrichMissingCategoryWithExtract(
+  draft: ParsedRecipeDraft,
+  html: string,
+  extractFn?: (snippet: string) => Promise<CategoryExtractPayload | null>
+): Promise<ParsedRecipeDraft> {
+  const signals: CategorySignals = {
+    title: draft.title,
+    meta: extractCategoryMetaFromHtml(html),
+    keywords: extractCategoryKeywordsFromHtml(html)
+  };
+  const classified = classifyCategoryFromSignals(signals);
+
+  if (classified.explicit) {
+    return draft.category === classified.category
+      ? draft
+      : { ...draft, category: classified.category };
+  }
+
+  // Aucun indice utile → conserver le draft (défaut SALE déjà posé en amont) ; ne jamais
+  // écraser un SUCRE déjà présent faute de signal.
+  if (classified.kind === "none") {
+    return draft;
+  }
+
+  // Ambigu page-wide : si titre+meta seuls sont univoques, aligner sans filet (ne pas
+  // laisser des mots-clés d’autres blocs Recipe écraser un signal clair).
+  const titleMetaOnly = classifyCategoryFromSignals({
+    title: draft.title,
+    meta: signals.meta
+  });
+  if (titleMetaOnly.explicit) {
+    return draft.category === titleMetaOnly.category
+      ? draft
+      : { ...draft, category: titleMetaOnly.category };
+  }
+
+  // Un SUCRE déjà posé en amont (ex. recipeCategory item) n’est jamais le défaut : le
+  // conserver face à une ambiguïté page-wide + extract.
+  if (draft.category === "SUCRE") {
+    return draft;
+  }
+
+  // Ambigu : filet extract si disponible ; soft-fail / sans clé → conserver le draft
+  if (!extractFn && !process.env.OPENAI_API_KEY) {
+    return draft;
+  }
+
+  const snippet = buildCategoryExtractSnippet(html, draft.title);
+  if (snippet.length < 3) {
+    return draft;
+  }
+
+  try {
+    const runExtract = extractFn ?? detectCategoryWithOpenAiExtract;
+    const extracted = await runExtract(snippet);
+    return applyCategoryExtractToDraft(draft, extracted);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("Recipe category extract failed", error);
+    return draft;
+  }
+}
+
 const UNIT_PATTERN =
   /(?:litres?|g(?:r?)?|kg|ml|cl|L|cuillère[s]?\s+à\s+soupe|cuillère[s]?\s+à\s+café|c\.?\s*à\s*s\.?|c\.?\s*à\s*c\.?|cc|cs|CC|pincée|œufs|oeufs|œuf|oeuf|unités|unité|pièces|pièce|tranches|tranche|feuilles|feuille|verres|verre|oignons|oignon|pavés|pavé|gousses|gousse)/i;
 
@@ -489,6 +928,8 @@ interface SchemaRecipe {
   recipeIngredient?: string[];
   recipeInstructions?: unknown;
   recipeYield?: unknown;
+  recipeCategory?: string | string[];
+  keywords?: string | string[];
   prepTime?: string;
   cookTime?: string;
   totalTime?: string;
@@ -876,9 +1317,19 @@ export function extractRecipeFromJsonLd(html: string, baseUrl: string): ParsedRe
             extractTimesFromHtml(html)
           );
 
+          const categorySignals: CategorySignals = {
+            title: String(name).trim(),
+            meta: extractCategoryMetaFromHtml(html),
+            keywords: [
+              ...flattenSchemaStringList(item.recipeCategory),
+              ...flattenSchemaStringList(item.keywords)
+            ]
+          };
+          const category = classifyCategoryFromSignals(categorySignals).category;
+
           return {
             title: String(name).trim(),
-            category: "SALE",
+            category,
             servingsBase,
             ingredients,
             steps: steps.filter((s) => s.text),
@@ -1549,10 +2000,15 @@ export async function parseRecipeWithCloud(
           jsonLdDraft.imageUrl = twicImage;
         }
         const withMedia = mergeHtmlInlineStepMediaIntoDraft(jsonLdDraft, html, baseUrl);
-        return await enrichMissingRecipeTimesWithExtract(
+        const withTimes = await enrichMissingRecipeTimesWithExtract(
           withMedia,
           html,
           input.timesExtractFn
+        );
+        return await enrichMissingCategoryWithExtract(
+          withTimes,
+          html,
+          input.categoryExtractFn
         );
       }
 
@@ -1626,7 +2082,12 @@ export async function parseRecipeWithCloud(
             html,
             input.timesExtractFn
           );
-          return withSourceType(withTimes, sourceType, url);
+          const withCategory = await enrichMissingCategoryWithExtract(
+            withTimes,
+            html,
+            input.categoryExtractFn
+          );
+          return withSourceType(withCategory, sourceType, url);
         }
 
         const mergedText = [input.shareTitle, input.text, extractMainText(html)]
