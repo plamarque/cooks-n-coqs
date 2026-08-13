@@ -99,6 +99,31 @@ test("capacité — PROXIMITY_RECEIVE_CAPABLE true dans ce build", () => {
   assert.equal(isProximityReceiveCapable(), true);
 });
 
+test("capacité — override e2e window.__e2eProximityReceiveCapable", () => {
+  const restore = installMockWindow({
+    location: { pathname: "/", search: "", hash: "" },
+    history: { replaceState() {} }
+  });
+  try {
+    assert.equal(isProximityReceiveCapable(), true);
+
+    (globalThis.window as { __e2eProximityReceiveCapable?: unknown }).__e2eProximityReceiveCapable =
+      false;
+    assert.equal(isProximityReceiveCapable(), false);
+
+    (globalThis.window as { __e2eProximityReceiveCapable?: unknown }).__e2eProximityReceiveCapable =
+      true;
+    assert.equal(isProximityReceiveCapable(), true);
+
+    // Non-boolean ignoré → défaut productif
+    (globalThis.window as { __e2eProximityReceiveCapable?: unknown }).__e2eProximityReceiveCapable =
+      "false";
+    assert.equal(isProximityReceiveCapable(), true);
+  } finally {
+    restore();
+  }
+});
+
 test("phase — hors standalone → install ; capable=false → update ; sinon confirm", () => {
   assert.equal(
     resolveProximityReceivePhase({ isStandalone: false, isCapable: true }),

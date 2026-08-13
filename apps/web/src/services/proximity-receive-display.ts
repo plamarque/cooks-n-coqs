@@ -5,7 +5,21 @@ export const PROXIMITY_RECEIVE_CAPABLE = true;
 
 export const PROXIMITY_RECEIVE_GENERIC_TITLE = "Une recette";
 
+type E2eCapableWindow = Window & {
+  __e2eProximityReceiveCapable?: unknown;
+};
+
+/**
+ * Capacité réception proximité. En e2e, `window.__e2eProximityReceiveCapable`
+ * (boolean strict) peut forcer false/true sans changer le défaut productif.
+ */
 export function isProximityReceiveCapable(): boolean {
+  if (typeof window !== "undefined") {
+    const override = (window as E2eCapableWindow).__e2eProximityReceiveCapable;
+    if (typeof override === "boolean") {
+      return override;
+    }
+  }
   return PROXIMITY_RECEIVE_CAPABLE;
 }
 
