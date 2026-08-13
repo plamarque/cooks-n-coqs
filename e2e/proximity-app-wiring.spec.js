@@ -87,6 +87,12 @@ async function forceStandaloneDisplayMode(page) {
   });
 }
 
+async function forceProximityReceiveCapable(page, capable) {
+  await page.addInitScript((value) => {
+    window.__e2eProximityReceiveCapable = value;
+  }, capable);
+}
+
 async function mockImportUrlOk(page) {
   await page.route("**/api/import**", async (route) => {
     const url = route.request().url();
@@ -131,19 +137,39 @@ async function readCapturedProximityDeepLink(page) {
   return page.evaluate(() => window.__e2eProximityDeepLink);
 }
 
-/** Scrim DESIGN via pt.mask — classe sur le mask + fond rgba(29,31,28,0.45). */
+/** Normalise `rgba(r, g, b, .45)` (minify CSS) → `rgba(r, g, b, 0.45)`. */
+function normalizeScrimRgba(value) {
+  return String(value).replace(/(\d),\s*\.(\d)/g, "$1, 0.$2");
+}
+
+/**
+ * Scrim DESIGN via pt.mask — classe sur le mask + fond rgba(29,31,28,0.45).
+ * Poll jusqu’à la fin de l’anim Aura (`p-animate-overlay-mask-enter` ~150ms).
+ */
 async function expectProximityScrimMask(page, maskClass) {
   const mask = page.locator(`.${maskClass}`);
   await expect(mask).toBeVisible();
-  const bg = await mask.evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return {
-      backgroundColor: cs.backgroundColor,
-      maskVar: cs.getPropertyValue("--px-mask-background").trim()
-    };
-  });
-  expect(bg.backgroundColor).toBe("rgba(29, 31, 28, 0.45)");
-  expect(bg.maskVar).toBe("rgba(29, 31, 28, 0.45)");
+  await expect
+    .poll(
+      async () => {
+        const bg = await mask.evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return {
+            backgroundColor: cs.backgroundColor,
+            maskVar: cs.getPropertyValue("--px-mask-background").trim()
+          };
+        });
+        return {
+          backgroundColor: normalizeScrimRgba(bg.backgroundColor),
+          maskVar: normalizeScrimRgba(bg.maskVar)
+        };
+      },
+      { timeout: 3000 }
+    )
+    .toEqual({
+      backgroundColor: "rgba(29, 31, 28, 0.45)",
+      maskVar: "rgba(29, 31, 28, 0.45)"
+    });
 }
 
 test.describe("Câblage App.vue proximité", () => {
@@ -227,6 +253,22 @@ test.describe("Câblage App.vue proximité", () => {
     await page.goto("/r?m=z");
 
     await expect(page.locator(".message.error")).toContainText(CAP7_INVALID_MESSAGE);
+    await expect(page.locator(".proximity-receive-confirm-dialog")).toHaveCount(0);
+    await expect(page.locator(".proximity-receive-install-dialog")).toHaveCount(0);
+  });
+
+  test("standalone + capable=false → overlay update + scrim (DW-15, DW-17)", async ({
+    page
+  }) => {
+    await forceStandaloneDisplayMode(page);
+    await forceProximityReceiveCapable(page, false);
+
+    const u = encodeURIComponent(MODE_A_SOURCE);
+    await page.goto(`/r?m=a&u=${u}&title=Tarte`);
+
+    await expect(page.locator(".proximity-receive-update-dialog")).toBeVisible();
+    await expectProximityScrimMask(page, "proximity-receive-update-mask");
+    await expect(page.getByRole("heading", { name: "Mise à jour requise" })).toBeVisible();
     await expect(page.locator(".proximity-receive-confirm-dialog")).toHaveCount(0);
     await expect(page.locator(".proximity-receive-install-dialog")).toHaveCount(0);
   });
