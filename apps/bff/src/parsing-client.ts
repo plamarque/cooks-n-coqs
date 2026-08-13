@@ -19,6 +19,8 @@ export interface ParseRecipeInput {
   screenshotBase64?: string;
   screenshotMimeType?: string;
   shareTitle?: string;
+  /** Injection tests uniquement — filet `extract` des temps (CAP-1). */
+  timesExtractFn?: (snippet: string) => Promise<TimesExtractPayload | null>;
 }
 
 function fallbackDraft(
@@ -96,6 +98,294 @@ export function parseServings(value: unknown): number | undefined {
 
 export function extractServingsFromHtml(html: string): number | undefined {
   return matchServingsFr(html);
+}
+
+/** `null` / `undefined` / non-fini / `<= 0` = trou (ex. ISO PT20S → 0 min). */
+function isMissingTimeMinutes(value: number | null | undefined): boolean {
+  return value == null || !Number.isFinite(value) || value <= 0;
+}
+
+/** Convertit un fragment FR (« 20 min », « 2 h », « 1h30 », « 20 à 25 min », « une nuit ») en minutes. */
+export function parseFrDurationToMinutes(text: string): number | undefined {
+  if (!text || typeof text !== "string") return undefined;
+  const t = text.trim();
+  if (!t) return undefined;
+  if (/\bune\s+nuit\b/i.test(t)) return 480;
+  // Heures décimales (« 1.5 h », « 1,5 h ») — trop ambiguës pour un parse naïf.
+  if (/\d+[.,]\d+\s*h/i.test(t)) return undefined;
+
+  // Plages : borne haute (« 20 à 25 min », « 20-25 minutes »)
+  const rangeMin = t.match(/(\d+)\s*(?:à|-|–|—)\s*(\d+)\s*min(?:utes?)?/i);
+  if (rangeMin) {
+    const low = parseInt(rangeMin[1], 10);
+    const high = parseInt(rangeMin[2], 10);
+    if (high < low) return undefined;
+    return high > 0 ? high : undefined;
+  }
+  const rangeHour = t.match(
+    /(\d+)\s*h(?:eures?)?(?:\s*(\d{1,2}))?\s*(?:à|-|–|—)\s*(\d+)\s*h(?:eures?)?(?:\s*(\d{1,2}))?/i
+  );
+  if (rangeHour) {
+    const lowH = parseInt(rangeHour[1], 10);
+    const lowM = rangeHour[2] ? parseInt(rangeHour[2], 10) : 0;
+    const highH = parseInt(rangeHour[3], 10);
+    const highM = rangeHour[4] ? parseInt(rangeHour[4], 10) : 0;
+    if (lowM >= 60 || highM >= 60) return undefined;
+    const lowTotal = lowH * 60 + lowM;
+    const highTotal = highH * 60 + highM;
+    if (highTotal < lowTotal) return undefined;
+    return highTotal > 0 ? highTotal : undefined;
+  }
+  // « 20 à 25 h » (h seulement à droite) — ne pas retomber sur hourMatch → 25 h.
+  if (/\d+\s*(?:à|-|–|—)\s*\d+\s*h(?:eures?)?/i.test(t)) return undefined;
+
+  const hourMatch = t.match(/(\d+)\s*h(?:eures?)?\s*(\d{1,2})?/i);
+  if (hourMatch) {
+    const hours = parseInt(hourMatch[1], 10);
+    let mins = hourMatch[2] ? parseInt(hourMatch[2], 10) : 0;
+    if (!hourMatch[2]) {
+      const after = t.slice((hourMatch.index ?? 0) + hourMatch[0].length);
+      const trailingMin = after.match(/^\s*(\d+)\s*min(?:utes?)?/i);
+      if (trailingMin) mins = parseInt(trailingMin[1], 10);
+    }
+    if (mins >= 60) return undefined;
+    const total = hours * 60 + mins;
+    return total > 0 ? total : undefined;
+  }
+
+  const minMatch = t.match(/(\d+)\s*min(?:utes?)?/i);
+  if (minMatch) {
+    const m = parseInt(minMatch[1], 10);
+    return m > 0 ? m : undefined;
+  }
+  return undefined;
+}
+
+function htmlToPlainTextForTimes(html: string): string {
+  // Espace avant chaque balise pour éviter « minCuisson » entre blocs adjacents.
+  const $ = cheerio.load(html.replace(/</g, " <"));
+  $("script, style").remove();
+  const metaBits = [
+    $('meta[name="description"]').attr("content"),
+    $('meta[property="og:description"]').attr("content")
+  ].filter((v): v is string => Boolean(v && v.trim()));
+  const body = $.root().text();
+  return `${metaBits.join(" ")} ${body}`.replace(/\s+/g, " ").trim();
+}
+
+export type RecipeTimesMinutes = {
+  prepTimeMin?: number;
+  cookTimeMin?: number;
+  restTimeMin?: number;
+};
+
+/** Première durée parsable après un libellé (ignore les captures qui ne convertissent pas). */
+function firstValidLabeledDuration(text: string, labelPattern: string): number | undefined {
+  const re = new RegExp(labelPattern, "gi");
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const mins = parseFrDurationToMinutes(match[1]);
+    if (mins !== undefined) return mins;
+  }
+  return undefined;
+}
+
+/** Motifs FR « Préparation / Cuisson / Repos » (et fermentation / une nuit) dans HTML ou meta. */
+export function extractTimesFromHtml(html: string): RecipeTimesMinutes {
+  const text = htmlToPlainTextForTimes(html);
+  const result: RecipeTimesMinutes = {};
+
+  /** Durée immédiatement après un libellé (évite de croiser Cuisson/Repos sur la même ligne). */
+  const durationToken =
+    String.raw`une\s+nuit|\d+\s*h(?:eures?)?(?:\s*\d{1,2})?\s*(?:à|-|–|—)\s*\d+\s*h(?:eures?)?(?:\s*\d{1,2})?|\d+\s*(?:à|-|–|—)\s*\d+\s*(?:h(?:eures?)?(?:\s*\d{1,2})?(?:\s*min(?:utes?)?)?|min(?:utes?)?)|\d+\s*h(?:eures?)?(?:\s*\d{1,2})?(?:\s*min(?:utes?)?)?|\d+\s*min(?:utes?)?`;
+  /** Accepte « : », tirets ou « de » (ex. Préparation de 20 min). */
+  const durationAfterLabel = String.raw`\s*(?:[:\-–]\s*|de\s+)?(${durationToken})`;
+  /** Frontière lettre/tiret (accents) — évite « précuisson » / « pré-cuisson » → cuisson. */
+  const notLetter = String.raw`(?<![A-Za-zÀ-ÿ\-])`;
+
+  const prep = firstValidLabeledDuration(
+    text,
+    String.raw`${notLetter}pr[ée]paration${durationAfterLabel}`
+  );
+  if (prep !== undefined) result.prepTimeMin = prep;
+
+  const cook = firstValidLabeledDuration(
+    text,
+    String.raw`${notLetter}cuisson${durationAfterLabel}`
+  );
+  if (cook !== undefined) result.cookTimeMin = cook;
+
+  const rest = firstValidLabeledDuration(
+    text,
+    String.raw`${notLetter}(?:temps\s+de\s+)?(?:repos|fermentation)${durationAfterLabel}`
+  );
+  if (rest !== undefined) result.restTimeMin = rest;
+
+  return result;
+}
+
+function mergeTimesPreferringExisting(
+  existing: RecipeTimesMinutes,
+  fallback: RecipeTimesMinutes
+): RecipeTimesMinutes {
+  return {
+    prepTimeMin: !isMissingTimeMinutes(existing.prepTimeMin)
+      ? existing.prepTimeMin
+      : fallback.prepTimeMin,
+    cookTimeMin: !isMissingTimeMinutes(existing.cookTimeMin)
+      ? existing.cookTimeMin
+      : fallback.cookTimeMin,
+    restTimeMin: !isMissingTimeMinutes(existing.restTimeMin)
+      ? existing.restTimeMin
+      : fallback.restTimeMin
+  };
+}
+
+const TIMES_EXTRACT_SNIPPET_MAX = 2500;
+
+/** Extrait court (meta + fenêtre HTML) pour le filet LLM `extract` — jamais la page entière. */
+export function buildTimesExtractSnippet(html: string): string {
+  // Même préfixe d’espace avant balises que l’heuristique — évite « minCuisson » collé.
+  const $ = cheerio.load(html.replace(/</g, " <"));
+  $("script, style").remove();
+  const meta =
+    $('meta[name="description"]').attr("content") ||
+    $('meta[property="og:description"]').attr("content") ||
+    "";
+  const pickText = (raw: string): string => raw.replace(/\s+/g, " ").trim();
+  const bodyText =
+    pickText($("main").text()) ||
+    pickText($("article").text()) ||
+    pickText($(".recipe-content, .recipe-body, .recette").text()) ||
+    pickText($("body").text()) ||
+    "";
+  return `${meta}\n${bodyText}`.replace(/\s+/g, " ").trim().slice(0, TIMES_EXTRACT_SNIPPET_MAX);
+}
+
+export type TimesExtractPayload = {
+  prepTimeMin?: number | null;
+  cookTimeMin?: number | null;
+  restTimeMin?: number | null;
+};
+
+export function parseTimesExtractPayload(raw: string): TimesExtractPayload | null {
+  let json = raw.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim();
+  json = json.replace(/,(\s*[}\]])/g, "$1");
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as TimesExtractPayload;
+  } catch {
+    return null;
+  }
+}
+
+function positiveMinutes(value: unknown): number | undefined {
+  let n: number | undefined;
+  if (typeof value === "number") {
+    n = value;
+  } else if (typeof value === "string" && value.trim() !== "") {
+    n = Number(value);
+  }
+  if (n === undefined || !Number.isFinite(n)) return undefined;
+  const rounded = Math.round(n);
+  return rounded > 0 ? rounded : undefined;
+}
+
+function coalesceDraftTime(
+  existing: number | undefined,
+  incoming: unknown
+): number | undefined {
+  if (!isMissingTimeMinutes(existing)) return existing;
+  return positiveMinutes(incoming);
+}
+
+/** Fusionne un résultat extract uniquement sur les champs encore vides. */
+export function applyTimesExtractToDraft(
+  draft: ParsedRecipeDraft,
+  extracted: TimesExtractPayload | null | undefined
+): ParsedRecipeDraft {
+  if (!extracted) return draft;
+  const prepTimeMin = coalesceDraftTime(draft.prepTimeMin, extracted.prepTimeMin);
+  const cookTimeMin = coalesceDraftTime(draft.cookTimeMin, extracted.cookTimeMin);
+  const restTimeMin = coalesceDraftTime(draft.restTimeMin, extracted.restTimeMin);
+  if (
+    prepTimeMin === draft.prepTimeMin &&
+    cookTimeMin === draft.cookTimeMin &&
+    restTimeMin === draft.restTimeMin
+  ) {
+    return draft;
+  }
+  return { ...draft, prepTimeMin, cookTimeMin, restTimeMin };
+}
+
+async function detectTimesWithOpenAiExtract(
+  snippet: string
+): Promise<TimesExtractPayload | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const prompt = `Tu aides une app de cuisine à extraire les temps d'une recette française.
+Retourne uniquement un JSON valide, sans markdown :
+{"prepTimeMin": number|null, "cookTimeMin": number|null, "restTimeMin": number|null}
+
+Règles :
+- prepTimeMin = temps de préparation en minutes.
+- cookTimeMin = temps de cuisson en minutes.
+- restTimeMin = temps de repos / fermentation / levée en minutes.
+- Si une durée est absente ou trop ambiguë, mets null.
+- Comprendre min, minutes, h, heures, et approximations courantes (ex: "une nuit" → 480).
+- Si une plage est donnée (ex: "20 à 25 min"), choisir la borne haute.
+- Ne retourne jamais de texte hors JSON.
+
+Extrait :
+${snippet}`;
+
+  try {
+    const client = new OpenAI({ apiKey });
+    const completion = await client.chat.completions.create({
+      model: getChatModel("extract"),
+      temperature: 0,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const rawContent = completion.choices[0]?.message?.content?.trim();
+    if (!rawContent) return null;
+    return parseTimesExtractPayload(rawContent);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("Recipe times extract failed", error);
+    return null;
+  }
+}
+
+/**
+ * Filet CAP-1 : si un temps manque encore et qu'une clé API est présente,
+ * appelle `getChatModel("extract")` sur un extrait court et ne remplit que les trous.
+ */
+export async function enrichMissingRecipeTimesWithExtract(
+  draft: ParsedRecipeDraft,
+  html: string,
+  extractFn?: (snippet: string) => Promise<TimesExtractPayload | null>
+): Promise<ParsedRecipeDraft> {
+  const needsPrep = isMissingTimeMinutes(draft.prepTimeMin);
+  const needsCook = isMissingTimeMinutes(draft.cookTimeMin);
+  const needsRest = isMissingTimeMinutes(draft.restTimeMin);
+  if (!needsPrep && !needsCook && !needsRest) return draft;
+
+  if (!extractFn && !process.env.OPENAI_API_KEY) return draft;
+
+  const snippet = buildTimesExtractSnippet(html);
+  if (snippet.length < 10) return draft;
+
+  try {
+    const runExtract = extractFn ?? detectTimesWithOpenAiExtract;
+    const extracted = await runExtract(snippet);
+    return applyTimesExtractToDraft(draft, extracted);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("Recipe times extract failed", error);
+    return draft;
+  }
 }
 
 const UNIT_PATTERN =
@@ -577,14 +867,24 @@ export function extractRecipeFromJsonLd(html: string, baseUrl: string): ParsedRe
           const servingsBase =
             parseServings(item.recipeYield) ?? extractServingsFromHtml(html);
 
+          const timesFromIso: RecipeTimesMinutes = {
+            prepTimeMin: parseIso8601DurationToMinutes(item.prepTime),
+            cookTimeMin: parseIso8601DurationToMinutes(item.cookTime)
+          };
+          const times = mergeTimesPreferringExisting(
+            timesFromIso,
+            extractTimesFromHtml(html)
+          );
+
           return {
             title: String(name).trim(),
             category: "SALE",
             servingsBase,
             ingredients,
             steps: steps.filter((s) => s.text),
-            prepTimeMin: parseIso8601DurationToMinutes(item.prepTime),
-            cookTimeMin: parseIso8601DurationToMinutes(item.cookTime),
+            prepTimeMin: times.prepTimeMin,
+            cookTimeMin: times.cookTimeMin,
+            restTimeMin: times.restTimeMin,
             imageUrl: resolvedImage,
             source: {
               type: "URL",
@@ -1248,7 +1548,12 @@ export async function parseRecipeWithCloud(
         } else if (twicImage) {
           jsonLdDraft.imageUrl = twicImage;
         }
-        return mergeHtmlInlineStepMediaIntoDraft(jsonLdDraft, html, baseUrl);
+        const withMedia = mergeHtmlInlineStepMediaIntoDraft(jsonLdDraft, html, baseUrl);
+        return await enrichMissingRecipeTimesWithExtract(
+          withMedia,
+          html,
+          input.timesExtractFn
+        );
       }
 
       const text = extractMainText(html);
@@ -1315,11 +1620,13 @@ export async function parseRecipeWithCloud(
           } else if (twicImage) {
             jsonLdDraft.imageUrl = twicImage;
           }
-          return withSourceType(
-            mergeHtmlInlineStepMediaIntoDraft(jsonLdDraft, html, url),
-            sourceType,
-            url
+          const withMedia = mergeHtmlInlineStepMediaIntoDraft(jsonLdDraft, html, url);
+          const withTimes = await enrichMissingRecipeTimesWithExtract(
+            withMedia,
+            html,
+            input.timesExtractFn
           );
+          return withSourceType(withTimes, sourceType, url);
         }
 
         const mergedText = [input.shareTitle, input.text, extractMainText(html)]
