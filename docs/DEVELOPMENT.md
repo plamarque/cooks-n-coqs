@@ -62,18 +62,21 @@ Copier `.env.example` vers `.env` pour le local puis adapter les valeurs.
 
 ### Modèles IA
 
-Les modèles utilisés (images et chat) sont configurables via variables d'environnement. Valeurs par défaut :
+Les modèles utilisés (images et chat) sont configurables via variables d'environnement. Colonne « Défaut » = défaut **code** si la variable d’env est absente :
 
 | Variable | Défaut | Usage |
 |----------|--------|-------|
-| `AI_IMAGE_MODEL_RECIPE` | gpt-image-1.5 | Photos de recettes |
+| `AI_IMAGE_MODEL_RECIPE` | gpt-image-2 | Photos de recettes |
 | `AI_IMAGE_MODEL_INGREDIENT` | gpt-image-1-mini | Icônes ingrédients |
 | `AI_IMAGE_MODEL_COOKING_STEP` | gpt-image-1-mini | Illustrations étapes cuisine |
-| `AI_IMAGE_QUALITY_*` | low | Qualité (GPT Image : low/medium/high ; DALL-E : standard/hd) |
-| `AI_CHAT_MODEL` | gpt-4o-mini | Modèle par défaut (parsing, timer, réordonnancement) |
-| `AI_CHAT_MODEL_PARSE` | — | Override parsing URL + screenshot |
-| `AI_CHAT_MODEL_STEP_TIMER` | — | Override détection timer étape |
-| `AI_CHAT_MODEL_REORDER` | — | Override réordonnancement des étapes |
+| `AI_IMAGE_QUALITY_*` | low | Qualité GPT Image : low/medium/high |
+| `AI_CHAT_MODEL` | — (pas de défaut code dédié) | Fallback global **recommandé** `gpt-5.6-luna` quand la var est posée ; n’est pas le défaut de `parse` |
+| `AI_CHAT_MODEL_PARSE` | gpt-5.6-terra | Parsing URL + screenshot |
+| `AI_CHAT_MODEL_STEP_TIMER` | gpt-5.6-luna | Détection timer étape |
+| `AI_CHAT_MODEL_REORDER` | gpt-5.6-luna | Réordonnancement des étapes |
+| `AI_CHAT_MODEL_EXTRACT` | gpt-5.6-luna | Filets micro-extraits (use-case `extract`) |
+
+Chaîne de résolution chat : override use-case → `AI_CHAT_MODEL` (si posé) → défaut code du use-case (ex. `parse` → terra, pas luna).
 
 Référence tarifs : [OpenAI Pricing](https://developers.openai.com/api/docs/pricing).
 

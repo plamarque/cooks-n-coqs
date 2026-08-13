@@ -36,10 +36,12 @@ Déployer en mode push :
 4. Copier l’URL du Deploy Hook Render dans le secret GitHub :
    - `RENDER_DEPLOY_HOOK_URL`
 
-5. Variables optionnelles pour les **modèles IA** (contrôle des coûts) :
-   - `AI_IMAGE_MODEL_RECIPE`, `AI_IMAGE_MODEL_INGREDIENT`, `AI_IMAGE_MODEL_COOKING_STEP` (ex. gpt-image-1.5, gpt-image-1-mini)
-   - `AI_IMAGE_QUALITY_RECIPE`, `AI_IMAGE_QUALITY_INGREDIENT`, `AI_IMAGE_QUALITY_COOKING_STEP` (low, medium, high pour GPT Image)
-   - `AI_CHAT_MODEL`, `AI_CHAT_MODEL_PARSE`, `AI_CHAT_MODEL_STEP_TIMER`, `AI_CHAT_MODEL_REORDER` (ex. gpt-4o-mini)
+5. Variables optionnelles pour les **modèles IA** (contrôle des coûts). Si les `AI_*` ne sont pas posées, les défauts code s’appliquent ; en prod, poser les valeurs recommandées ci-dessous pour aligner explicitement sur la matrice CAP-5 :
+   - `AI_IMAGE_MODEL_RECIPE=gpt-image-2`, `AI_IMAGE_MODEL_INGREDIENT=gpt-image-1-mini`, `AI_IMAGE_MODEL_COOKING_STEP=gpt-image-1-mini`
+   - `AI_IMAGE_QUALITY_RECIPE`, `AI_IMAGE_QUALITY_INGREDIENT`, `AI_IMAGE_QUALITY_COOKING_STEP` = `low`
+   - `AI_CHAT_MODEL=gpt-5.6-luna` (fallback global ; si posé seul sans overrides use-case, s’applique aussi à `parse`)
+   - `AI_CHAT_MODEL_PARSE=gpt-5.6-terra`
+   - `AI_CHAT_MODEL_STEP_TIMER=gpt-5.6-luna`, `AI_CHAT_MODEL_REORDER=gpt-5.6-luna`, `AI_CHAT_MODEL_EXTRACT=gpt-5.6-luna`
 
 6. Variables optionnelles pour le cache d'images générées :
    - `GENERATED_IMAGE_CACHE_DIR` (ex. `/opt/render/project/src/.cache/generated-images`)
