@@ -1538,11 +1538,72 @@ interface LlmRecipePayload {
   steps?: Array<{ order?: number; text?: string }>;
 }
 
-/** Extrait le numéro d'étape en début de texte (ex. "25. Égaliser...", "Étape 11 :") */
-function extractStepNumberFromText(text: string): number | undefined {
-  const m = text.match(/^(\d+)[\.\)\s\-:]|^Étape\s+(\d+)/i);
+/**
+ * Extrait le numéro d'étape en début de texte (ex. "25. Égaliser...", "Étape 11 :").
+ * Exige un délimiteur de numérotation (`.` `)` `-` `:`) après le chiffre — pas un
+ * simple espace — pour éviter les faux positifs du type « 15 minutes… », « 3 œufs… ».
+ */
+export function extractStepNumberFromText(text: string | null | undefined): number | undefined {
+  const trimmed = String(text ?? "").trim();
+  const m = trimmed.match(/^(\d+)[\.\)\-:]|^Étape\s+(\d+)/i);
   const n = m ? parseInt(m[1] ?? m[2] ?? "", 10) : NaN;
   return Number.isFinite(n) && n >= 1 && n <= 999 ? n : undefined;
+}
+
+/**
+ * Connecteurs chrono FR (signal auxiliaire CAP-4, détectable via stepsHaveChronoConnectors).
+ * En v1 : n’influencent pas `confident` et ne permettent jamais d’inventer un ordre ;
+ * sans numéros cohérents → non confiant (LLM si clé, sinon ordre source).
+ */
+export const CHRONO_STEP_CONNECTOR_RE =
+  /\b(puis|ensuite|enfin|finalement|réserver|apres|après|d['']abord|premièrement)\b/i;
+
+export function stepsHaveChronoConnectors(steps: ParsedInstructionStep[]): boolean {
+  return steps.some((s) => CHRONO_STEP_CONNECTOR_RE.test(String(s.text ?? "")));
+}
+
+export type LightFirstReorderResult = {
+  /** true = ordre fiable sans appel LLM */
+  confident: boolean;
+  steps: ParsedInstructionStep[];
+};
+
+/**
+ * Gate CAP-4 light-first : numéros cohérents (tous extractibles, distincts) → tri
+ * (y compris si l’entrée était dans le désordre) sans LLM ;
+ * doublons / fraction numérotée / aucun numéro fiable → non confiant (LLM si clé).
+ * Quand `confident: false`, `steps` est l’ordre source inchangé (pas un nouvel ordre
+ * heuristique). Les connecteurs chrono sont détectables mais n’influencent pas `confident` en v1.
+ */
+export function tryLightFirstStepReorder(
+  steps: ParsedInstructionStep[]
+): LightFirstReorderResult {
+  if (steps.length <= 1) {
+    return { confident: true, steps };
+  }
+
+  const annotated = steps.map((step) => ({
+    step,
+    num: extractStepNumberFromText(String(step.text ?? ""))
+  }));
+  const withNumbers = annotated.filter((a) => a.num !== undefined);
+
+  if (withNumbers.length === steps.length) {
+    const nums = withNumbers.map((a) => a.num!);
+    const unique = new Set(nums).size === nums.length;
+    if (unique) {
+      const sorted = [...withNumbers].sort((a, b) => a.num! - b.num!);
+      return {
+        confident: true,
+        steps: sorted.map((a, i) => ({ ...a.step, order: i + 1 }))
+      };
+    }
+    // Doublons de numéros → ambigu ; conserver l’ordre source
+    return { confident: false, steps };
+  }
+
+  // Fraction seulement numérotée, ou aucun numéro fiable → ordre source inchangé.
+  return { confident: false, steps };
 }
 
 function parseLlmRecipePayload(raw: string): LlmRecipePayload | null {
@@ -1745,13 +1806,92 @@ Règles :
   }
 }
 
+/**
+ * Réordonnancement CAP-4 light-first : heuristiques (numéros cohérents) d’abord ;
+ * LLM `reorder` (luna) seulement si désordre / ambiguïté et clé présente.
+ * Soft-fail / sans clé → ordre source (quand non confiant, `light.steps` n’est pas
+ * un nouvel ordre heuristique) ; import jamais bloqué.
+ *
+ * @param reorderFn injection tests — remplace l’appel OpenAI ; reçoit les étapes
+ *   (ordre source si non confiant) et renvoie le JSON LLM `[{ text }]` (ou null = soft-fail).
+ */
 export async function reorderStepsByRecipeLogic(
-  steps: ParsedInstructionStep[]
+  steps: ParsedInstructionStep[],
+  reorderFn?: (
+    steps: ParsedInstructionStep[]
+  ) => Promise<Array<{ text?: string }> | null>
 ): Promise<ParsedInstructionStep[]> {
   if (steps.length <= 1) return steps;
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return steps;
 
+  const light = tryLightFirstStepReorder(steps);
+  if (light.confident) {
+    return light.steps;
+  }
+
+  // Non confiant : ordre source inchangé (pas un réordonnancement heuristique).
+  const sourceOrder = light.steps;
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!reorderFn && !apiKey) {
+    return sourceOrder;
+  }
+
+  try {
+    if (reorderFn) {
+      const arr = await reorderFn(sourceOrder);
+      // Même garde que le chemin OpenAI : non-tableau / vide → conserver la source
+      if (!Array.isArray(arr) || arr.length === 0) return sourceOrder;
+      return rematchReorderedSteps(sourceOrder, arr);
+    }
+    return await reorderStepsWithOpenAI(sourceOrder, apiKey!);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("reorderStepsByRecipeLogic error", err);
+    return sourceOrder;
+  }
+}
+
+/** Rematch texte LLM → étapes source (préserve id / media). */
+export function rematchReorderedSteps(
+  source: ParsedInstructionStep[],
+  arr: Array<{ text?: string }>
+): ParsedInstructionStep[] {
+  const normalized = (t: string) => t.replace(/^\d+[\.\)\s\-:]/, "").trim().toLowerCase();
+  const remaining = new Map<string, ParsedInstructionStep>();
+  for (const s of source) {
+    const k = normalized(s.text);
+    if (!remaining.has(k)) remaining.set(k, s);
+  }
+
+  const reordered: ParsedInstructionStep[] = [];
+  const used = new Set<ParsedInstructionStep>();
+
+  for (let i = 0; i < arr.length; i++) {
+    const text = String(arr[i]?.text ?? "").trim();
+    if (!text) continue;
+    const norm = normalized(text);
+    const orig = remaining.get(norm);
+    if (orig && !used.has(orig)) {
+      used.add(orig);
+      remaining.delete(norm);
+      reordered.push({ ...orig, order: i + 1 });
+    } else {
+      reordered.push({
+        id: `step-${i + 1}-${Date.now()}`,
+        order: i + 1,
+        text
+      });
+    }
+  }
+  for (const [, s] of remaining) {
+    reordered.push({ ...s, order: reordered.length + 1 });
+  }
+  return reordered;
+}
+
+async function reorderStepsWithOpenAI(
+  steps: ParsedInstructionStep[],
+  apiKey: string
+): Promise<ParsedInstructionStep[]> {
   const stepTexts = steps.map((s) => s.text).join("\n");
   const prompt = `Des étapes de recette ont été extraites dans un ordre possiblement incorrect.
 Réordonne-les pour suivre la logique chronologique d'exécution :
@@ -1768,60 +1908,23 @@ Conserve le texte de chaque étape à l'identique. Ne fusionne pas, ne modifie p
 Étapes à réordonner :
 ${stepTexts}`;
 
+  const client = new OpenAI({ apiKey });
+  const completion = await client.chat.completions.create({
+    model: getChatModel("reorder"),
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.1
+  });
+  const raw = completion.choices[0]?.message?.content?.trim();
+  if (!raw) return steps;
+  let arr: Array<{ text?: string }>;
   try {
-    const client = new OpenAI({ apiKey });
-    const completion = await client.chat.completions.create({
-      model: getChatModel("reorder"),
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.1
-    });
-    const raw = completion.choices[0]?.message?.content?.trim();
-    if (!raw) return steps;
-    let arr: Array<{ text?: string }>;
-    try {
-      const json = raw.replace(/^```json?\s*|\s*```$/g, "").replace(/,(\s*[}\]])/g, "$1");
-      arr = JSON.parse(json);
-    } catch {
-      return steps;
-    }
-    if (!Array.isArray(arr) || arr.length === 0) return steps;
-
-    const normalized = (t: string) => t.replace(/^\d+[\.\)\s\-:]/, "").trim().toLowerCase();
-    const remaining = new Map<string, ParsedInstructionStep>();
-    for (const s of steps) {
-      const k = normalized(s.text);
-      if (!remaining.has(k)) remaining.set(k, s);
-    }
-
-    const reordered: ParsedInstructionStep[] = [];
-    const used = new Set<ParsedInstructionStep>();
-
-    for (let i = 0; i < arr.length; i++) {
-      const text = String(arr[i]?.text ?? "").trim();
-      if (!text) continue;
-      const norm = normalized(text);
-      const orig = remaining.get(norm);
-      if (orig && !used.has(orig)) {
-        used.add(orig);
-        remaining.delete(norm);
-        reordered.push({ ...orig, order: i + 1 });
-      } else {
-        reordered.push({
-          id: `step-${i + 1}-${Date.now()}`,
-          order: i + 1,
-          text
-        });
-      }
-    }
-    for (const [, s] of remaining) {
-      reordered.push({ ...s, order: reordered.length + 1 });
-    }
-    return reordered;
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn("reorderStepsByRecipeLogic error", err);
+    const json = raw.replace(/^```json?\s*|\s*```$/g, "").replace(/,(\s*[}\]])/g, "$1");
+    arr = JSON.parse(json);
+  } catch {
     return steps;
   }
+  if (!Array.isArray(arr) || arr.length === 0) return steps;
+  return rematchReorderedSteps(steps, arr);
 }
 
 async function fetchUrl(url: string): Promise<string> {
