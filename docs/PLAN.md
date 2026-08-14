@@ -23,7 +23,7 @@ Exécution des slices v1 en petites livraisons verticales. Refonte UX appliquée
 | M | Images ingrédients : icônes détail + cartes, génération IA lazy, cache IndexedDB mutualisé | Fait | — |
 | N | Import URL — YouTube (description, poster, embed) | Fait | — |
 | O | Export / import cahier (ZIP + JSON interne, tout ou liste filtrée, sans dédoublonnage ; progression UI) | Fait | — |
-| P | Partage natif OS (texte F2 ± vignette) ; retrait QR proximité | En cours | Feature SPEC `_bmad-output/specs/spec-partage-recette-distant/` ; ADR 0003 ; stories 2… |
+| P | Partage natif OS (texte F2 ± vignette) ; retrait QR proximité | Fait | — |
 
 ## Idées / backlog (hors livraison v1)
 
