@@ -4,7 +4,7 @@ import { defineConfig, type Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { VitePWA } from "vite-plugin-pwa";
 
-/** GitHub Pages sert 404.html pour les chemins inconnus ; copie index.html pour le cold open `/r`. */
+/** GitHub Pages sert 404.html pour les chemins inconnus ; copie index.html pour le cold open SPA. */
 function spa404Fallback(): Plugin {
   return {
     name: "spa-404-fallback",
