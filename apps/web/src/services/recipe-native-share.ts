@@ -1,6 +1,5 @@
 /**
- * Partage système natif (Web Share) — texte F2, avec fallback presse-papiers.
- * Story 3 : texte seul ; fichiers (vignette) en story 4.
+ * Partage système natif (Web Share) — texte F2 ± vignette PNG, avec fallback presse-papiers.
  *
  * Note : `navigator.share` et `clipboard.writeText` exigent souvent un **contexte
  * sécurisé** (HTTPS ou localhost). En HTTP LAN/Tailscale les deux peuvent
@@ -93,16 +92,21 @@ function isAbortError(error: unknown): boolean {
 }
 
 /**
- * Partage `text` via Web Share si possible, sinon copie presse-papiers
- * (API puis execCommand). Si rien ne marche → needs-manual-copy + text.
+ * Partage `text` (± fichier vignette) via Web Share si possible, sinon copie
+ * presse-papiers (API puis execCommand). Si rien ne marche → needs-manual-copy + text.
  *
  * Ne pas passer `title` à `navigator.share` : Android/Chrome affiche déjà un
  * bandeau « titre » au-dessus du texte → doublon avec le bloc F2 `Titre:`.
  * Le titre reste dans le payload F2 (contrat import / lecture messagerie).
+ *
+ * Fichier : tenter `canShare({ text, files })` puis `share` ; si refuse / échec
+ * non-Abort → dégrader obligatoirement au texte seul (CAP-3).
  */
 export async function shareRecipeTextNative(
   options: {
     text: string;
+    /** Vignette PNG optionnelle ; jointe seulement si canShare({ files }) OK. */
+    file?: File;
   },
   deps?: NativeShareDeps
 ): Promise<NativeShareTextResult> {
@@ -111,11 +115,41 @@ export async function shareRecipeTextNative(
     return { ok: false, reason: "error", message: "Rien à partager." };
   }
 
-  const data: ShareData = { text };
-
   const { share, canShare } = resolveShareApi(deps);
   if (share) {
-    const allowed = typeof canShare === "function" ? canShare(data) : true;
+    const file = options.file;
+    if (file) {
+      const withFiles: ShareData = { text, files: [file] };
+      let filesAllowed = false;
+      if (typeof canShare === "function") {
+        try {
+          filesAllowed = canShare(withFiles);
+        } catch {
+          filesAllowed = false;
+        }
+      }
+      if (filesAllowed) {
+        try {
+          await share(withFiles);
+          return { ok: true, method: "share" };
+        } catch (error) {
+          if (isAbortError(error)) {
+            return { ok: false, reason: "aborted" };
+          }
+          // Dégradation obligatoire : texte seul.
+        }
+      }
+    }
+
+    const data: ShareData = { text };
+    let allowed = true;
+    if (typeof canShare === "function") {
+      try {
+        allowed = canShare(data);
+      } catch {
+        allowed = false;
+      }
+    }
     if (allowed) {
       try {
         await share(data);

@@ -34,8 +34,8 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `import-service` | Import URL/share/screenshot/texte + appel BFF | `apps/web/src/services/import-service.ts` |
 | `share-target-service` | Lecture/nettoyage des paramètres `share_target` au démarrage | `apps/web/src/services/share-target-service.ts` |
 | `recipe-share-f2` | Construction du texte F2 + CTA soft à partir d’une `Recipe` | `apps/web/src/utils/recipe-share-f2.ts` |
-| `recipe-share-card` (cible) | Génération locale canvas/PNG de la vignette partage (~1080×1080) | `apps/web/src/services/` ou `utils/` (à nommer à l’impl) |
-| `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte (± fichier story 4) ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
+| `recipe-share-card` | Génération locale canvas/PNG de la vignette partage (~1080×1080) | `apps/web/src/utils/recipe-share-card.ts` |
+| `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte ± vignette PNG ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
 | ~~`proximity-*` / `proximity-drop-store`~~ | **Obsolète produit** — retrait UI/`/r` puis cleanup BFF (voir ADR 0003) | à supprimer |
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
 | `db` | Schéma IndexedDB et accès tables | `apps/web/src/storage/db.ts` |
