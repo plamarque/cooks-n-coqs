@@ -6,9 +6,10 @@ import type {
   ShareImportPayload
 } from "@cookies-et-coquilettes/domain";
 import { mergeDrafts } from "../utils/merge-recipe-drafts";
+import { tryParseRecipeShareF2Text } from "../utils/recipe-share-f2";
 import { reorderStepsRequestBody } from "../utils/reorder-steps-request";
 
-const API_BASE_URL = import.meta.env.VITE_BFF_URL || "http://localhost:8787";
+const API_BASE_URL = import.meta.env?.VITE_BFF_URL || "http://localhost:8787";
 
 export async function extractImageFromUrl(url: string): Promise<string | undefined> {
   try {
@@ -146,6 +147,12 @@ class BffImportService implements ImportService {
   }
 
   async importFromShare(payload: ShareImportPayload): Promise<ParsedRecipeDraft> {
+    if (payload.text) {
+      const f2 = tryParseRecipeShareF2Text(payload.text, { sourceType: "SHARE" });
+      if (f2) {
+        return f2;
+      }
+    }
     try {
       const response = await fetch(`${API_BASE_URL}/api/import/share`, {
         method: "POST",
@@ -208,6 +215,10 @@ class BffImportService implements ImportService {
   }
 
   async importFromText(text: string): Promise<ParsedRecipeDraft> {
+    const f2 = tryParseRecipeShareF2Text(text, { sourceType: "TEXT" });
+    if (f2) {
+      return f2;
+    }
     try {
       const response = await fetch(`${API_BASE_URL}/api/import/text`, {
         method: "POST",
