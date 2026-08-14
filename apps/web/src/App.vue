@@ -65,6 +65,7 @@ import {
   shouldCloseProximityShareForStaleContent
 } from "./utils/proximity-share-content-fingerprint";
 import { buildRecipeShareF2Text } from "./utils/recipe-share-f2";
+import { buildRecipeShareCardFile } from "./utils/recipe-share-card";
 import { shareRecipeTextNative } from "./services/recipe-native-share";
 import {
   dexieRecipeService,
@@ -1978,7 +1979,7 @@ function closeProximityShareOverlay(): void {
   proximityShareBusy.value = false;
 }
 
-/** Partage OS natif : texte F2 via Web Share (fallback presse-papiers si possible). */
+/** Partage OS natif : texte F2 ± vignette PNG via Web Share (fallback presse-papiers). */
 async function shareSelectedRecipeNative(): Promise<void> {
   const recipe = selectedRecipe.value;
   if (!recipe || nativeShareBusy.value) {
@@ -1996,7 +1997,40 @@ async function shareSelectedRecipeNative(): Promise<void> {
   nativeShareBusy.value = true;
   try {
     const text = buildRecipeShareF2Text(recipe);
-    const result = await shareRecipeTextNative({ text });
+    let file: File | undefined;
+    try {
+      let imageBlob: Blob | undefined;
+      if (recipe.imageId) {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        try {
+          imageBlob = await Promise.race([
+            db.images.get(recipe.imageId).then((row) => row?.blob),
+            new Promise<undefined>((_, reject) => {
+              timeoutId = setTimeout(
+                () => reject(new Error("images.get timeout")),
+                10_000
+              );
+            })
+          ]);
+        } catch {
+          // Lecture / timeout Dexie : continuer sans blob → placeholder sage.
+          imageBlob = undefined;
+        } finally {
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
+        }
+      }
+      const card = await buildRecipeShareCardFile(recipe, {
+        imageBlob: imageBlob ?? null
+      });
+      if (card) {
+        file = card;
+      }
+    } catch {
+      // Génération card best-effort : dégrader au texte seul.
+    }
+    const result = await shareRecipeTextNative({ text, file });
     if (result.ok && result.method === "clipboard") {
       feedback.value =
         "Recette copiée dans le presse-papiers. Colle-la dans un message pour la partager.";
