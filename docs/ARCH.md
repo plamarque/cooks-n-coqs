@@ -36,7 +36,6 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `recipe-share-f2` | Construction et parse du texte F2 (+ CTA soft) ; reconnaissance à l’import collage / `share_target` | `apps/web/src/utils/recipe-share-f2.ts` |
 | `recipe-share-card` | Génération locale canvas/PNG de la vignette partage (~1080×1080) | `apps/web/src/utils/recipe-share-card.ts` |
 | `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte ± vignette PNG ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
-| ~~`proximity-*` / `proximity-drop-store`~~ | **Obsolète produit** — retrait UI/`/r` puis cleanup BFF (voir ADR 0003) | à supprimer |
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
 | `db` | Schéma IndexedDB et accès tables | `apps/web/src/storage/db.ts` |
 | `ingredient-image-service` | Résolution d'image ingrédient (cache local, génération IA), stockage | `apps/web/src/services/ingredient-image-service.ts` |
@@ -89,13 +88,9 @@ Règles de contrat :
 - `recipe-native-share` — `navigator.share` avec `{ text }` et, si `canShare({ files })`, fichier image ; échec fichiers → partage texte seul obligatoire.
 - Import entrant du même texte : `importFromText` / `share_target` ; reconnaître en-têtes F2 ; ignorer la ligne CTA.
 
-### ~~BFF — dépôt éphémère proximité (Mode B)~~ (obsolète)
+### BFF — pas de dépôt proximité
 
-Retiré du produit (ADR 0003). Endpoints `POST/GET /api/proximity-drop` et `proximity-drop-store` : cleanup code après retrait UI/`/r` (ne plus exposer de chemin produit).
-
-### ~~Proximity (partage / réception)~~ (obsolète)
-
-Deep link `/r`, QR Mode A/B et seams `proximity-*` : hors produit ; suppression client puis BFF.
+Aucune route HTTP ni store de drop. QR, deep link `/r` et Mode A/B sont hors produit ; le BFF n’a plus de seam drop (ADR 0003).
 
 ### Import service
 

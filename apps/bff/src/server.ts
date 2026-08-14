@@ -24,18 +24,12 @@ import {
   generateRecipeImage
 } from "./image-generator.js";
 import { detectStepTimerDurationSeconds } from "./step-timer-detector.js";
-import {
-  ProximityDropStore,
-  validateProximityDropBody
-} from "./proximity-drop-store.js";
 
 export const app = express();
 const upload = multer();
 const port = Number(process.env.PORT ?? 8787);
 const corsOrigin = process.env.CORS_ORIGIN ?? "*";
 const generatedImageAdminToken = process.env.GENERATED_IMAGE_ADMIN_TOKEN?.trim();
-/** Store Mode B process-global (mémoire mono-instance, AD-15). Exporté pour tests HTTP (TTL). */
-export const proximityDropStore = new ProximityDropStore();
 
 app.use(
   cors({
@@ -56,43 +50,6 @@ function isGeneratedImageAdminAuthorized(req: express.Request): boolean {
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
-});
-
-app.post("/api/proximity-drop", (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  const validated = validateProximityDropBody(req.body);
-  if (!validated.ok) {
-    res.status(400).json({ error: validated.error });
-    return;
-  }
-
-  const created = proximityDropStore.create(validated.payload);
-  res.status(201).json(created);
-});
-
-app.get("/api/proximity-drop/:id", (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  const id = String(req.params.id ?? "").trim();
-  if (!id) {
-    res.status(404).json({ error: "Proximity drop not found", reason: "not_found" });
-    return;
-  }
-
-  const result = proximityDropStore.consume(id);
-  if (!result.ok) {
-    if (result.error === "not_found") {
-      res.status(404).json({ error: "Proximity drop not found", reason: "not_found" });
-      return;
-    }
-    if (result.error === "expired") {
-      res.status(410).json({ error: "Proximity drop expired", reason: "expired" });
-      return;
-    }
-    res.status(410).json({ error: "Proximity drop already consumed", reason: "consumed" });
-    return;
-  }
-
-  res.status(200).json(result.payload);
 });
 
 app.post("/api/step-timer-duration", async (req, res) => {
