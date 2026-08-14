@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
 import { after, before, test } from "node:test";
-import { app, proximityDropStore } from "../src/server.js";
+import { app } from "../src/server.js";
 
 let server: Server;
 let baseUrl = "";
@@ -27,83 +27,33 @@ after(async () => {
   });
 });
 
-const draft = {
-  title: "Tiramisu",
-  category: "SUCRE",
-  ingredients: [],
-  steps: []
-};
+async function readResponse(res: Response): Promise<{ text: string; json: unknown }> {
+  const text = await res.text();
+  try {
+    return { text, json: JSON.parse(text) };
+  } catch {
+    return { text, json: null };
+  }
+}
 
-test("POST /api/proximity-drop valide → 201 + Cache-Control no-store", async () => {
+test("POST /api/proximity-drop → 404 Express (pas de 201 ni { id, expiresAt })", async () => {
   const res = await fetch(`${baseUrl}/api/proximity-drop`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(draft)
+    body: JSON.stringify({ title: "Tiramisu", category: "SUCRE" })
   });
 
-  assert.equal(res.status, 201);
-  assert.match(res.headers.get("cache-control") ?? "", /no-store/i);
-  const body = (await res.json()) as { id: string; expiresAt: string };
-  assert.match(body.id, /^[A-Za-z0-9_-]+$/);
-  assert.ok(Number.isFinite(Date.parse(body.expiresAt)));
-});
-
-test("POST /api/proximity-drop sans title → 400", async () => {
-  const res = await fetch(`${baseUrl}/api/proximity-drop`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ category: "SUCRE" })
-  });
-
-  assert.equal(res.status, 400);
-  assert.match(res.headers.get("cache-control") ?? "", /no-store/i);
-  const body = (await res.json()) as { error: string };
-  assert.ok(body.error);
-});
-
-test("GET après create → 200 payload ; 2ᵉ GET → 410 consumed", async () => {
-  const createdRes = await fetch(`${baseUrl}/api/proximity-drop`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(draft)
-  });
-  assert.equal(createdRes.status, 201);
-  const { id } = (await createdRes.json()) as { id: string };
-
-  const first = await fetch(`${baseUrl}/api/proximity-drop/${id}`);
-  assert.equal(first.status, 200);
-  assert.match(first.headers.get("cache-control") ?? "", /no-store/i);
-  assert.deepEqual(await first.json(), draft);
-
-  const second = await fetch(`${baseUrl}/api/proximity-drop/${id}`);
-  assert.equal(second.status, 410);
-  assert.match(second.headers.get("cache-control") ?? "", /no-store/i);
-  const err = (await second.json()) as { reason: string };
-  assert.equal(err.reason, "consumed");
-});
-
-test("GET id inconnu → 404 not_found", async () => {
-  const res = await fetch(`${baseUrl}/api/proximity-drop/ticket-inexistant`);
   assert.equal(res.status, 404);
-  assert.match(res.headers.get("cache-control") ?? "", /no-store/i);
-  const body = (await res.json()) as { reason: string };
-  assert.equal(body.reason, "not_found");
+  assert.doesNotMatch(res.headers.get("content-type") ?? "", /application\/json/i);
+  const { json } = await readResponse(res);
+  assert.equal(json, null);
 });
 
-test("GET ticket expiré → 410 expired", async () => {
-  const createdRes = await fetch(`${baseUrl}/api/proximity-drop`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(draft)
-  });
-  assert.equal(createdRes.status, 201);
-  const { id } = (await createdRes.json()) as { id: string };
-  assert.equal(proximityDropStore.forceExpire(id), true);
+test("GET /api/proximity-drop/:id → 404 Express (pas de payload recette ni 410 métier)", async () => {
+  const res = await fetch(`${baseUrl}/api/proximity-drop/ticket-inexistant`);
 
-  const res = await fetch(`${baseUrl}/api/proximity-drop/${id}`);
-  assert.equal(res.status, 410);
-  assert.match(res.headers.get("cache-control") ?? "", /no-store/i);
-  const body = (await res.json()) as { reason: string; error?: string };
-  assert.equal(body.reason, "expired");
-  assert.ok(body.error);
+  assert.equal(res.status, 404);
+  assert.doesNotMatch(res.headers.get("content-type") ?? "", /application\/json/i);
+  const { json } = await readResponse(res);
+  assert.equal(json, null);
 });

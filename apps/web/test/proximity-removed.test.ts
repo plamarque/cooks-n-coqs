@@ -23,11 +23,10 @@ test("cold open /r — aucun bootstrap ni overlay réception proximité", () => 
 test("aucun chemin produit create/consume drop côté client", () => {
   assert.doesNotMatch(appVue, /createProximityDrop|consumeProximityDrop|proximity-drop-client/);
   assert.equal(existsSync(join(webRoot, "src", "services", "proximity-drop-client.ts")), false);
-  // Modules proximité client absents (livraison 1) ; BFF orphelin volontaire jusqu’à story 7.
   assert.equal(existsSync(join(webRoot, "src", "services", "proximity-transfer-service.ts")), false);
-  assert.equal(existsSync(join(repoRoot, "apps", "bff", "src", "proximity-drop-store.ts")), true);
+  assert.equal(existsSync(join(repoRoot, "apps", "bff", "src", "proximity-drop-store.ts")), false);
   const bffServer = readFileSync(join(repoRoot, "apps", "bff", "src", "server.ts"), "utf8");
-  assert.match(bffServer, /\/api\/proximity-drop/);
+  assert.doesNotMatch(bffServer, /\/api\/proximity-drop/);
 });
 
 test("e2e proximité UI retiré", () => {
