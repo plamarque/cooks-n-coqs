@@ -4,8 +4,39 @@ import type { Recipe } from "@cookies-et-coquilettes/domain";
 import {
   RECIPE_SHARE_F2_CTA,
   buildRecipeShareF2Text,
-  formatIngredientLineForShare
+  formatIngredientLineForShare,
+  tryParseRecipeShareF2Text
 } from "../src/utils/recipe-share-f2";
+
+/** Payload exact — preview-messagerie-tiramisu.md */
+const TIRAMISU_F2_TEXT = [
+  "Titre:",
+  "Tiramisu",
+  "",
+  "Portions:",
+  "6",
+  "",
+  "Ingrédients:",
+  "- 500 g mascarpone",
+  "- 4 œufs",
+  "- 100 g sucre",
+  "- 24 biscuits à la cuillère",
+  "- 30 cl café serré",
+  "- 2 c.à.s cacao amer",
+  "",
+  "Étapes:",
+  "1. Séparer les blancs des jaunes.",
+  "2. Blanchir les jaunes avec le sucre.",
+  "3. Incorporer le mascarpone.",
+  "4. Monter les blancs en neige et plier.",
+  "5. Tremper les biscuits dans le café, alterner couches.",
+  "6. Saupoudrer de cacao et réserver au frais 4 h.",
+  "",
+  "Source:",
+  "https://example.com/tiramisu",
+  "",
+  RECIPE_SHARE_F2_CTA
+].join("\n");
 
 function baseRecipe(overrides: Partial<Recipe> = {}): Recipe {
   return {
@@ -135,4 +166,88 @@ test("buildRecipeShareF2Text CTA is exactly one trailing line", () => {
   const lines = text.split("\n");
   assert.equal(lines[lines.length - 1], RECIPE_SHARE_F2_CTA);
   assert.equal(lines.filter((l) => l.startsWith("Tu veux garder")).length, 1);
+});
+
+test("tryParseRecipeShareF2Text — Tiramisu fixture exacte", () => {
+  const draft = tryParseRecipeShareF2Text(TIRAMISU_F2_TEXT);
+  assert.ok(draft);
+  assert.equal(draft.title, "Tiramisu");
+  assert.equal(draft.servingsBase, 6);
+  assert.equal(draft.ingredients.length, 6);
+  assert.equal(draft.steps.length, 6);
+  assert.equal(draft.source?.url, "https://example.com/tiramisu");
+  assert.equal(draft.ingredients[0]?.rawText, "500 g mascarpone");
+  assert.equal(draft.steps[0]?.text, "Séparer les blancs des jaunes.");
+  assert.ok(!draft.ingredients.some((i) => (i.rawText ?? i.label).includes("Tu veux garder")));
+  assert.ok(!draft.steps.some((s) => s.text.includes("Tu veux garder")));
+});
+
+test("tryParseRecipeShareF2Text — CTA ignorée, pas source.url", () => {
+  const draft = tryParseRecipeShareF2Text(TIRAMISU_F2_TEXT);
+  assert.ok(draft);
+  assert.equal(draft.source?.url, "https://example.com/tiramisu");
+  assert.notEqual(
+    draft.source?.url,
+    "https://plamarque.github.io/cookies-et-coquilettes/"
+  );
+  assert.ok(!JSON.stringify(draft).includes(RECIPE_SHARE_F2_CTA));
+});
+
+test("tryParseRecipeShareF2Text — sans Portions", () => {
+  const text = [
+    "Titre:",
+    "Soupe",
+    "",
+    "Ingrédients:",
+    "- 1 oignon",
+    "",
+    "Étapes:",
+    "1. Couper.",
+    "",
+    RECIPE_SHARE_F2_CTA
+  ].join("\n");
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assert.equal(draft.title, "Soupe");
+  assert.equal(draft.servingsBase, undefined);
+  assert.equal(draft.ingredients.length, 1);
+  assert.equal(draft.steps.length, 1);
+});
+
+test("tryParseRecipeShareF2Text — sans Source", () => {
+  const text = [
+    "Titre:",
+    "Soupe",
+    "",
+    "Portions:",
+    "2",
+    "",
+    "Ingrédients:",
+    "- 1 oignon",
+    "",
+    "Étapes:",
+    "1. Couper."
+  ].join("\n");
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assert.equal(draft.source?.url, undefined);
+  assert.equal(draft.servingsBase, 2);
+});
+
+test("tryParseRecipeShareF2Text — non-F2 → null", () => {
+  assert.equal(tryParseRecipeShareF2Text("Voici ma super soupe à l'oignon"), null);
+  assert.equal(tryParseRecipeShareF2Text("https://example.com/recette"), null);
+  assert.equal(tryParseRecipeShareF2Text(""), null);
+});
+
+test("tryParseRecipeShareF2Text — titre seul sans ingrédients ni étapes → null", () => {
+  const text = ["Titre:", "Vide", "", RECIPE_SHARE_F2_CTA].join("\n");
+  assert.equal(tryParseRecipeShareF2Text(text), null);
+});
+
+test("tryParseRecipeShareF2Text — sourceType SHARE pour share_target", () => {
+  const draft = tryParseRecipeShareF2Text(TIRAMISU_F2_TEXT, { sourceType: "SHARE" });
+  assert.ok(draft);
+  assert.equal(draft.source?.type, "SHARE");
+  assert.equal(draft.source?.url, "https://example.com/tiramisu");
 });

@@ -33,7 +33,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `recipe-book-rehydrate-after-import` | Complétion médias d’une recette issue d’archive légère (BFF cache puis IA), typiquement à la première ouverture détail | `apps/web/src/services/recipe-book-rehydrate-after-import.ts` |
 | `import-service` | Import URL/share/screenshot/texte + appel BFF | `apps/web/src/services/import-service.ts` |
 | `share-target-service` | Lecture/nettoyage des paramètres `share_target` au démarrage | `apps/web/src/services/share-target-service.ts` |
-| `recipe-share-f2` | Construction du texte F2 + CTA soft à partir d’une `Recipe` | `apps/web/src/utils/recipe-share-f2.ts` |
+| `recipe-share-f2` | Construction et parse du texte F2 (+ CTA soft) ; reconnaissance à l’import collage / `share_target` | `apps/web/src/utils/recipe-share-f2.ts` |
 | `recipe-share-card` | Génération locale canvas/PNG de la vignette partage (~1080×1080) | `apps/web/src/utils/recipe-share-card.ts` |
 | `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte ± vignette PNG ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
 | ~~`proximity-*` / `proximity-drop-store`~~ | **Obsolète produit** — retrait UI/`/r` puis cleanup BFF (voir ADR 0003) | à supprimer |
