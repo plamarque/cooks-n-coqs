@@ -21,14 +21,15 @@
 
 - Domaine : `scaleIngredientsFromBase`, `quantityBase`, `normalizeIngredient` implémentés.
 - Service : `scaleRecipe` dans `recipe-service` (Dexie).
-- UI : **masquée** via `FEATURE_PORTIONS_ENABLED = false` car inopérante.
+- UI : **activée** (`FEATURE_PORTIONS_ENABLED = true`) sur le détail.
+- Partage F2 : quantités et `N portions` = affichage courant (pas la base si elle diffère).
 
-## Slide 5 — À faire
+## Slide 5 — Livré
 
-1. Vérifier/corriger le flux complet : saisie `quantityBase` à la création/édition, import BFF.
-2. S'assurer que `scaleRecipe` persiste correctement et que l'affichage reflète les quantités recalculées.
-3. Tests E2E sur le parcours portions.
-4. Réactiver l'UI via `FEATURE_PORTIONS_ENABLED = true` dans `App.vue`.
+1. Flux `quantityBase` à la création/édition et import BFF.
+2. `scaleRecipe` persiste `servingsCurrent` ; l’affichage reflète les quantités recalculées.
+3. Smoke E2E : création / édition portions (`e2e/app.spec.js`).
+4. UI réactivée via `FEATURE_PORTIONS_ENABLED = true`.
 
 ## Slide 6 — Impacts
 

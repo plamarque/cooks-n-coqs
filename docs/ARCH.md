@@ -36,6 +36,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `recipe-share-f2` | Construction et parse du texte F2 (+ CTA soft) ; reconnaissance à l’import collage / `share_target` | `apps/web/src/utils/recipe-share-f2.ts` |
 | `recipe-share-card` | Génération locale canvas/PNG de l’image illustrative partage (~1080×1080 : photo + CTA visuel + logo) | `apps/web/src/utils/recipe-share-card.ts` |
 | `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte ± image illustrative PNG ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
+| `recipe-detail-selection` | Résolution de la fiche DETAIL (override hors filtres), navigation post-sauvegarde, badge transitoire | `apps/web/src/utils/recipe-detail-selection.ts` |
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
 | `db` | Schéma IndexedDB et accès tables | `apps/web/src/storage/db.ts` |
 | `ingredient-image-service` | Résolution d'image ingrédient (cache local, génération IA), stockage | `apps/web/src/services/ingredient-image-service.ts` |
@@ -87,6 +88,15 @@ Règles de contrat :
 - `recipe-share-card` — canvas local ~1080×1080 : photo principale plein cadre (`RecipeImage` / placeholder), CTA visuel bandeau bas, logo `public/favicon.svg` overlay haut-droite ; **pas** de fiche (titre / portions / ingrédients) sur l’image.
 - `recipe-native-share` — `navigator.share` avec `{ text }` et, si `canShare({ files })`, fichier image ; échec fichiers → partage texte seul obligatoire ; pas de contrôle de l’ordre des bulles OS.
 - Import entrant du même texte : `importFromText` / `share_target` ; reconnaître wire F2 (nouveau + ancien) ; ignorer la ligne CTA.
+
+### Sélection DETAIL hors liste filtrée
+
+Après une sauvegarde réussie, la destination est la vue DETAIL de **cette** recette, même si `listRecipes(filters)` ne la renvoie pas (favoris, catégorie, recherche).
+
+- `detailRecipeOverride` (`App.vue`) : snapshot persisté posé à la sauvegarde ; `resolveDetailRecipe(recipes, selectedId, override)` le préfère à l’entrée de la liste filtrée.
+- `selectionAfterFilteredRefresh(selectedId, filteredRecipes, allowOutsideFilterId)` : si l’id n’est plus dans la liste, ne pas basculer LIST tant que `allowOutsideFilterId` (id de l’override) correspond ; quand la recette réapparaît dans la liste, l’override est retiré.
+- Échec de `refresh()` après persist : l’override suffit pour afficher DETAIL.
+- Badge de succès : overlay sur la fiche DETAIL (`pointer-events: none`), disparition automatique ; ce n’est pas une destination. Libellés `Recette modifiée.` / `Recette créée.` Helpers dans `recipe-detail-selection.ts`.
 
 ### BFF — pas de dépôt proximité
 

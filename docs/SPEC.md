@@ -91,8 +91,6 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 8. En mode cuisine, si le texte d'une étape mentionne (explicitement ou implicitement) une durée de cuisson/repos, l'UI propose un timer countdown prérempli ; l'utilisateur le déclenche manuellement. La durée est déterminée par détection sémantique (IA, avec fallback local en cas d'indisponibilité). Le timer affiche le temps restant et une progression circulaire semi-transparente décroissante (sens horaire), puis émet un court signal sonore de fin.
 9. À la sortie du mode cuisine, l'application affiche le temps passé et propose de mettre à jour `prepTimeMin` en prenant la moyenne entre le temps mesuré et la valeur existante de la recette.
 
-> **Note** : L'ajustement des portions (points 3-4) est prévu mais l'UI est temporairement masquée ; implémentation à finaliser (slice K).
-
 ### Image de recette
 
 1. L'image est affichée sur les cartes, dans l'en-tête du détail et dans le formulaire d'édition.
