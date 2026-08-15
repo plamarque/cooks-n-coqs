@@ -114,8 +114,9 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 
 1. Toute recette peut être modifiée à tout moment.
 2. Les modifications sont persistées localement à l’action explicite de sauvegarde.
-3. La suppression est irréversible après confirmation utilisateur.
-4. Pour chaque étape, l'utilisateur peut ajouter ou retirer plusieurs images (fichier ou génération IA comme pour l'illustration recette), ordonner les médias, et ajouter une ou plusieurs URLs vidéo (`http` ou `https`).
+3. Après une sauvegarde réussie (édition ou création), l’utilisateur arrive sur la vue détail de cette recette, même si les filtres ou la recherche de la liste ne l’afficheraient pas ; une confirmation brève (« Recette modifiée. » / « Recette créée. ») est superposée à la fiche puis disparaît d’elle-même sans action requise ; pendant son affichage, la fiche reste utilisable. En cas d’échec de sauvegarde, l’utilisateur reste sur le formulaire avec l’erreur.
+4. La suppression est irréversible après confirmation utilisateur.
+5. Pour chaque étape, l'utilisateur peut ajouter ou retirer plusieurs images (fichier ou génération IA comme pour l'illustration recette), ordonner les médias, et ajouter une ou plusieurs URLs vidéo (`http` ou `https`).
 
 ## Critères de succès v1
 

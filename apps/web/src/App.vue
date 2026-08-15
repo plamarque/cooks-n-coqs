@@ -25,6 +25,15 @@ import StepMentionedIngredientIcons from "./components/StepMentionedIngredientIc
 import { seedIfEmpty } from "./seed/seed-if-empty";
 import { buildRecipeShareF2Text } from "./utils/recipe-share-f2";
 import { buildRecipeShareCardFile } from "./utils/recipe-share-card";
+import {
+  SAVE_SUCCESS_BADGE_MS,
+  SAVE_SUCCESS_BADGE_POINTER_EVENTS,
+  postSaveNavigationOnFailure,
+  postSaveNavigationOnSuccess,
+  recipeSaveSuccessLabel,
+  resolveDetailRecipe,
+  selectionAfterFilteredRefresh
+} from "./utils/recipe-detail-selection";
 import { shareRecipeTextNative } from "./services/recipe-native-share";
 import {
   dexieRecipeService,
@@ -127,6 +136,11 @@ const cookingState = ref<"OFF" | "WAKE_LOCK" | "FALLBACK">("OFF");
 const feedback = ref<string>("");
 const feedbackType = ref<"success" | "warning">("success");
 const errorMessage = ref<string>("");
+/** Recette DETAIL hors liste filtrée (post-sauvegarde). */
+const detailRecipeOverride = ref<Recipe | null>(null);
+/** Badge overlay non bloquant après Enregistrer. */
+const saveSuccessBadge = ref<string>("");
+let saveSuccessBadgeTimer: ReturnType<typeof setTimeout> | null = null;
 
 const search = ref("");
 const searchExpanded = ref(false);
@@ -576,7 +590,11 @@ function formToRecipe(existing?: Recipe): Recipe {
 }
 
 const selectedRecipe = computed(() =>
-  recipes.value.find((recipe) => recipe.id === selectedRecipeId.value) ?? null
+  resolveDetailRecipe(
+    recipes.value,
+    selectedRecipeId.value,
+    detailRecipeOverride.value
+  )
 );
 
 /** Partager : partage OS natif (texte F2) dès qu’une recette est ouverte. */
@@ -584,7 +602,7 @@ const canShareRecipe = computed(() => Boolean(selectedRecipe.value));
 const nativeShareBusy = ref(false);
 
 const formRecipeSourceImageIds = computed(
-  () => recipes.value.find((r) => r.id === formRecipeId.value)?.sourceImageIds ?? []
+  () => resolveFormExistingRecipe()?.sourceImageIds ?? []
 );
 
 const selectedRecipeSteps = computed(() => {
@@ -917,13 +935,22 @@ const activeFilters = computed<RecipeFilters>(() => ({
 }));
 
 const canSaveForm = computed(() => {
-  const candidate = formToRecipe(
-    formMode.value === "EDIT" && formRecipeId.value
-      ? recipes.value.find((recipe) => recipe.id === formRecipeId.value)
-      : undefined
-  );
+  const candidate = formToRecipe(resolveFormExistingRecipe());
   return isRecipeValidForSave(candidate);
 });
+
+/** Recette d’édition : liste filtrée, sinon override DETAIL hors filtres. */
+function resolveFormExistingRecipe(): Recipe | undefined {
+  if (formMode.value !== "EDIT" || !formRecipeId.value) {
+    return undefined;
+  }
+  return (
+    recipes.value.find((recipe) => recipe.id === formRecipeId.value) ??
+    (detailRecipeOverride.value?.id === formRecipeId.value
+      ? detailRecipeOverride.value
+      : undefined)
+  );
+}
 
 const formSourceUrl = computed({
   get: () => form.value.source?.url ?? "",
@@ -1191,12 +1218,17 @@ function onFilePicked(event: Event): void {
 
 async function refresh(): Promise<void> {
   recipes.value = await dexieRecipeService.listRecipes(activeFilters.value);
-  if (selectedRecipeId.value) {
-    const exists = recipes.value.some((recipe) => recipe.id === selectedRecipeId.value);
-    if (!exists) {
-      selectedRecipeId.value = null;
-      viewMode.value = "LIST";
-    }
+  const next = selectionAfterFilteredRefresh(
+    selectedRecipeId.value,
+    recipes.value,
+    detailRecipeOverride.value?.id ?? null
+  );
+  if (next.clearOverride) {
+    detailRecipeOverride.value = null;
+  }
+  selectedRecipeId.value = next.selectedId;
+  if (next.clearToList && viewMode.value !== "FORM") {
+    viewMode.value = "LIST";
   }
 }
 
@@ -1432,10 +1464,28 @@ function setError(error: unknown): void {
   console.error(error);
 }
 
+function clearSaveSuccessBadge(): void {
+  saveSuccessBadge.value = "";
+  if (saveSuccessBadgeTimer !== null) {
+    clearTimeout(saveSuccessBadgeTimer);
+    saveSuccessBadgeTimer = null;
+  }
+}
+
+function showSaveSuccessBadge(message: string): void {
+  clearSaveSuccessBadge();
+  saveSuccessBadge.value = message;
+  saveSuccessBadgeTimer = setTimeout(() => {
+    saveSuccessBadge.value = "";
+    saveSuccessBadgeTimer = null;
+  }, SAVE_SUCCESS_BADGE_MS);
+}
+
 function clearMessages(): void {
   feedback.value = "";
   feedbackType.value = "success";
   errorMessage.value = "";
+  clearSaveSuccessBadge();
 }
 
 function requestConfirmation(options: {
@@ -1621,6 +1671,7 @@ function startAsyncImageForRecipe(recipeId: string, draft: ParsedRecipeDraft): v
 
 function openDetail(recipe: Recipe): void {
   clearMessages();
+  detailRecipeOverride.value = null;
   selectedRecipeId.value = recipe.id;
   cookingStepIndex.value = 0;
   showCookingIngredients.value = false;
@@ -1655,6 +1706,7 @@ async function backToList(): Promise<void> {
   if (viewMode.value === "DETAIL") {
     await stopCookingModeIfActive();
   }
+  detailRecipeOverride.value = null;
   viewMode.value = "LIST";
   formRecipeId.value = null;
 }
@@ -1873,13 +1925,12 @@ async function triggerStepImageGeneration(stepId: string): Promise<void> {
   }
 }
 
-async function buildStepsResolvedFromForm(): Promise<InstructionStep[]> {
+async function buildStepsResolvedFromForm(
+  existingRecipe?: Recipe
+): Promise<InstructionStep[]> {
   const list: InstructionStep[] = [];
   let order = 0;
-  const existing =
-    formMode.value === "EDIT" && formRecipeId.value
-      ? recipes.value.find((recipe) => recipe.id === formRecipeId.value)
-      : undefined;
+  const existing = existingRecipe ?? resolveFormExistingRecipe();
   const currentIngredientIds = new Set(
     form.value.ingredients
       .filter((i) => i.label.trim())
@@ -1965,12 +2016,19 @@ function onCookingSliderTouchEnd(event: TouchEvent): void {
 
 async function saveForm(): Promise<void> {
   clearMessages();
+  let savedId: string | null = null;
+  let successLabel = "";
+  let savedRecipe: Recipe | null = null;
   try {
     const existing =
-      formMode.value === "EDIT" && formRecipeId.value
-        ? recipes.value.find((recipe) => recipe.id === formRecipeId.value)
-        : undefined;
-    const stepsResolved = await buildStepsResolvedFromForm();
+      resolveFormExistingRecipe() ??
+      (formMode.value === "EDIT" && formRecipeId.value
+        ? await db.recipes.get(formRecipeId.value)
+        : undefined);
+    if (formMode.value === "EDIT" && formRecipeId.value && !existing) {
+      throw new Error("Recette introuvable pour la mise à jour.");
+    }
+    const stepsResolved = await buildStepsResolvedFromForm(existing);
     let recipe = {
       ...formToRecipe(existing),
       steps: stepsResolved
@@ -1996,19 +2054,49 @@ async function saveForm(): Promise<void> {
         await db.images.delete(existing.imageId);
       }
       await dexieRecipeService.updateRecipe(existing.id, recipe);
-      feedback.value = "Recette modifiée.";
-      selectedRecipeId.value = existing.id;
+      savedId = existing.id;
     } else {
       await dexieRecipeService.createRecipe(recipe);
-      feedback.value = "Recette créée.";
-      selectedRecipeId.value = recipe.id;
-      // Désactiver le filtre favoris pour que la nouvelle recette apparaisse
-      favoriteOnly.value = false;
+      savedId = recipe.id;
     }
-    await refresh();
-    viewMode.value = "DETAIL";
+    successLabel = recipeSaveSuccessLabel(Boolean(existing));
+    savedRecipe = recipe;
   } catch (error) {
-    setError(error);
+    const nav = postSaveNavigationOnFailure();
+    if (nav.stayOnForm) {
+      setError(error);
+    }
+    return;
+  }
+
+  // Hydratation post-persist : ne pas traiter un échec get comme un échec de sauvegarde.
+  try {
+    const savedFromDb = await db.recipes.get(savedId!);
+    if (savedFromDb) {
+      savedRecipe = savedFromDb;
+    }
+  } catch {
+    // Override reste sur le snapshot en mémoire déjà persisté.
+  }
+
+  // Persist OK : toujours DETAIL + badge, même si refresh échoue ensuite.
+  detailRecipeOverride.value = savedRecipe;
+  selectedRecipeId.value = savedId;
+  if (formMode.value === "CREATE") {
+    favoriteOnly.value = false;
+  }
+  try {
+    await refresh();
+  } catch {
+    // Liste filtrée non rafraîchie : l’override suffit pour DETAIL.
+  }
+  selectedRecipeId.value = savedId;
+  const nav = postSaveNavigationOnSuccess();
+  if (nav.goToDetail) {
+    viewMode.value = "DETAIL";
+  }
+  if (nav.showSuccessBadge) {
+    showSaveSuccessBadge(successLabel);
   }
 }
 
@@ -2029,6 +2117,7 @@ async function deleteRecipe(recipe: Recipe): Promise<void> {
     await dexieRecipeService.deleteRecipe(recipe.id);
     await stopCookingModeIfActive();
     feedback.value = "Recette supprimée.";
+    detailRecipeOverride.value = null;
     selectedRecipeId.value = null;
     viewMode.value = "LIST";
     await refresh();
@@ -2283,6 +2372,7 @@ onUnmounted(() => {
   clearStepTimerInterval();
   cookingStepImageLoadCounter += 1;
   revokeCookingStepDisplayBlobs();
+  clearSaveSuccessBadge();
   if (typeof document !== "undefined") {
     document.body.style.overflow = "";
   }
@@ -2609,6 +2699,15 @@ onUnmounted(() => {
     </section>
 
     <section v-else-if="viewMode === 'DETAIL' && selectedRecipe" class="panel detail">
+      <div
+        v-if="saveSuccessBadge"
+        class="save-success-badge"
+        role="status"
+        aria-live="polite"
+        :style="{ pointerEvents: SAVE_SUCCESS_BADGE_POINTER_EVENTS }"
+      >
+        {{ saveSuccessBadge }}
+      </div>
       <Teleport v-if="cookingState !== 'OFF'" to="body">
         <div
           class="cooking-fullscreen-overlay"
