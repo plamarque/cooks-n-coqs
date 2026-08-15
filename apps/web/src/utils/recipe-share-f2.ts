@@ -6,6 +6,7 @@ import type {
   ParsedRecipeDraft,
   Recipe
 } from "@cookies-et-coquilettes/domain";
+import { resolveDisplayedServings } from "./recipe-detail-selection";
 
 /** CTA soft — dernière ligne du payload F2 (hors en-têtes). */
 export const RECIPE_SHARE_F2_CTA =
@@ -46,15 +47,7 @@ export function formatShareServingsLine(servings?: number | null): string | null
 
 /** Portions visibles sur le détail (après scaling appliqué) ; sinon base. */
 export function displayedServingsForShare(recipe: Recipe): number | undefined {
-  const current = recipe.servingsCurrent;
-  if (current !== undefined && current !== null && Number.isFinite(current) && current > 0) {
-    return current;
-  }
-  const base = recipe.servingsBase;
-  if (base !== undefined && base !== null && Number.isFinite(base) && base > 0) {
-    return base;
-  }
-  return undefined;
+  return resolveDisplayedServings(recipe);
 }
 
 /** Ligne d’ingrédient lisible hors app : quantité affichée + unité + libellé ; sinon rawText. */

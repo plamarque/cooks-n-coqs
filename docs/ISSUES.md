@@ -3,6 +3,7 @@
 ## Bugs
 
 - Import URL — `servingsBase` parfois absent alors que la source indique les portions (ex. Marmiton « 4 bons appétits », yield tableau / QuantitativeValue, ou portions seulement dans le HTML). **Résolu** (2026-08-12) : parsing BFF élargi + fallback HTML motifs FR ; régression couverte par `apps/bff/test/parsing-client-servings.test.ts`.
+- Détail — champ Portions vide (ou stale) à l’entrée DETAIL hors ouverture depuis la liste (`saveForm` / création / import), alors que `servingsCurrent` / `servingsBase` sont persistés. Cause : seul `openDetail` peuplait `servingsInput`, avec une règle truthy plus faible que CAP-1. **Corrigé** (2026-08-15) : helper CAP-1 (`resolveDisplayedServings` / `servingsInputFromRecipe`) sur toutes les entrées DETAIL ; peupler ≠ scaler ; régression : `apps/web/test/recipe-detail-selection.test.ts`.
 
 ## Limitations
 

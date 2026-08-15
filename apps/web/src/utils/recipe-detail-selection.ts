@@ -1,5 +1,45 @@
 import type { Recipe } from "@cookies-et-coquilettes/domain";
 
+/** Champs portions nécessaires à la résolution CAP-1 (affichage détail / partage). */
+export type ServingsDisplaySource = {
+  servingsCurrent?: number | null;
+  servingsBase?: number | null;
+};
+
+/**
+ * CAP-1 : portions affichables — `servingsCurrent` s’il est fini et > 0,
+ * sinon `servingsBase` sous la même règle ; sinon undefined.
+ */
+export function resolveDisplayedServings(
+  recipe: ServingsDisplaySource
+): number | undefined {
+  const current = recipe.servingsCurrent;
+  if (
+    current !== undefined &&
+    current !== null &&
+    Number.isFinite(current) &&
+    current > 0
+  ) {
+    return current;
+  }
+  const base = recipe.servingsBase;
+  if (
+    base !== undefined &&
+    base !== null &&
+    Number.isFinite(base) &&
+    base > 0
+  ) {
+    return base;
+  }
+  return undefined;
+}
+
+/** Chaîne pour le champ Portions du détail (vide si aucune portion CAP-1). */
+export function servingsInputFromRecipe(recipe: ServingsDisplaySource): string {
+  const n = resolveDisplayedServings(recipe);
+  return n !== undefined ? String(n) : "";
+}
+
 /** Durée d’affichage du badge de succès post-sauvegarde (ms). */
 export const SAVE_SUCCESS_BADGE_MS = 2500;
 
