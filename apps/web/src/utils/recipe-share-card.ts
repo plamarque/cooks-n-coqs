@@ -1,6 +1,6 @@
 /**
  * Image illustrative partage locale (~1080×1080) — seam `recipe-share-card`.
- * Photo plein cadre (ou placeholder sage) + CTA visuel bas + favicon overlay haut-droite.
+ * Photo plein cadre (ou placeholder sage) + bandeau bas « Recette envoyée via » + logo C&C inline.
  * Pas de fiche (titre / portions / ingrédients) ni faux chrome UI.
  */
 
@@ -13,8 +13,8 @@ export const RECIPE_SHARE_CARD_CTA_RATIO = 0.18;
 /** Logo ~10 % de la largeur card. */
 export const RECIPE_SHARE_CARD_LOGO_RATIO = 0.1;
 
-/** Microcopy CTA visuel — même intention que la ligne texte F2, sans URL. */
-export const RECIPE_SHARE_CARD_CTA_LABEL = "Tu veux garder cette recette ?";
+/** Microcopy bandeau image — attribution C&C (≠ CTA install texte F2). */
+export const RECIPE_SHARE_CARD_CTA_LABEL = "Recette envoyée via";
 
 export const RECIPE_SHARE_CARD_COLORS = {
   cream: "#f8f4ec",
@@ -32,6 +32,10 @@ const FONT_STACK = '"Manrope", "Avenir Next", "Segoe UI", sans-serif';
 const RECIPE_SHARE_CARD_MEDIA_TIMEOUT_MS = 10_000;
 /** Budget global génération card (photo + logo + toBlob sérialisés). */
 const RECIPE_SHARE_CARD_BUILD_TIMEOUT_MS = 12_000;
+/** Écart texte → logo dans le bandeau. */
+const RECIPE_SHARE_CARD_LOGO_GAP_RATIO = 0.02;
+/** Largeur approx. d’un glyphe (font 700 42px) pour le plan de layout sans canvas. */
+const RECIPE_SHARE_CARD_APPROX_CHAR_WIDTH = 24;
 
 /** Chaînes interdites sur l’image illustrative (faux chrome). */
 export const RECIPE_SHARE_CARD_FORBIDDEN_CHROME = [
@@ -50,6 +54,7 @@ export type RecipeShareCardLayout = {
   photoHeight: number;
   cta: { y: number; height: number; label: string };
   hasPhoto: boolean;
+  /** Logo dans le bandeau bas, inline après le libellé. */
   logo: { x: number; y: number; size: number };
   padding: number;
 };
@@ -91,21 +96,27 @@ export function planRecipeShareCardLayout(
   const size = RECIPE_SHARE_CARD_SIZE;
   const padding = Math.round(size * 0.056);
   const logoSize = Math.round(size * RECIPE_SHARE_CARD_LOGO_RATIO);
-  const logoMargin = Math.round(size * 0.028);
+  const gap = Math.round(size * RECIPE_SHARE_CARD_LOGO_GAP_RATIO);
   const ctaHeight = Math.round(size * RECIPE_SHARE_CARD_CTA_RATIO);
+  const ctaY = size - ctaHeight;
+  const approxTextWidth = Math.round(
+    RECIPE_SHARE_CARD_CTA_LABEL.length * RECIPE_SHARE_CARD_APPROX_CHAR_WIDTH
+  );
+  const contentWidth = approxTextWidth + gap + logoSize;
+  const startX = Math.round((size - contentWidth) / 2);
 
   return {
     size,
     photoHeight: size,
     cta: {
-      y: size - ctaHeight,
+      y: ctaY,
       height: ctaHeight,
       label: RECIPE_SHARE_CARD_CTA_LABEL
     },
     hasPhoto: Boolean(options?.hasPhoto),
     logo: {
-      x: size - logoMargin - logoSize,
-      y: logoMargin,
+      x: startX + approxTextWidth + gap,
+      y: ctaY + Math.round((ctaHeight - logoSize) / 2),
       size: logoSize
     },
     padding
@@ -279,21 +290,55 @@ function drawPlaceholderPhoto(
 
 function drawCtaBand(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  layout: RecipeShareCardLayout
+  layout: RecipeShareCardLayout,
+  logo?: CanvasImageSource | null
 ): void {
   const { y, height, label } = layout.cta;
   ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.ctaBand;
   ctx.fillRect(0, y, layout.size, height);
 
-  const textWidth = layout.size - layout.padding * 2;
+  const logoSize = layout.logo.size;
+  const gap = Math.round(layout.size * RECIPE_SHARE_CARD_LOGO_GAP_RATIO);
+  const maxContent = layout.size - layout.padding * 2;
+
   ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.ctaText;
   ctx.font = `700 42px ${FONT_STACK}`;
   ctx.textBaseline = "middle";
-  const display =
-    ctx.measureText(label).width <= textWidth
-      ? label
-      : truncateToWidth(ctx, label, textWidth);
-  ctx.fillText(display, layout.padding, y + height / 2);
+
+  let display = label;
+  let textWidth = ctx.measureText(display).width;
+  if (logo) {
+    const maxText = Math.max(0, maxContent - gap - logoSize);
+    if (textWidth > maxText) {
+      display = truncateToWidth(ctx, label, maxText);
+      textWidth = ctx.measureText(display).width;
+    }
+  } else if (textWidth > maxContent) {
+    display = truncateToWidth(ctx, label, maxContent);
+    textWidth = ctx.measureText(display).width;
+  }
+
+  const totalWidth = logo ? textWidth + gap + logoSize : textWidth;
+  const startX = Math.round((layout.size - totalWidth) / 2);
+  ctx.fillText(display, startX, y + height / 2);
+
+  if (logo) {
+    try {
+      const logoX = startX + textWidth + gap;
+      const logoY = y + Math.round((height - logoSize) / 2);
+      // Fond crème : le favicon est sombre, le bandeau aussi.
+      const pad = 4;
+      const r = Math.round(logoSize * 0.16);
+      ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.cream;
+      ctx.globalAlpha = 0.92;
+      roundRect(ctx, logoX - pad, logoY - pad, logoSize + pad * 2, logoSize + pad * 2, r + 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.drawImage(logo, logoX, logoY, logoSize, logoSize);
+    } catch {
+      // Dessin logo KO : le texte bandeau reste.
+    }
+  }
 }
 
 /**
@@ -370,30 +415,16 @@ async function buildRecipeShareCardFileInner(
     drawPlaceholderPhoto(ctx, layout);
   }
 
-  // Favicon overlay haut-droite (dessiné avant le bandeau CTA ; zones disjointes)
+  // Logo inline dans le bandeau (une seule occurrence) ; KO → texte seul
+  let logo: CanvasImageSource | undefined;
   try {
     const faviconUrl = options?.faviconUrl ?? "/favicon.svg";
-    const logo = await loadImage(faviconUrl);
-    const { x, y, size } = layout.logo;
-    try {
-      ctx.save();
-      ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
-      ctx.shadowBlur = 12;
-      ctx.shadowOffsetY = 2;
-      const r = Math.round(size * 0.16);
-      ctx.fillStyle = "rgba(248, 244, 236, 0.92)";
-      roundRect(ctx, x - 4, y - 4, size + 8, size + 8, r + 2);
-      ctx.fill();
-      ctx.shadowColor = "transparent";
-      ctx.drawImage(logo, x, y, size, size);
-    } finally {
-      ctx.restore();
-    }
+    logo = await loadImage(faviconUrl);
   } catch {
-    // Logo KO : card reste utilisable sans overlay.
+    // Logo KO : card reste utilisable avec le texte bandeau seul.
   }
 
-  drawCtaBand(ctx, layout);
+  drawCtaBand(ctx, layout, logo);
 
   const blob = await toBlob(canvas, "image/png");
   if (!blob || blob.size === 0) {
