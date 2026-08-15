@@ -1,26 +1,31 @@
 /**
- * Vignette partage locale (~1080×1080) — seam `recipe-share-card`.
- * Photo (ou placeholder sage) + titre + portions? + aperçu ingrédients + favicon overlay haut-droite.
- * Aucun faux chrome UI (retour, cœur, Cuisiner).
+ * Image illustrative partage locale (~1080×1080) — seam `recipe-share-card`.
+ * Photo plein cadre (ou placeholder sage) + CTA visuel bas + favicon overlay haut-droite.
+ * Pas de fiche (titre / portions / ingrédients) ni faux chrome UI.
  */
 
 import type { Recipe } from "@cookies-et-coquilettes/domain";
-import { formatIngredientLineForShare } from "./recipe-share-f2";
+import { formatShareServingsLine } from "./recipe-share-f2";
 
 export const RECIPE_SHARE_CARD_SIZE = 1080;
-/** Hauteur de la zone photo (plein cadre haut) — ~50 % du carré. */
-export const RECIPE_SHARE_CARD_PHOTO_RATIO = 0.5;
-export const RECIPE_SHARE_CARD_MAX_INGREDIENT_LINES = 5;
+/** Hauteur du bandeau CTA bas (~18 % du carré). */
+export const RECIPE_SHARE_CARD_CTA_RATIO = 0.18;
 /** Logo ~10 % de la largeur card. */
 export const RECIPE_SHARE_CARD_LOGO_RATIO = 0.1;
+
+/** Microcopy CTA visuel — même intention que la ligne texte F2, sans URL. */
+export const RECIPE_SHARE_CARD_CTA_LABEL = "Tu veux garder cette recette ?";
 
 export const RECIPE_SHARE_CARD_COLORS = {
   cream: "#f8f4ec",
   primary: "#1f4f46",
   placeholder: "rgba(31, 79, 70, 0.08)",
-  title: "#1a1a1a",
-  body: "#333333"
+  ctaBand: "rgba(31, 79, 70, 0.88)",
+  ctaText: "#f8f4ec"
 } as const;
+
+/** Alias compat — portions pour le wire F2 (voir `formatShareServingsLine`). */
+export const formatShareCardServings = formatShareServingsLine;
 
 const FONT_STACK = '"Manrope", "Avenir Next", "Segoe UI", sans-serif';
 /** Timeout média (Image / toBlob) — évite nativeShareBusy bloqué. */
@@ -28,7 +33,7 @@ const RECIPE_SHARE_CARD_MEDIA_TIMEOUT_MS = 10_000;
 /** Budget global génération card (photo + logo + toBlob sérialisés). */
 const RECIPE_SHARE_CARD_BUILD_TIMEOUT_MS = 12_000;
 
-/** Chaînes interdites sur la vignette (faux chrome). */
+/** Chaînes interdites sur l’image illustrative (faux chrome). */
 export const RECIPE_SHARE_CARD_FORBIDDEN_CHROME = [
   "Cuisiner",
   "Retour",
@@ -41,12 +46,9 @@ export const RECIPE_SHARE_CARD_FORBIDDEN_CHROME = [
 
 export type RecipeShareCardLayout = {
   size: number;
+  /** Zone photo = plein cadre. */
   photoHeight: number;
-  textBandTop: number;
-  title: string;
-  servingsLine: string | null;
-  ingredientLines: string[];
-  ingredientsTruncated: boolean;
+  cta: { y: number; height: number; label: string };
   hasPhoto: boolean;
   logo: { x: number; y: number; size: number };
   padding: number;
@@ -65,28 +67,6 @@ export type BuildRecipeShareCardDeps = {
   ) => Promise<Blob | null>;
 };
 
-function ingredientOrderKey(order: number | undefined | null): number {
-  if (order === undefined || order === null || !Number.isFinite(order)) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-  return order;
-}
-
-function sortedIngredients(recipe: Recipe) {
-  return [...recipe.ingredients].sort((a, b) => {
-    const ao = ingredientOrderKey(a.order);
-    const bo = ingredientOrderKey(b.order);
-    if (ao !== bo) {
-      return ao - bo;
-    }
-    const idCmp = (a.id ?? "").localeCompare(b.id ?? "", "fr");
-    if (idCmp !== 0) {
-      return idCmp;
-    }
-    return (a.label ?? "").localeCompare(b.label ?? "", "fr");
-  });
-}
-
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms);
@@ -103,71 +83,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
-/** Portions affichées sur la card ; `null` si absentes. */
-export function formatShareCardServings(servings?: number | null): string | null {
-  if (servings === undefined || servings === null || !Number.isFinite(servings) || servings <= 0) {
-    return null;
-  }
-  const n = Math.round(servings);
-  if (n <= 0) {
-    return null;
-  }
-  return n === 1 ? "1 portion" : `${n} portions`;
-}
-
-/**
- * Aperçu ingrédients pour la card (quelques lignes, préfixe `- `).
- * Tronque avec une ligne `…` si plus d’ingrédients que le max.
- */
-export function buildShareCardIngredientPreview(
-  recipe: Recipe,
-  maxLines: number = RECIPE_SHARE_CARD_MAX_INGREDIENT_LINES
-): { lines: string[]; truncated: boolean } {
-  const limit = Math.max(0, Math.floor(maxLines));
-  const all = sortedIngredients(recipe)
-    .map((ing) => formatIngredientLineForShare(ing))
-    .filter((line) => line.length > 0)
-    .map((line) => (line.startsWith("- ") ? line : `- ${line}`));
-
-  if (all.length === 0 || limit === 0) {
-    return { lines: [], truncated: all.length > 0 };
-  }
-
-  if (all.length <= limit) {
-    return { lines: all, truncated: false };
-  }
-
-  if (limit === 1) {
-    return { lines: ["…"], truncated: true };
-  }
-
-  const keep = limit - 1;
-  return {
-    lines: [...all.slice(0, keep), "…"],
-    truncated: true
-  };
-}
-
 /** Plan de layout (testable sans canvas). */
 export function planRecipeShareCardLayout(
-  recipe: Recipe,
+  _recipe: Recipe,
   options?: { hasPhoto?: boolean }
 ): RecipeShareCardLayout {
   const size = RECIPE_SHARE_CARD_SIZE;
-  const photoHeight = Math.round(size * RECIPE_SHARE_CARD_PHOTO_RATIO);
   const padding = Math.round(size * 0.056);
   const logoSize = Math.round(size * RECIPE_SHARE_CARD_LOGO_RATIO);
   const logoMargin = Math.round(size * 0.028);
-  const { lines, truncated } = buildShareCardIngredientPreview(recipe);
+  const ctaHeight = Math.round(size * RECIPE_SHARE_CARD_CTA_RATIO);
 
   return {
     size,
-    photoHeight,
-    textBandTop: photoHeight,
-    title: recipe.title?.trim() || "Sans titre",
-    servingsLine: formatShareCardServings(recipe.servingsBase),
-    ingredientLines: lines,
-    ingredientsTruncated: truncated,
+    photoHeight: size,
+    cta: {
+      y: size - ctaHeight,
+      height: ctaHeight,
+      label: RECIPE_SHARE_CARD_CTA_LABEL
+    },
     hasPhoto: Boolean(options?.hasPhoto),
     logo: {
       x: size - logoMargin - logoSize,
@@ -180,9 +114,7 @@ export function planRecipeShareCardLayout(
 
 /** Vérifie qu’aucune chaîne de faux chrome n’apparaît dans le layout texte. */
 export function layoutContainsForbiddenChrome(layout: RecipeShareCardLayout): boolean {
-  const haystack = [layout.title, layout.servingsLine ?? "", ...layout.ingredientLines]
-    .join("\n")
-    .toLowerCase();
+  const haystack = layout.cta.label.toLowerCase();
   return RECIPE_SHARE_CARD_FORBIDDEN_CHROME.some((token) =>
     haystack.includes(token.toLowerCase())
   );
@@ -327,70 +259,41 @@ function drawCover(
   return true;
 }
 
-function wrapText(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-  maxLines: number
-): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length === 0 || maxLines <= 0) {
-    return [];
-  }
-  const lines: string[] = [];
-  let current = words[0]!;
-  if (ctx.measureText(current).width > maxWidth) {
-    current = truncateToWidth(ctx, current, maxWidth);
-  }
-  for (let i = 1; i < words.length; i++) {
-    const word = words[i]!;
-    const trial = `${current} ${word}`;
-    if (ctx.measureText(trial).width <= maxWidth) {
-      current = trial;
-    } else {
-      lines.push(current);
-      if (lines.length >= maxLines) {
-        // Plus de place : ellipsis sur la dernière ligne poussée
-        const last = lines[lines.length - 1]!;
-        lines[lines.length - 1] = truncateToWidth(
-          ctx,
-          last.endsWith("…") ? last : `${last}…`,
-          maxWidth
-        );
-        return lines;
-      }
-      current =
-        ctx.measureText(word).width <= maxWidth ? word : truncateToWidth(ctx, word, maxWidth);
-    }
-  }
-  lines.push(current);
-  if (lines.length > maxLines) {
-    const kept = lines.slice(0, maxLines);
-    const last = kept[kept.length - 1]!;
-    kept[kept.length - 1] = truncateToWidth(
-      ctx,
-      last.endsWith("…") ? last : `${last}…`,
-      maxWidth
-    );
-    return kept;
-  }
-  return lines.map((line) => truncateToWidth(ctx, line, maxWidth));
-}
-
 function drawPlaceholderPhoto(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   layout: RecipeShareCardLayout
 ): void {
+  ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.cream;
+  ctx.fillRect(0, 0, layout.size, layout.photoHeight);
   ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.placeholder;
   ctx.fillRect(0, 0, layout.size, layout.photoHeight);
   ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.primary;
   ctx.globalAlpha = 0.12;
   const cx = layout.size / 2;
-  const cy = layout.photoHeight / 2;
+  const cy = layout.size / 2;
   ctx.beginPath();
   ctx.arc(cx, cy - 24, 64, 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
+}
+
+function drawCtaBand(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  layout: RecipeShareCardLayout
+): void {
+  const { y, height, label } = layout.cta;
+  ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.ctaBand;
+  ctx.fillRect(0, y, layout.size, height);
+
+  const textWidth = layout.size - layout.padding * 2;
+  ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.ctaText;
+  ctx.font = `700 42px ${FONT_STACK}`;
+  ctx.textBaseline = "middle";
+  const display =
+    ctx.measureText(label).width <= textWidth
+      ? label
+      : truncateToWidth(ctx, label, textWidth);
+  ctx.fillText(display, layout.padding, y + height / 2);
 }
 
 /**
@@ -433,11 +336,7 @@ async function buildRecipeShareCardFileInner(
   const loadImage = deps?.loadImage ?? loadImageViaElement;
   const toBlob = deps?.toBlob ?? defaultToBlob;
 
-  // Fond crème global
-  ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.cream;
-  ctx.fillRect(0, 0, layout.size, layout.size);
-
-  // Zone photo (blob illisible / 0×0 → placeholder sage, pas d’échec card)
+  // Zone photo plein cadre (blob illisible / 0×0 → placeholder sage)
   let drewPhoto = false;
   if (options?.imageBlob) {
     let photo: ImageBitmap | HTMLImageElement | undefined;
@@ -471,7 +370,7 @@ async function buildRecipeShareCardFileInner(
     drawPlaceholderPhoto(ctx, layout);
   }
 
-  // Favicon overlay haut-droite
+  // Favicon overlay haut-droite (dessiné avant le bandeau CTA ; zones disjointes)
   try {
     const faviconUrl = options?.faviconUrl ?? "/favicon.svg";
     const logo = await loadImage(faviconUrl);
@@ -481,7 +380,6 @@ async function buildRecipeShareCardFileInner(
       ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
       ctx.shadowBlur = 12;
       ctx.shadowOffsetY = 2;
-      // Fond arrondi léger pour contraste
       const r = Math.round(size * 0.16);
       ctx.fillStyle = "rgba(248, 244, 236, 0.92)";
       roundRect(ctx, x - 4, y - 4, size + 8, size + 8, r + 2);
@@ -495,54 +393,7 @@ async function buildRecipeShareCardFileInner(
     // Logo KO : card reste utilisable sans overlay.
   }
 
-  // Bandeau texte
-  const textWidth = layout.size - layout.padding * 2;
-  let cursorY = layout.textBandTop + layout.padding;
-
-  ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.title;
-  ctx.font = `700 64px ${FONT_STACK}`;
-  ctx.textBaseline = "top";
-  const titleLines = wrapText(ctx, layout.title, textWidth, 2);
-  for (const line of titleLines) {
-    ctx.fillText(line, layout.padding, cursorY);
-    cursorY += 72;
-  }
-
-  if (layout.servingsLine) {
-    cursorY += 8;
-    ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.primary;
-    ctx.font = `600 36px ${FONT_STACK}`;
-    ctx.fillText(layout.servingsLine, layout.padding, cursorY);
-    cursorY += 52;
-  } else {
-    cursorY += 16;
-  }
-
-  if (layout.ingredientLines.length > 0) {
-    ctx.fillStyle = RECIPE_SHARE_CARD_COLORS.body;
-    ctx.font = `500 32px ${FONT_STACK}`;
-    const lineHeight = 44;
-    const maxY = layout.size - layout.padding;
-    for (let i = 0; i < layout.ingredientLines.length; i++) {
-      if (cursorY + lineHeight > maxY) {
-        break;
-      }
-      const line = layout.ingredientLines[i]!;
-      const remainingIncludingCurrent = layout.ingredientLines.length - i;
-      const onlyOneSlotLeft = cursorY + 2 * lineHeight > maxY;
-      // Dernier créneau alors qu’il reste plusieurs lignes → `…` plutôt que couper net.
-      if (onlyOneSlotLeft && remainingIncludingCurrent > 1 && line !== "…") {
-        ctx.fillText(truncateToWidth(ctx, "…", textWidth), layout.padding, cursorY);
-        break;
-      }
-      const display =
-        ctx.measureText(line).width <= textWidth
-          ? line
-          : truncateToWidth(ctx, line, textWidth);
-      ctx.fillText(display, layout.padding, cursorY);
-      cursorY += lineHeight;
-    }
-  }
+  drawCtaBand(ctx, layout);
 
   const blob = await toBlob(canvas, "image/png");
   if (!blob || blob.size === 0) {

@@ -3,13 +3,10 @@ import test from "node:test";
 import { bffImportService } from "../src/services/import-service";
 import { RECIPE_SHARE_F2_CTA } from "../src/utils/recipe-share-f2";
 
-/** Même fixture que recipe-share-f2.test.ts / preview-messagerie-tiramisu.md */
+/** Nouveau wire F2. */
 const TIRAMISU_F2_TEXT = [
-  "Titre:",
   "Tiramisu",
-  "",
-  "Portions:",
-  "6",
+  "6 portions",
   "",
   "Ingrédients:",
   "- 500 g mascarpone",
@@ -33,6 +30,24 @@ const TIRAMISU_F2_TEXT = [
   RECIPE_SHARE_F2_CTA
 ].join("\n");
 
+/** Ancien wire — dual parse. */
+const TIRAMISU_F2_TEXT_LEGACY = [
+  "Titre:",
+  "Tiramisu",
+  "",
+  "Portions:",
+  "6",
+  "",
+  "Ingrédients:",
+  "- 500 g mascarpone",
+  "- 4 œufs",
+  "",
+  "Étapes:",
+  "1. Séparer les blancs des jaunes.",
+  "",
+  RECIPE_SHARE_F2_CTA
+].join("\n");
+
 function withMockedFetch(
   handler: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 ): { restore: () => void; callCount: () => number } {
@@ -50,7 +65,7 @@ function withMockedFetch(
   };
 }
 
-test("importFromText F2 Tiramisu — draft local, 0 fetch", async () => {
+test("importFromText F2 Tiramisu (nouveau) — draft local, 0 fetch", async () => {
   const mock = withMockedFetch(async () => {
     throw new Error("fetch ne doit pas être appelé pour F2");
   });
@@ -68,6 +83,50 @@ test("importFromText F2 Tiramisu — draft local, 0 fetch", async () => {
   }
 });
 
+test("importFromText F2 Tiramisu (ancien Titre:/Portions:) — draft local", async () => {
+  const mock = withMockedFetch(async () => {
+    throw new Error("fetch ne doit pas être appelé pour F2");
+  });
+  try {
+    const draft = await bffImportService.importFromText(TIRAMISU_F2_TEXT_LEGACY);
+    assert.equal(draft.title, "Tiramisu");
+    assert.equal(draft.servingsBase, 6);
+    assert.equal(draft.ingredients.length, 2);
+    assert.equal(draft.steps.length, 1);
+    assert.equal(mock.callCount(), 0);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("importFromText F2 ancien sans Portions: — servingsBase undefined", async () => {
+  const text = [
+    "Titre:",
+    "Soupe",
+    "",
+    "Ingrédients:",
+    "- 1 oignon",
+    "",
+    "Étapes:",
+    "1. Couper.",
+    "",
+    RECIPE_SHARE_F2_CTA
+  ].join("\n");
+  const mock = withMockedFetch(async () => {
+    throw new Error("fetch ne doit pas être appelé pour F2");
+  });
+  try {
+    const draft = await bffImportService.importFromText(text);
+    assert.equal(draft.title, "Soupe");
+    assert.equal(draft.servingsBase, undefined);
+    assert.equal(draft.ingredients.length, 1);
+    assert.equal(draft.steps.length, 1);
+    assert.equal(mock.callCount(), 0);
+  } finally {
+    mock.restore();
+  }
+});
+
 test("importFromShare F2 Tiramisu — draft local SHARE, 0 fetch", async () => {
   const mock = withMockedFetch(async () => {
     throw new Error("fetch ne doit pas être appelé pour F2");
@@ -79,6 +138,23 @@ test("importFromShare F2 Tiramisu — draft local SHARE, 0 fetch", async () => {
     assert.equal(draft.steps.length, 6);
     assert.equal(draft.source?.type, "SHARE");
     assert.equal(draft.source?.url, "https://example.com/tiramisu");
+    assert.equal(mock.callCount(), 0);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("importFromShare F2 ancien Titre:/Portions: — draft local SHARE", async () => {
+  const mock = withMockedFetch(async () => {
+    throw new Error("fetch ne doit pas être appelé pour F2");
+  });
+  try {
+    const draft = await bffImportService.importFromShare({ text: TIRAMISU_F2_TEXT_LEGACY });
+    assert.equal(draft.title, "Tiramisu");
+    assert.equal(draft.servingsBase, 6);
+    assert.equal(draft.ingredients.length, 2);
+    assert.equal(draft.steps.length, 1);
+    assert.equal(draft.source?.type, "SHARE");
     assert.equal(mock.callCount(), 0);
   } finally {
     mock.restore();

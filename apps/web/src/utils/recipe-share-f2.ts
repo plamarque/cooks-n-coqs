@@ -11,10 +11,15 @@ import type {
 export const RECIPE_SHARE_F2_CTA =
   "Tu veux garder cette recette ? https://plamarque.github.io/cookies-et-coquilettes/";
 
+/** En-têtes reconnus au parse (wire sortant : Ingrédients/Étapes/Source ; compat : Titre/Portions). */
 const F2_HEADERS = ["Titre", "Portions", "Ingrédients", "Étapes", "Source"] as const;
+type F2Header = (typeof F2_HEADERS)[number];
 
-/** En-tête F2 en ligne seule (contrat wire). */
+/** En-tête F2 en ligne seule (contrat wire + compat ancien). */
 const F2_HEADER_LINE_RE = /^(Titre|Portions|Ingrédients|Étapes|Source)\s*:\s*$/;
+
+/** Ligne portions nouveau wire : `6 portions` / `1 portion` / `6,5 portions`. */
+const F2_PORTIONS_LINE_RE = /^\d+(?:[.,]\d+)?\s*portions?\s*$/i;
 
 function isHttpUrl(value: string): boolean {
   try {
@@ -23,6 +28,20 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Portions sur une ligne (`6 portions` / `6,5 portions`) ; `null` si absentes. Pas d’arrondi. */
+export function formatShareServingsLine(servings?: number | null): string | null {
+  if (servings === undefined || servings === null || !Number.isFinite(servings) || servings <= 0) {
+    return null;
+  }
+  if (servings === 1) {
+    return "1 portion";
+  }
+  if (Number.isInteger(servings)) {
+    return `${servings} portions`;
+  }
+  return `${String(servings).replace(".", ",")} portions`;
 }
 
 /** Ligne d’ingrédient lisible hors app (quantité + unité + libellé, ou rawText). */
@@ -66,7 +85,7 @@ function sortedSteps(recipe: Recipe): InstructionStep[] {
   return [...recipe.steps].sort((a, b) => a.order - b.order);
 }
 
-function block(header: (typeof F2_HEADERS)[number], bodyLines: string[]): string {
+function block(header: "Ingrédients" | "Étapes" | "Source", bodyLines: string[]): string {
   if (bodyLines.length === 0) {
     return `${header}:`;
   }
@@ -75,16 +94,17 @@ function block(header: (typeof F2_HEADERS)[number], bodyLines: string[]): string
 
 /**
  * Sérialise une recette au wire F2 (partage natif).
- * Omet Portions / Source si absents ; CTA toujours en dernière ligne.
+ * L1 = titre nu ; ligne optionnelle `N portions` ; omet Source si absente ; CTA toujours en dernière ligne.
  */
 export function buildRecipeShareF2Text(recipe: Recipe): string {
   const title = recipe.title?.trim() || "Sans titre";
-  const blocks: string[] = [block("Titre", [title])];
-
-  const servings = recipe.servingsBase;
-  if (servings !== undefined && servings !== null && Number.isFinite(servings) && servings > 0) {
-    blocks.push(block("Portions", [String(servings)]));
+  const head: string[] = [title];
+  const servingsLine = formatShareServingsLine(recipe.servingsBase);
+  if (servingsLine) {
+    head.push(servingsLine);
   }
+
+  const blocks: string[] = [];
 
   const ingredientLines = sortedIngredients(recipe)
     .map((ing) => formatIngredientLineForShare(ing))
@@ -106,7 +126,7 @@ export function buildRecipeShareF2Text(recipe: Recipe): string {
     blocks.push(block("Source", [sourceUrl]));
   }
 
-  return `${blocks.join("\n\n")}\n\n${RECIPE_SHARE_F2_CTA}`;
+  return `${head.join("\n")}\n\n${blocks.join("\n\n")}\n\n${RECIPE_SHARE_F2_CTA}`;
 }
 
 function newId(): string {
@@ -121,8 +141,19 @@ function stripStepNumbering(line: string): string {
   return line.replace(/^\d+[.)]\s*/, "").trim();
 }
 
+function parsePortionsNumber(raw: string): number | undefined {
+  const match = raw.trim().match(/^(\d+(?:[.,]\d+)?)\s*portions?\s*$/i);
+  const candidate = match ? match[1]! : raw.trim().replace(",", ".");
+  const parsed = Number(candidate.replace(",", "."));
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return undefined;
+}
+
 /**
  * Parse inverse du wire F2. Retourne un draft utilisable ou `null` si non-F2 / incomplet.
+ * Accepte le nouveau wire (titre nu + `N portions`) et l’ancien (`Titre:` / `Portions:`).
  * Ignore la ligne CTA exacte ; ne déclenche jamais d’import URL sur le CTA.
  */
 export function tryParseRecipeShareF2Text(
@@ -131,8 +162,9 @@ export function tryParseRecipeShareF2Text(
 ): ParsedRecipeDraft | null {
   const normalized = text.replace(/\r\n/g, "\n");
   const lines = normalized.split("\n");
-  const sections = new Map<(typeof F2_HEADERS)[number], string[]>();
-  let current: (typeof F2_HEADERS)[number] | null = null;
+  const sections = new Map<F2Header, string[]>();
+  const preamble: string[] = [];
+  let current: F2Header | null = null;
   let sawHeader = false;
 
   for (const line of lines) {
@@ -143,7 +175,7 @@ export function tryParseRecipeShareF2Text(
     const headerMatch = line.match(F2_HEADER_LINE_RE);
     if (headerMatch) {
       sawHeader = true;
-      current = headerMatch[1] as (typeof F2_HEADERS)[number];
+      current = headerMatch[1] as F2Header;
       if (!sections.has(current)) {
         sections.set(current, []);
       }
@@ -152,6 +184,8 @@ export function tryParseRecipeShareF2Text(
 
     if (current) {
       sections.get(current)!.push(line);
+    } else {
+      preamble.push(line);
     }
   }
 
@@ -159,11 +193,43 @@ export function tryParseRecipeShareF2Text(
     return null;
   }
 
-  const title = (sections.get("Titre") ?? [])
+  let title = (sections.get("Titre") ?? [])
     .map((l) => l.trim())
     .filter((l) => l.length > 0)
     .join(" ")
     .trim();
+
+  let servingsBase: number | undefined;
+  const portionsBody = (sections.get("Portions") ?? [])
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (portionsBody.length > 0) {
+    servingsBase = parsePortionsNumber(portionsBody[0]!);
+  }
+
+  if (!title) {
+    for (const raw of preamble) {
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      if (F2_PORTIONS_LINE_RE.test(trimmed)) {
+        continue;
+      }
+      title = trimmed;
+      break;
+    }
+  }
+
+  // Portions nouveau wire dans le préambule (même si titre vient déjà de `Titre:`)
+  if (servingsBase === undefined) {
+    for (const raw of preamble) {
+      const trimmed = raw.trim();
+      if (F2_PORTIONS_LINE_RE.test(trimmed)) {
+        servingsBase = parsePortionsNumber(trimmed);
+        break;
+      }
+    }
+  }
+
   if (!title) {
     return null;
   }
@@ -198,17 +264,6 @@ export function tryParseRecipeShareF2Text(
 
   if (ingredients.length === 0 && steps.length === 0) {
     return null;
-  }
-
-  let servingsBase: number | undefined;
-  const portionsBody = (sections.get("Portions") ?? [])
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-  if (portionsBody.length > 0) {
-    const parsed = Number(portionsBody[0].replace(",", "."));
-    if (Number.isFinite(parsed) && parsed > 0) {
-      servingsBase = parsed;
-    }
   }
 
   let sourceUrl: string | undefined;

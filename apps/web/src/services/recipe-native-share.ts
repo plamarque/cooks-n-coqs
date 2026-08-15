@@ -1,5 +1,5 @@
 /**
- * Partage système natif (Web Share) — texte F2 ± vignette PNG, avec fallback presse-papiers.
+ * Partage système natif (Web Share) — texte F2 ± image illustrative PNG, avec fallback presse-papiers.
  *
  * Note : `navigator.share` et `clipboard.writeText` exigent souvent un **contexte
  * sécurisé** (HTTPS ou localhost). En HTTP LAN/Tailscale les deux peuvent
@@ -92,15 +92,16 @@ function isAbortError(error: unknown): boolean {
 }
 
 /**
- * Partage `text` (± fichier vignette) via Web Share si possible, sinon copie
+ * Partage `text` (± fichier image illustrative) via Web Share si possible, sinon copie
  * presse-papiers (API puis execCommand). Si rien ne marche → needs-manual-copy + text.
  *
  * Ne pas passer `title` à `navigator.share` : Android/Chrome affiche déjà un
- * bandeau « titre » au-dessus du texte → doublon avec le bloc F2 `Titre:`.
+ * bandeau « titre » au-dessus du texte → doublon avec le titre F2 (L1 nu).
  * Le titre reste dans le payload F2 (contrat import / lecture messagerie).
  *
  * Fichier : tenter `canShare({ text, files })` puis `share` ; si refuse / échec
  * non-Abort → dégrader obligatoirement au texte seul (CAP-3).
+ * L’ordre des bulles OS (texte vs image) n’est pas contrôlé.
  */
 export async function shareRecipeTextNative(
   options: {

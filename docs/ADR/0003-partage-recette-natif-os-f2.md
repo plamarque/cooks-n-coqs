@@ -12,17 +12,17 @@ Contraintes inchangées : local-first, peu/pas de conservation serveur de recett
 
 ## Options envisagées
 
-1. **Partage OS natif** — `navigator.share` : texte contractuel F2 (± vignette image locale) ; CTA install en bas ; import Bob via collage / `share_target`
+1. **Partage OS natif** — `navigator.share` : texte contractuel F2 (± image illustrative locale) ; CTA install en bas ; import Bob via collage / `share_target`
 2. **Conserver / étendre le QR proximité** — Mode A/B comme canal principal
 3. **Landing / cache OG serveur** — URL de fiche comme véhicule principal
-4. **Fichier joint** (zip/json) comme véhicule V1 hors vignette Web Share
+4. **Fichier joint** (zip/json) comme véhicule V1 hors image illustrative Web Share
 
 ## Décision
 
 Choisir le **partage système natif (option 1)** comme unique action Partager.
 
-- Payload texte **F2** : en-têtes `Titre:` / `Portions:` / `Ingrédients:` / `Étapes:` / `Source:` ; CTA soft unique en dernière ligne vers l’origine PWA.
-- Vignette ~1080×1080 générée localement : photo principale, titre, portions, aperçu ingrédients, logo `favicon.svg` overlay haut-droite ; dégradation **texte seul** si fichiers non partageables.
+- Payload texte **F2** : titre nu en L1, ligne optionnelle `N portions`, en-têtes `Ingrédients:` / `Étapes:` / `Source:` ; CTA soft unique en dernière ligne vers l’origine PWA. Parse entrant : nouveau wire **et** ancien `Titre:` / `Portions:`.
+- Image illustrative ~1080×1080 générée localement : photo principale plein cadre, CTA visuel bas, logo `favicon.svg` overlay haut-droite — **pas** de fiche (titre / portions / ingrédients) sur l’image ; dégradation **texte seul** si fichiers non partageables.
 - Pas de landing ni dépôt serveur pour le **contenu** recette ; si lien = CTA install seulement.
 - Retrait produit du QR / `/r` / Mode B ; cleanup BFF `proximity-drop` en livraison suivante après retrait UI.
 - ADR 0002 est **Superseded**.

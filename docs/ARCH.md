@@ -34,8 +34,8 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `import-service` | Import URL/share/screenshot/texte + appel BFF | `apps/web/src/services/import-service.ts` |
 | `share-target-service` | Lecture/nettoyage des paramètres `share_target` au démarrage | `apps/web/src/services/share-target-service.ts` |
 | `recipe-share-f2` | Construction et parse du texte F2 (+ CTA soft) ; reconnaissance à l’import collage / `share_target` | `apps/web/src/utils/recipe-share-f2.ts` |
-| `recipe-share-card` | Génération locale canvas/PNG de la vignette partage (~1080×1080) | `apps/web/src/utils/recipe-share-card.ts` |
-| `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte ± vignette PNG ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
+| `recipe-share-card` | Génération locale canvas/PNG de l’image illustrative partage (~1080×1080 : photo + CTA visuel + logo) | `apps/web/src/utils/recipe-share-card.ts` |
+| `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte ± image illustrative PNG ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
 | `db` | Schéma IndexedDB et accès tables | `apps/web/src/storage/db.ts` |
 | `ingredient-image-service` | Résolution d'image ingrédient (cache local, génération IA), stockage | `apps/web/src/services/ingredient-image-service.ts` |
@@ -80,13 +80,13 @@ Règles de contrat :
 - `POST /api/generated-images/cache-key/cooking-step-image` — corps `{ stepText }` ; réponse `{ key }` (même logique que `generate-cooking-step-image`).
 - `POST /api/generated-images/cache-key/ingredient-image` — corps `{ label }` ; réponse `{ key }` (même logique que `generate-ingredient-image`).
 
-### Partage natif (OS) — texte F2 ± vignette
+### Partage natif (OS) — texte F2 ± image illustrative
 
 - SoR recettes = IndexedDB ; **pas** de dépôt / landing serveur pour le contenu partagé.
-- `recipe-share-f2` — sérialise titre, portions (si connues), ingrédients, étapes, source URL (si http(s)), puis CTA soft en dernière ligne (contrat `docs/SPEC.md` / feature SPEC `payload-f2.md`).
-- `recipe-share-card` — canvas local ~1080×1080 : photo principale (`RecipeImage` / placeholder), titre, portions, aperçu ingrédients texte, logo `public/favicon.svg` overlay haut-droite.
-- `recipe-native-share` — `navigator.share` avec `{ text }` et, si `canShare({ files })`, fichier image ; échec fichiers → partage texte seul obligatoire.
-- Import entrant du même texte : `importFromText` / `share_target` ; reconnaître en-têtes F2 ; ignorer la ligne CTA.
+- `recipe-share-f2` — sérialise titre nu, ligne `N portions` (si connues), ingrédients, étapes, source URL (si http(s)), puis CTA soft en dernière ligne ; parse dual nouveau + ancien `Titre:` / `Portions:` (contrat `docs/SPEC.md` / feature SPEC `payload-f2.md`).
+- `recipe-share-card` — canvas local ~1080×1080 : photo principale plein cadre (`RecipeImage` / placeholder), CTA visuel bandeau bas, logo `public/favicon.svg` overlay haut-droite ; **pas** de fiche (titre / portions / ingrédients) sur l’image.
+- `recipe-native-share` — `navigator.share` avec `{ text }` et, si `canShare({ files })`, fichier image ; échec fichiers → partage texte seul obligatoire ; pas de contrôle de l’ordre des bulles OS.
+- Import entrant du même texte : `importFromText` / `share_target` ; reconnaître wire F2 (nouveau + ancien) ; ignorer la ligne CTA.
 
 ### BFF — pas de dépôt proximité
 
