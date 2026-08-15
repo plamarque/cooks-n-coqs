@@ -25,6 +25,7 @@ import StepMentionedIngredientIcons from "./components/StepMentionedIngredientIc
 import { seedIfEmpty } from "./seed/seed-if-empty";
 import { buildRecipeShareF2Text } from "./utils/recipe-share-f2";
 import { buildRecipeShareCardFile } from "./utils/recipe-share-card";
+import { resolveClipboardImport } from "./utils/clipboard-import";
 import {
   SAVE_SUCCESS_BADGE_MS,
   SAVE_SUCCESS_BADGE_POINTER_EVENTS,
@@ -1059,20 +1060,14 @@ async function runImportFromSharePayload(payload: ShareImportPayload): Promise<v
 
 async function importFromClipboardFallback(): Promise<void> {
   clearMessages();
-  if (!navigator.clipboard?.readText) {
-    setError(
-      new Error("Lecture du presse-papiers non supportée ici. Collez manuellement dans le champ.")
-    );
-    return;
-  }
-
   clipboardBusy.value = true;
   try {
-    const content = (await navigator.clipboard.readText()).trim();
-    if (!content) {
-      throw new Error("Le presse-papiers est vide.");
+    const result = await resolveClipboardImport(navigator.clipboard ?? {});
+    if (result.kind === "image") {
+      await runImportFromFile(result.file);
+      return;
     }
-    pasteFieldContent.value = content;
+    pasteFieldContent.value = result.text;
     feedback.value = "Contenu du presse-papiers collé. Vous pouvez lancer l'import.";
   } catch (error) {
     setError(error);
