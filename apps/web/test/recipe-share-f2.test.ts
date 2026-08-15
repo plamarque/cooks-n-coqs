@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Recipe } from "@cookies-et-coquilettes/domain";
 import {
   RECIPE_SHARE_F2_CTA,
+  RECIPE_SHARE_F2_CTA_LEGACY,
   buildRecipeShareF2Text,
   formatIngredientLineForShare,
   formatShareServingsLine,
@@ -306,7 +307,42 @@ test("tryParseRecipeShareF2Text — CTA ignorée, pas source.url", () => {
     draft.source?.url,
     "https://plamarque.github.io/cookies-et-coquilettes/"
   );
+  assert.notEqual(draft.source?.url, "https://plamarque.github.io/cooks-n-coqs/");
   assert.ok(!JSON.stringify(draft).includes(RECIPE_SHARE_F2_CTA));
+});
+
+test("tryParseRecipeShareF2Text — CTA historique ignorée, pas source.url Pages", () => {
+  const text = [
+    "Soupe",
+    "2 portions",
+    "",
+    "Ingrédients:",
+    "- 1 oignon",
+    "",
+    "Étapes:",
+    "1. Couper.",
+    "",
+    RECIPE_SHARE_F2_CTA_LEGACY
+  ].join("\n");
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assert.equal(draft.title, "Soupe");
+  assert.equal(draft.servingsBase, 2);
+  assert.equal(draft.ingredients.length, 1);
+  assert.equal(draft.steps.length, 1);
+  assert.equal(draft.source?.url, undefined);
+  assert.ok(!JSON.stringify(draft).includes(RECIPE_SHARE_F2_CTA_LEGACY));
+  assert.ok(!draft.ingredients.some((i) => (i.rawText ?? i.label).includes("Tu veux garder")));
+  assert.ok(!draft.steps.some((s) => s.text.includes("Tu veux garder")));
+});
+
+test("buildRecipeShareF2Text — CTA émise sur origine cooks-n-coqs", () => {
+  const text = buildRecipeShareF2Text(baseRecipe());
+  const lines = text.split("\n");
+  assert.equal(
+    lines[lines.length - 1],
+    "Tu veux garder cette recette ? https://plamarque.github.io/cooks-n-coqs/"
+  );
 });
 
 test("tryParseRecipeShareF2Text — sans portions (nouveau)", () => {

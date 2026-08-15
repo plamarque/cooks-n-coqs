@@ -10,6 +10,10 @@ import { resolveDisplayedServings } from "./recipe-detail-selection";
 
 /** CTA soft — dernière ligne du payload F2 (hors en-têtes). */
 export const RECIPE_SHARE_F2_CTA =
+  "Tu veux garder cette recette ? https://plamarque.github.io/cooks-n-coqs/";
+
+/** CTA historique (messages déjà envoyés avant renommage repo) — ignoré au parse uniquement. */
+export const RECIPE_SHARE_F2_CTA_LEGACY =
   "Tu veux garder cette recette ? https://plamarque.github.io/cookies-et-coquilettes/";
 
 /** En-têtes reconnus au parse (wire sortant : Ingrédients/Étapes/Source ; compat : Titre/Portions). */
@@ -176,7 +180,13 @@ export function tryParseRecipeShareF2Text(
   let sawHeader = false;
 
   for (const line of lines) {
-    if (line === RECIPE_SHARE_F2_CTA || line.trim() === RECIPE_SHARE_F2_CTA) {
+    const trimmedLine = line.trim();
+    if (
+      line === RECIPE_SHARE_F2_CTA ||
+      trimmedLine === RECIPE_SHARE_F2_CTA ||
+      line === RECIPE_SHARE_F2_CTA_LEGACY ||
+      trimmedLine === RECIPE_SHARE_F2_CTA_LEGACY
+    ) {
       continue;
     }
 
