@@ -8,13 +8,18 @@ import type {
 } from "@cookies-et-coquilettes/domain";
 import { resolveDisplayedServings } from "./recipe-detail-selection";
 
+/** Question exacte du CTA install (même ligne que l’URL, ou ligne précédente si wrap messagerie). */
+export const RECIPE_SHARE_F2_CTA_QUESTION = "Tu veux garder cette recette ?";
+
+/** Origines Pages live / legacy — jamais `source.url` ni déclencheur d’import URL. */
+export const RECIPE_SHARE_PAGES_LIVE = "https://plamarque.github.io/cooks-n-coqs/";
+export const RECIPE_SHARE_PAGES_LEGACY = "https://plamarque.github.io/cookies-et-coquilettes/";
+
 /** CTA soft — dernière ligne du payload F2 (hors en-têtes). */
-export const RECIPE_SHARE_F2_CTA =
-  "Tu veux garder cette recette ? https://plamarque.github.io/cooks-n-coqs/";
+export const RECIPE_SHARE_F2_CTA = `${RECIPE_SHARE_F2_CTA_QUESTION} ${RECIPE_SHARE_PAGES_LIVE}`;
 
 /** CTA historique (messages déjà envoyés avant renommage repo) — ignoré au parse uniquement. */
-export const RECIPE_SHARE_F2_CTA_LEGACY =
-  "Tu veux garder cette recette ? https://plamarque.github.io/cookies-et-coquilettes/";
+export const RECIPE_SHARE_F2_CTA_LEGACY = `${RECIPE_SHARE_F2_CTA_QUESTION} ${RECIPE_SHARE_PAGES_LEGACY}`;
 
 /** En-têtes reconnus au parse (wire sortant : Ingrédients/Étapes/Source ; compat : Titre/Portions). */
 const F2_HEADERS = ["Titre", "Portions", "Ingrédients", "Étapes", "Source"] as const;
@@ -33,6 +38,65 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** URL GitHub Pages d’install C&C (live ou legacy), avec ou sans slash final. */
+export function isRecipeShareInstallPagesUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+    if (parsed.hostname !== "plamarque.github.io") {
+      return false;
+    }
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    return path === "/cooks-n-coqs" || path === "/cookies-et-coquilettes";
+  } catch {
+    return false;
+  }
+}
+
+function isExactOneLineCta(trimmed: string): boolean {
+  if (trimmed === RECIPE_SHARE_F2_CTA || trimmed === RECIPE_SHARE_F2_CTA_LEGACY) {
+    return true;
+  }
+  if (!trimmed.startsWith(RECIPE_SHARE_F2_CTA_QUESTION)) {
+    return false;
+  }
+  const afterQuestion = trimmed.slice(RECIPE_SHARE_F2_CTA_QUESTION.length).trim();
+  return afterQuestion.length > 0 && isRecipeShareInstallPagesUrl(afterQuestion);
+}
+
+/**
+ * Retire le CTA install en fin de message : une ligne exacte, ou wrap
+ * (question puis URL Pages live/legacy, blancs éventuels entre les deux).
+ */
+function stripTrailingInstallCta(lines: string[]): string[] {
+  let end = lines.length;
+  while (end > 0 && lines[end - 1]!.trim() === "") {
+    end -= 1;
+  }
+  if (end === 0) {
+    return lines;
+  }
+
+  const lastTrimmed = lines[end - 1]!.trim();
+  if (isExactOneLineCta(lastTrimmed)) {
+    return lines.slice(0, end - 1);
+  }
+
+  if (isRecipeShareInstallPagesUrl(lastTrimmed)) {
+    let prev = end - 2;
+    while (prev >= 0 && lines[prev]!.trim() === "") {
+      prev -= 1;
+    }
+    if (prev >= 0 && lines[prev]!.trim() === RECIPE_SHARE_F2_CTA_QUESTION) {
+      return lines.slice(0, prev);
+    }
+  }
+
+  return lines;
 }
 
 /** Portions sur une ligne (`6 portions` / `6,5 portions`) ; `null` si absentes. Pas d’arrondi. */
@@ -166,14 +230,14 @@ function parsePortionsNumber(raw: string): number | undefined {
 /**
  * Parse inverse du wire F2. Retourne un draft utilisable ou `null` si non-F2 / incomplet.
  * Accepte le nouveau wire (titre nu + `N portions`) et l’ancien (`Titre:` / `Portions:`).
- * Ignore la ligne CTA exacte ; ne déclenche jamais d’import URL sur le CTA.
+ * Ignore le CTA install (une ligne ou wrap question + URL Pages) ; ne le traite jamais comme URL de recette.
  */
 export function tryParseRecipeShareF2Text(
   text: string,
   options?: { sourceType?: ImportType }
 ): ParsedRecipeDraft | null {
   const normalized = text.replace(/\r\n/g, "\n");
-  const lines = normalized.split("\n");
+  const lines = stripTrailingInstallCta(normalized.split("\n"));
   const sections = new Map<F2Header, string[]>();
   const preamble: string[] = [];
   let current: F2Header | null = null;
@@ -181,12 +245,8 @@ export function tryParseRecipeShareF2Text(
 
   for (const line of lines) {
     const trimmedLine = line.trim();
-    if (
-      line === RECIPE_SHARE_F2_CTA ||
-      trimmedLine === RECIPE_SHARE_F2_CTA ||
-      line === RECIPE_SHARE_F2_CTA_LEGACY ||
-      trimmedLine === RECIPE_SHARE_F2_CTA_LEGACY
-    ) {
+    // Filet : CTA exact encore présent au milieu (hors fin déjà strippée).
+    if (isExactOneLineCta(trimmedLine)) {
       continue;
     }
 
@@ -287,7 +347,7 @@ export function tryParseRecipeShareF2Text(
   let sourceUrl: string | undefined;
   for (const raw of sections.get("Source") ?? []) {
     const candidate = raw.trim();
-    if (candidate && isHttpUrl(candidate)) {
+    if (candidate && isHttpUrl(candidate) && !isRecipeShareInstallPagesUrl(candidate)) {
       sourceUrl = candidate;
       break;
     }

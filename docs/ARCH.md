@@ -31,7 +31,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `recipe-book-transfer-service` | Export / import cahier : ZIP + JSON interne (Dexie ; v3 sans blobs ; v1/v2 avec base64 possible dans le JSON à l’intérieur du zip) | `apps/web/src/services/recipe-book-transfer-service.ts` |
 | `recipe-book-zip` | Compression / décompression ZIP côté client (`fflate`) | `apps/web/src/utils/recipe-book-zip.ts` |
 | `recipe-book-rehydrate-after-import` | Complétion médias d’une recette issue d’archive légère (BFF cache puis IA), typiquement à la première ouverture détail | `apps/web/src/services/recipe-book-rehydrate-after-import.ts` |
-| `import-service` | Import URL/share/screenshot/texte + appel BFF | `apps/web/src/services/import-service.ts` |
+| `import-service` | Import URL/share/screenshot/texte ; early-return parse F2 local (0 BFF) ; sinon appel BFF | `apps/web/src/services/import-service.ts` |
 | `share-target-service` | Lecture/nettoyage des paramètres `share_target` au démarrage | `apps/web/src/services/share-target-service.ts` |
 | `recipe-share-f2` | Construction et parse du texte F2 (+ CTA soft) ; reconnaissance à l’import collage / `share_target` | `apps/web/src/utils/recipe-share-f2.ts` |
 | `recipe-share-card` | Génération locale canvas/PNG de l’image illustrative partage (~1080×1080 : photo + CTA visuel + logo) | `apps/web/src/utils/recipe-share-card.ts` |
@@ -84,10 +84,10 @@ Règles de contrat :
 ### Partage natif (OS) — texte F2 ± image illustrative
 
 - SoR recettes = IndexedDB ; **pas** de dépôt / landing serveur pour le contenu partagé.
-- `recipe-share-f2` — sérialise depuis les **portions/quantités affichées** du détail (après scaling appliqué) : titre nu, ligne `N portions` (si affichées), ingrédients, étapes, source URL (si http(s)), puis CTA soft en dernière ligne ; ne mute pas `servingsBase` / `quantityBase` ; parse dual nouveau + ancien `Titre:` / `Portions:` (contrat `docs/SPEC.md` / feature SPEC `payload-f2.md`).
+- `recipe-share-f2` — sérialise depuis les **portions/quantités affichées** du détail (après scaling appliqué) : titre nu, ligne `N portions` (si affichées), ingrédients, étapes, source URL (si http(s)), puis CTA soft en dernière ligne ; ne mute pas `servingsBase` / `quantityBase` ; parse dual nouveau + ancien `Titre:` / `Portions:` ; strip CTA une ligne ou wrap messagerie ; URL Pages install jamais `source.url` (contrat `docs/SPEC.md` / feature SPEC `payload-f2.md`).
 - `recipe-share-card` — canvas local ~1080×1080 : photo principale plein cadre (`RecipeImage` / placeholder), CTA visuel bandeau bas, logo `public/favicon.svg` overlay haut-droite ; **pas** de fiche (titre / portions / ingrédients) sur l’image.
 - `recipe-native-share` — `navigator.share` avec `{ text }` et, si `canShare({ files })`, fichier image ; échec fichiers → partage texte seul obligatoire ; pas de contrôle de l’ordre des bulles OS.
-- Import entrant du même texte : `importFromText` / `share_target` ; reconnaître wire F2 (nouveau + ancien) ; ignorer la ligne CTA.
+- Import entrant du même texte : `importFromText` / `importFromShare` / `share_target` ; F2 reconnu → draft local exclusif (zéro BFF de structuration) ; `Source:` http(s) stockée sans re-fetch ; CTA ignoré.
 
 ### Sélection DETAIL hors liste filtrée
 
@@ -110,9 +110,10 @@ Aucune route HTTP ni store de drop. QR, deep link `/r` et Mode A/B sont hors pro
 - `importFromText(text)` — y compris texte au format F2 (partage natif)
 
 Règles de contrat :
-- flux direct : `parse -> create -> détail` ; image en arrière-plan si absente,
+- flux direct : `parse -> create -> détail` ; image en arrière-plan si absente (échec génération ≠ échec d’import),
 - l’UI expose un état de progression pendant l’import (analyse URL/texte, lecture image),
-- pour un payload `SHARE` contenant une URL, priorité à l’extraction depuis l’URL partagée,
+- F2 reconnu via `importFromText` / `importFromShare` : early-return local, **pas** d’appel BFF ni de re-fetch de `source.url`,
+- pour un payload `SHARE` **non-F2** contenant une URL, priorité à l’extraction depuis l’URL partagée,
 - la `source` d’import est persistée avec `type + capturedAt` même quand `url` est absente,
 - en indisponibilité BFF/parsing, retour d’un draft fallback éditable,
 - pour les sources YouTube et Instagram (post/reel), l’UI affiche l’embed en priorité dans la fiche recette et le formulaire ; le poster (thumbnail) est utilisé pour les cartes ; le bouton overlay « Cuisiner » est masqué sur les embeds vidéo.

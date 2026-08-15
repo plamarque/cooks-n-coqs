@@ -4,11 +4,77 @@ import type { Recipe } from "@cookies-et-coquilettes/domain";
 import {
   RECIPE_SHARE_F2_CTA,
   RECIPE_SHARE_F2_CTA_LEGACY,
+  RECIPE_SHARE_F2_CTA_QUESTION,
+  RECIPE_SHARE_PAGES_LEGACY,
+  RECIPE_SHARE_PAGES_LIVE,
   buildRecipeShareF2Text,
   formatIngredientLineForShare,
   formatShareServingsLine,
   tryParseRecipeShareF2Text
 } from "../src/utils/recipe-share-f2";
+
+/** Corps commun corpus CAP-5 (`corpus-f2-whatsapp.md`) — sans CTA. */
+const CORPUS_CHEESECAKE_BODY = [
+  "Cheesecake Framboise Sans Cuisson",
+  "8 portions",
+  "",
+  "Ingrédients:",
+  "- 230 g galettes bretonnes",
+  "- 80 g beurre doux fondu",
+  "- 2 feuilles gélatine (Vahiné)",
+  "- 150 g fromage frais Philadelphia",
+  "- 320 g mascarpone",
+  "- 1 c. à c. extrait naturel de vanille",
+  "- 95 g sucre en poudre classique",
+  "- 320 g crème liquide entière 30%mg (bien froide)",
+  "- 2 cs lait",
+  "- 100 g framboises fraîches",
+  "- 250 g framboises fraîches ou décongelées",
+  "- 50 g sucre en poudre",
+  "- 1 c. à c. jus de citron jaune",
+  "- 1 cs maïzena",
+  "- 2 cs eau froide",
+  "- 100 g framboises fraîches",
+  "",
+  "Étapes:",
+  "1. Dans un mixeur, réduire les biscuits en miettes. Faire fondre le beurre au micro-ondes puis mélanger aux biscuits mixés.",
+  "2. Tasser les biscuits mixés dans le fond d’un moule à charnière de 20cm (j’ajoute avant un film rhodoïd pour faciliter le démoulage du cheesecake). Bien appuyer à l’aide du dos d’une cuillère ou d’un verre. Réfrigérer en attendant la suite.",
+  "3. Faire ramollir la gélatine dans de l’eau froide.",
+  "4. Dans un récipient ou au robot, fouetter bien ferme le Philadelphia, le mascarpone, la vanille et le sucre en poudre.",
+  "5. A part, fouetter la crème liquide en chantilly bien ferme aussi.",
+  "6. Dans une toute petite casserole, chauffer le lait et y faire fondre hors du feu la gélatine bien égouttée.",
+  "7. Déposer la crème chantilly dans le mélange de fromage frais puis fouetter pour bien homogénéiser la texture. Cette garniture doit déjà bien se tenir.",
+  "8. Verser le lait tiédi et fouetter à nouveau pour avoir un mélange homogène.",
+  "9. Déposer la moitié de cette garniture dans le moule, sur la couche de biscuits tassés. Ajouter les framboises fraîches en les appuyant légèrement. Verser ensuite le reste de garniture. Lisser le dessus à l’aide d’une petite spatule. Réfrigérer toute une nuit.",
+  "10. Déposer les framboises dans le bol du mixeur. Mixer jusqu’à obnteir un coulis. Passez ce coulis au chinois pour enlever les pépins.",
+  "11. Dans une casserole, chauffer feu moyen le coulis avec le sucre en poudre et le jus de citron jusqu’à début d’ébullition.",
+  "12. A part, mélanger la maïzena et l’eau froide puis verser dans la casserole de coulis en chauffant à feu doux-moyen. Remuer avec une cuillère en bois jusqu’à ce que le coulis épaississe et nappe la cuillère. Retirer du feu et laisser refroidir complètement.",
+  "13. Déposer le cheesecake sur son plat de service. Ajouter le coulis refroidi sur le dessus à l’aide d’une cuillère à soupe. Ajouter des framboises fraîches.",
+  "14. Servir immédiatement ou garder au réfrigérateur jusqu’à dégustation.",
+  "",
+  "Source:",
+  "https://liliebakery.fr/cheesecake-framboise-sans-cuisson/"
+].join("\n");
+
+const CORPUS_F2_A = `${CORPUS_CHEESECAKE_BODY}\n\n${RECIPE_SHARE_F2_CTA_LEGACY}`;
+const CORPUS_F2_B = `${CORPUS_CHEESECAKE_BODY}\n\n${RECIPE_SHARE_F2_CTA}`;
+const CORPUS_F2_C_LIVE = `${CORPUS_CHEESECAKE_BODY}\n\n${RECIPE_SHARE_F2_CTA_QUESTION}\n${RECIPE_SHARE_PAGES_LIVE}`;
+const CORPUS_F2_C_LEGACY = `${CORPUS_CHEESECAKE_BODY}\n\n${RECIPE_SHARE_F2_CTA_QUESTION}\n${RECIPE_SHARE_PAGES_LEGACY}`;
+
+const LILIEBAKERY_SOURCE = "https://liliebakery.fr/cheesecake-framboise-sans-cuisson/";
+
+function assertCorpusCheesecakeDraft(
+  draft: NonNullable<ReturnType<typeof tryParseRecipeShareF2Text>>
+): void {
+  assert.equal(draft.title, "Cheesecake Framboise Sans Cuisson");
+  assert.equal(draft.servingsBase, 8);
+  assert.equal(draft.ingredients.length, 16);
+  assert.equal(draft.steps.length, 14);
+  assert.equal(draft.source?.url, LILIEBAKERY_SOURCE);
+  assert.equal(draft.steps[9]?.text.includes("obnteir"), true);
+  assert.ok(!JSON.stringify(draft).includes("Tu veux garder"));
+  assert.ok(!JSON.stringify(draft).includes("plamarque.github.io"));
+}
 
 /** Ancien wire — encore accepté au parse. */
 const TIRAMISU_F2_TEXT_LEGACY = [
@@ -484,4 +550,99 @@ test("tryParseRecipeShareF2Text — sourceType SHARE pour share_target", () => {
   assert.ok(draft);
   assert.equal(draft.source?.type, "SHARE");
   assert.equal(draft.source?.url, "https://example.com/tiramisu");
+});
+
+test("tryParseRecipeShareF2Text — corpus A (CTA legacy une ligne)", () => {
+  const draft = tryParseRecipeShareF2Text(CORPUS_F2_A);
+  assert.ok(draft);
+  assertCorpusCheesecakeDraft(draft);
+});
+
+test("tryParseRecipeShareF2Text — corpus B (CTA cooks-n-coqs une ligne)", () => {
+  const draft = tryParseRecipeShareF2Text(CORPUS_F2_B);
+  assert.ok(draft);
+  assertCorpusCheesecakeDraft(draft);
+});
+
+test("tryParseRecipeShareF2Text — corpus C wrap CTA live", () => {
+  const draft = tryParseRecipeShareF2Text(CORPUS_F2_C_LIVE);
+  assert.ok(draft);
+  assertCorpusCheesecakeDraft(draft);
+});
+
+test("tryParseRecipeShareF2Text — corpus C wrap CTA legacy", () => {
+  const draft = tryParseRecipeShareF2Text(CORPUS_F2_C_LEGACY);
+  assert.ok(draft);
+  assertCorpusCheesecakeDraft(draft);
+});
+
+/** F2 sans Source: — le wrap non strippé polluerait Étapes ; prouve le strip wrap. */
+const F2_NO_SOURCE_BODY = [
+  "Soupe",
+  "2 portions",
+  "",
+  "Ingrédients:",
+  "- 1 oignon",
+  "",
+  "Étapes:",
+  "1. Couper."
+].join("\n");
+
+function assertWrapStrippedFromSteps(
+  draft: NonNullable<ReturnType<typeof tryParseRecipeShareF2Text>>
+): void {
+  assert.equal(draft.title, "Soupe");
+  assert.equal(draft.servingsBase, 2);
+  assert.equal(draft.ingredients.length, 1);
+  assert.equal(draft.steps.length, 1);
+  assert.equal(draft.steps[0]?.text, "Couper.");
+  assert.equal(draft.source?.url, undefined);
+  assert.ok(!draft.steps.some((s) => s.text.includes("Tu veux garder")));
+  assert.ok(!draft.steps.some((s) => s.text.includes("plamarque.github.io")));
+  assert.ok(!JSON.stringify(draft).includes("Tu veux garder"));
+  assert.ok(!JSON.stringify(draft).includes("plamarque.github.io"));
+}
+
+test("tryParseRecipeShareF2Text — wrap CTA live sans Source: hors étapes", () => {
+  const text = `${F2_NO_SOURCE_BODY}\n\n${RECIPE_SHARE_F2_CTA_QUESTION}\n${RECIPE_SHARE_PAGES_LIVE}`;
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assertWrapStrippedFromSteps(draft);
+});
+
+test("tryParseRecipeShareF2Text — wrap CTA legacy sans Source: hors étapes", () => {
+  const text = `${F2_NO_SOURCE_BODY}\n\n${RECIPE_SHARE_F2_CTA_QUESTION}\n${RECIPE_SHARE_PAGES_LEGACY}`;
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assertWrapStrippedFromSteps(draft);
+});
+
+test("tryParseRecipeShareF2Text — wrap CTA avec blancs entre question et URL", () => {
+  const text = `${F2_NO_SOURCE_BODY}\n\n${RECIPE_SHARE_F2_CTA_QUESTION}\n\n\n${RECIPE_SHARE_PAGES_LIVE}`;
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assertWrapStrippedFromSteps(draft);
+});
+
+test("tryParseRecipeShareF2Text — Pages jamais source.url même seule sous Source:", () => {
+  const text = [
+    "Soupe",
+    "2 portions",
+    "",
+    "Ingrédients:",
+    "- 1 oignon",
+    "",
+    "Étapes:",
+    "1. Couper.",
+    "",
+    "Source:",
+    RECIPE_SHARE_PAGES_LIVE,
+    "",
+    RECIPE_SHARE_F2_CTA_QUESTION,
+    RECIPE_SHARE_PAGES_LEGACY
+  ].join("\n");
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assert.equal(draft.source?.url, undefined);
+  assert.ok(!JSON.stringify(draft).includes("plamarque.github.io"));
 });
