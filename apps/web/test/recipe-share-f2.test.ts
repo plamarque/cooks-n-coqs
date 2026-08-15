@@ -109,7 +109,7 @@ function baseRecipe(overrides: Partial<Recipe> = {}): Recipe {
   };
 }
 
-test("formatIngredientLineForShare prefers rawText", () => {
+test("formatIngredientLineForShare prefers displayed quantity over rawText base", () => {
   assert.equal(
     formatIngredientLineForShare({
       id: "x",
@@ -119,7 +119,19 @@ test("formatIngredientLineForShare prefers rawText", () => {
       isScalable: true,
       rawText: "4 œufs"
     }),
-    "4 œufs"
+    "3 pièces oeufs"
+  );
+});
+
+test("formatIngredientLineForShare falls back to rawText when no displayed quantity", () => {
+  assert.equal(
+    formatIngredientLineForShare({
+      id: "x",
+      label: "sel",
+      isScalable: false,
+      rawText: "une pincée de sel"
+    }),
+    "une pincée de sel"
   );
 });
 
@@ -168,6 +180,64 @@ test("buildRecipeShareF2Text emits bare title, N portions, CTA last", () => {
       RECIPE_SHARE_F2_CTA
     ].join("\n")
   );
+});
+
+test("buildRecipeShareF2Text — CAP-7 base 1 / affichage 4 → 4 portions + qty affichées", () => {
+  const recipe = baseRecipe({
+    title: "Pâte",
+    servingsBase: 1,
+    servingsCurrent: 4,
+    source: undefined,
+    ingredients: [
+      {
+        id: "i1",
+        order: 1,
+        label: "farine",
+        quantity: 400,
+        quantityBase: 100,
+        unit: "g",
+        isScalable: true,
+        rawText: "100 g farine"
+      },
+      {
+        id: "i2",
+        order: 2,
+        label: "œufs",
+        quantity: 2,
+        quantityBase: 0.5,
+        unit: "",
+        isScalable: true,
+        rawText: "0,5 œufs"
+      }
+    ],
+    steps: [{ id: "s1", order: 1, text: "Mélanger." }]
+  });
+  const before = structuredClone(recipe);
+  const text = buildRecipeShareF2Text(recipe);
+  assert.equal(
+    text,
+    [
+      "Pâte",
+      "4 portions",
+      "",
+      "Ingrédients:",
+      "- 400 g farine",
+      "- 2 œufs",
+      "",
+      "Étapes:",
+      "1. Mélanger.",
+      "",
+      RECIPE_SHARE_F2_CTA
+    ].join("\n")
+  );
+  assert.deepEqual(recipe, before);
+  assert.equal(recipe.servingsBase, 1);
+  assert.equal(recipe.ingredients[0]?.quantityBase, 100);
+});
+
+test("buildRecipeShareF2Text — sans servingsCurrent utilise servingsBase", () => {
+  const text = buildRecipeShareF2Text(baseRecipe({ servingsBase: 6, servingsCurrent: undefined }));
+  assert.ok(text.split("\n").includes("6 portions"));
 });
 
 test("buildRecipeShareF2Text omits portions line and Source when absent", () => {
