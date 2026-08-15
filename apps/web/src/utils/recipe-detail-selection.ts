@@ -1,0 +1,74 @@
+import type { Recipe } from "@cookies-et-coquilettes/domain";
+
+/** Durée d’affichage du badge de succès post-sauvegarde (ms). */
+export const SAVE_SUCCESS_BADGE_MS = 2500;
+
+/** CAP-2 : le badge ne capture pas les pointeurs — la fiche reste utilisable. */
+export const SAVE_SUCCESS_BADGE_POINTER_EVENTS = "none" as const;
+
+export type PostSaveNavigation = {
+  goToDetail: boolean;
+  showSuccessBadge: boolean;
+  stayOnForm: boolean;
+};
+
+/** Libellés contractuels post-sauvegarde (édition vs création). */
+export function recipeSaveSuccessLabel(isEdit: boolean): string {
+  return isEdit ? "Recette modifiée." : "Recette créée.";
+}
+
+/** Navigation après sauvegarde réussie : DETAIL + badge, pas le formulaire. */
+export function postSaveNavigationOnSuccess(): PostSaveNavigation {
+  return { goToDetail: true, showSuccessBadge: true, stayOnForm: false };
+}
+
+/** Navigation après échec de sauvegarde : rester sur le formulaire, pas de badge. */
+export function postSaveNavigationOnFailure(): PostSaveNavigation {
+  return { goToDetail: false, showSuccessBadge: false, stayOnForm: true };
+}
+
+/**
+ * Résout la fiche affichée en DETAIL : override post-sauvegarde d’abord
+ * (évite une fiche périmée si `refresh` échoue alors que la liste stale
+ * contient encore l’id), sinon entrée de la liste filtrée.
+ */
+export function resolveDetailRecipe(
+  recipes: readonly Recipe[],
+  selectedId: string | null,
+  override: Recipe | null
+): Recipe | null {
+  if (!selectedId) {
+    return null;
+  }
+  if (override?.id === selectedId) {
+    return override;
+  }
+  return recipes.find((recipe) => recipe.id === selectedId) ?? null;
+}
+
+export type SelectionAfterRefresh = {
+  selectedId: string | null;
+  clearToList: boolean;
+  clearOverride: boolean;
+};
+
+/**
+ * Décide si `refresh()` doit annuler la sélection quand l’id n’est plus dans
+ * la liste filtrée. `allowOutsideFilterId` conserve DETAIL hors filtres.
+ */
+export function selectionAfterFilteredRefresh(
+  selectedId: string | null,
+  filteredRecipes: readonly Recipe[],
+  allowOutsideFilterId: string | null = null
+): SelectionAfterRefresh {
+  if (!selectedId) {
+    return { selectedId: null, clearToList: false, clearOverride: false };
+  }
+  if (filteredRecipes.some((recipe) => recipe.id === selectedId)) {
+    return { selectedId, clearToList: false, clearOverride: true };
+  }
+  if (allowOutsideFilterId === selectedId) {
+    return { selectedId, clearToList: false, clearOverride: false };
+  }
+  return { selectedId: null, clearToList: true, clearOverride: true };
+}
