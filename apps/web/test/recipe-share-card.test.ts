@@ -56,19 +56,24 @@ test("formatShareCardServings omits when absent", () => {
   assert.equal(formatShareCardServings(6.5), "6,5 portions");
 });
 
-test("planRecipeShareCardLayout: full-bleed photo, CTA band, logo top-right, no fiche", () => {
+test("planRecipeShareCardLayout: full-bleed photo, bandeau attribution, logo inline bas, no fiche", () => {
   const layout = planRecipeShareCardLayout(baseRecipe({ imageId: "img1" }), {
     hasPhoto: true
   });
   assert.equal(layout.size, RECIPE_SHARE_CARD_SIZE);
   assert.equal(layout.photoHeight, RECIPE_SHARE_CARD_SIZE);
+  assert.equal(layout.cta.label, "Recette envoyée via");
   assert.equal(layout.cta.label, RECIPE_SHARE_CARD_CTA_LABEL);
   assert.ok(layout.cta.y + layout.cta.height === layout.size);
   assert.equal(layout.hasPhoto, true);
-  assert.ok(layout.logo.x > layout.size / 2);
-  assert.ok(layout.logo.y < layout.size / 4);
+  assert.ok(layout.logo.y >= layout.cta.y, "logo dans le bandeau bas");
+  assert.ok(
+    layout.logo.y + layout.logo.size <= layout.size,
+    "logo contenu dans la card"
+  );
+  assert.ok(layout.logo.y > layout.size / 2, "pas d’overlay haut-droite");
   assert.equal(layoutContainsForbiddenChrome(layout), false);
-  assert.ok(!/cuisiner|retour/i.test(layout.cta.label));
+  assert.ok(!/cuisiner|retour|garder cette recette/i.test(layout.cta.label));
 });
 
 test("planRecipeShareCardLayout without photo", () => {
@@ -80,12 +85,17 @@ test("planRecipeShareCardLayout without photo", () => {
   assert.equal(layout.cta.label, RECIPE_SHARE_CARD_CTA_LABEL);
 });
 
-test("buildRecipeShareCardFile exports PNG — photo/placeholder + CTA + logo, pas de fiche", async () => {
+test("buildRecipeShareCardFile exports PNG — photo/placeholder + bandeau + logo inline, pas de fiche", async () => {
   const draws: string[] = [];
+  let textX = NaN;
+  let textY = NaN;
+  let logoX = NaN;
+  let logoY = NaN;
   const fakeCanvas = {
     width: 0,
     height: 0
   } as unknown as HTMLCanvasElement;
+  const layout = planRecipeShareCardLayout(baseRecipe(), { hasPhoto: false });
 
   const file = await buildRecipeShareCardFile(
     baseRecipe(),
@@ -110,14 +120,24 @@ test("buildRecipeShareCardFile exports PNG — photo/placeholder + CTA + logo, p
             draws.push("placeholder-arc");
           },
           fill() {},
-          fillText(text: string) {
+          fillText(text: string, x: number, y: number) {
             draws.push(`text:${text}`);
+            textX = x;
+            textY = y;
           },
           measureText(text: string) {
             return { width: text.length * 10 };
           },
-          drawImage() {
-            draws.push("drawImage");
+          drawImage(
+            _img: CanvasImageSource,
+            x: number,
+            y: number,
+            _w?: number,
+            _h?: number
+          ) {
+            draws.push("drawImage-logo");
+            logoX = x;
+            logoY = y;
           },
           save() {},
           restore() {},
@@ -140,14 +160,75 @@ test("buildRecipeShareCardFile exports PNG — photo/placeholder + CTA + logo, p
   assert.ok(file!.name.endsWith("-share.png"));
   assert.ok(draws.includes("placeholder-arc"), "placeholder sage sans photo");
   assert.ok(draws.includes("logo"));
+  assert.equal(draws.filter((d) => d === "drawImage-logo").length, 1, "un seul logo");
   assert.ok(draws.some((d) => d === `text:${RECIPE_SHARE_CARD_CTA_LABEL}`));
-  assert.ok(!draws.some((d) => /https?:/i.test(d)), "CTA image sans URL");
+  assert.ok(draws.some((d) => d === "text:Recette envoyée via"));
+  assert.ok(logoY >= layout.cta.y && logoY <= layout.size, "logoY dans le bandeau bas");
+  assert.ok(logoY > layout.size / 2, "logo pas en overlay haut");
+  assert.ok(logoX > textX, "logo inline après le texte");
+  assert.ok(Number.isFinite(textY), "fillText a été appelé");
+  assert.ok(!draws.some((d) => /https?:/i.test(d)), "bandeau image sans URL");
   assert.ok(!/https?:/i.test(RECIPE_SHARE_CARD_CTA_LABEL));
   assert.ok(!draws.some((d) => d.startsWith("text:Tiramisu")), "pas de titre sur l’image");
   assert.ok(!draws.some((d) => d.includes("6 portions")), "pas de portions sur l’image");
   assert.ok(!draws.some((d) => /mascarpone|œufs/i.test(d)), "pas d’ingrédients sur l’image");
-  assert.ok(!draws.some((d) => /cuisiner|retour|♥/i.test(d)));
+  assert.ok(!draws.some((d) => /cuisiner|retour|♥|garder cette recette/i.test(d)));
   assert.equal(RECIPE_SHARE_CARD_COLORS.primary, "#1f4f46");
+});
+
+test("buildRecipeShareCardFile without logo still emits bandeau text PNG", async () => {
+  const draws: string[] = [];
+  const fakeCanvas = {} as HTMLCanvasElement;
+
+  const file = await buildRecipeShareCardFile(
+    baseRecipe(),
+    { imageBlob: null, faviconUrl: "/favicon.svg" },
+    {
+      createCanvas: () => {
+        const ctx = {
+          fillStyle: "",
+          font: "",
+          textBaseline: "top",
+          globalAlpha: 1,
+          shadowColor: "",
+          shadowBlur: 0,
+          shadowOffsetY: 0,
+          fillRect() {
+            draws.push("fillRect");
+          },
+          beginPath() {},
+          arc() {
+            draws.push("placeholder-arc");
+          },
+          fill() {},
+          fillText(text: string) {
+            draws.push(`text:${text}`);
+          },
+          measureText(text: string) {
+            return { width: text.length * 10 };
+          },
+          drawImage() {
+            draws.push("drawImage-logo");
+          },
+          save() {},
+          restore() {},
+          moveTo() {},
+          arcTo() {},
+          closePath() {}
+        } as unknown as CanvasRenderingContext2D;
+        return { canvas: fakeCanvas, ctx };
+      },
+      loadImage: async () => {
+        throw new Error("favicon KO");
+      },
+      toBlob: async () => new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" })
+    }
+  );
+
+  assert.ok(file);
+  assert.equal(file!.type, "image/png");
+  assert.ok(draws.some((d) => d === `text:${RECIPE_SHARE_CARD_CTA_LABEL}`));
+  assert.ok(!draws.includes("drawImage-logo"), "pas de logo si favicon KO");
 });
 
 test("buildRecipeShareCardFile closes ImageBitmap even when drawCover throws", async () => {

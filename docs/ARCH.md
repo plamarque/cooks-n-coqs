@@ -34,7 +34,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `import-service` | Import URL/share/screenshot/texte ; early-return parse F2 local (0 BFF) ; sinon appel BFF | `apps/web/src/services/import-service.ts` |
 | `share-target-service` | Lecture/nettoyage des paramètres `share_target` au démarrage | `apps/web/src/services/share-target-service.ts` |
 | `recipe-share-f2` | Construction et parse du texte F2 (+ CTA soft) ; reconnaissance à l’import collage / `share_target` | `apps/web/src/utils/recipe-share-f2.ts` |
-| `recipe-share-card` | Génération locale canvas/PNG de l’image illustrative partage (~1080×1080 : photo + CTA visuel + logo) | `apps/web/src/utils/recipe-share-card.ts` |
+| `recipe-share-card` | Génération locale canvas/PNG de l’image illustrative partage (~1080×1080 : photo + bandeau « Recette envoyée via » + logo inline) | `apps/web/src/utils/recipe-share-card.ts` |
 | `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte ± image illustrative PNG ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
 | `recipe-detail-selection` | Résolution de la fiche DETAIL (override hors filtres), navigation post-sauvegarde, badge transitoire | `apps/web/src/utils/recipe-detail-selection.ts` |
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
@@ -85,7 +85,7 @@ Règles de contrat :
 
 - SoR recettes = IndexedDB ; **pas** de dépôt / landing serveur pour le contenu partagé.
 - `recipe-share-f2` — sérialise depuis les **portions/quantités affichées** du détail (après scaling appliqué) : titre nu, ligne `N portions` (si affichées), ingrédients, étapes, source URL (si http(s)), puis CTA soft en dernière ligne ; ne mute pas `servingsBase` / `quantityBase` ; parse dual nouveau + ancien `Titre:` / `Portions:` ; strip CTA une ligne ou wrap messagerie ; URL Pages install jamais `source.url` (contrat `docs/SPEC.md` / feature SPEC `payload-f2.md`).
-- `recipe-share-card` — canvas local ~1080×1080 : photo principale plein cadre (`RecipeImage` / placeholder), CTA visuel bandeau bas, logo `public/favicon.svg` overlay haut-droite ; **pas** de fiche (titre / portions / ingrédients) sur l’image.
+- `recipe-share-card` — canvas local ~1080×1080 : photo principale plein cadre (`RecipeImage` / placeholder), bandeau bas « Recette envoyée via » + logo `public/favicon.svg` inline (une seule occurrence ; pas d’overlay haut-droite) ; **pas** de fiche (titre / portions / ingrédients) sur l’image.
 - `recipe-native-share` — `navigator.share` avec `{ text }` et, si `canShare({ files })`, fichier image ; échec fichiers → partage texte seul obligatoire ; pas de contrôle de l’ordre des bulles OS.
 - Import entrant du même texte : `importFromText` / `importFromShare` / `share_target` ; F2 reconnu → draft local exclusif (zéro BFF de structuration) ; `Source:` http(s) stockée sans re-fetch ; CTA ignoré.
 
