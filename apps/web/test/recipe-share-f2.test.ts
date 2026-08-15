@@ -5,16 +5,44 @@ import {
   RECIPE_SHARE_F2_CTA,
   buildRecipeShareF2Text,
   formatIngredientLineForShare,
+  formatShareServingsLine,
   tryParseRecipeShareF2Text
 } from "../src/utils/recipe-share-f2";
 
-/** Payload exact — preview-messagerie-tiramisu.md */
-const TIRAMISU_F2_TEXT = [
+/** Ancien wire — encore accepté au parse. */
+const TIRAMISU_F2_TEXT_LEGACY = [
   "Titre:",
   "Tiramisu",
   "",
   "Portions:",
   "6",
+  "",
+  "Ingrédients:",
+  "- 500 g mascarpone",
+  "- 4 œufs",
+  "- 100 g sucre",
+  "- 24 biscuits à la cuillère",
+  "- 30 cl café serré",
+  "- 2 c.à.s cacao amer",
+  "",
+  "Étapes:",
+  "1. Séparer les blancs des jaunes.",
+  "2. Blanchir les jaunes avec le sucre.",
+  "3. Incorporer le mascarpone.",
+  "4. Monter les blancs en neige et plier.",
+  "5. Tremper les biscuits dans le café, alterner couches.",
+  "6. Saupoudrer de cacao et réserver au frais 4 h.",
+  "",
+  "Source:",
+  "https://example.com/tiramisu",
+  "",
+  RECIPE_SHARE_F2_CTA
+].join("\n");
+
+/** Nouveau wire — titre nu + `N portions`. */
+const TIRAMISU_F2_TEXT = [
+  "Tiramisu",
+  "6 portions",
   "",
   "Ingrédients:",
   "- 500 g mascarpone",
@@ -108,16 +136,23 @@ test("formatIngredientLineForShare builds qty unit label", () => {
   );
 });
 
-test("buildRecipeShareF2Text emits fixed headers, sorted steps, CTA last", () => {
+test("formatShareServingsLine omits when absent", () => {
+  assert.equal(formatShareServingsLine(undefined), null);
+  assert.equal(formatShareServingsLine(null), null);
+  assert.equal(formatShareServingsLine(0), null);
+  assert.equal(formatShareServingsLine(6), "6 portions");
+  assert.equal(formatShareServingsLine(1), "1 portion");
+  assert.equal(formatShareServingsLine(6.5), "6,5 portions");
+  assert.equal(formatShareServingsLine(0.4), "0,4 portions");
+});
+
+test("buildRecipeShareF2Text emits bare title, N portions, CTA last", () => {
   const text = buildRecipeShareF2Text(baseRecipe());
   assert.equal(
     text,
     [
-      "Titre:",
       "Tiramisu",
-      "",
-      "Portions:",
-      "6",
+      "6 portions",
       "",
       "Ingrédients:",
       "- 500 g mascarpone",
@@ -135,7 +170,7 @@ test("buildRecipeShareF2Text emits fixed headers, sorted steps, CTA last", () =>
   );
 });
 
-test("buildRecipeShareF2Text omits Portions and Source when absent", () => {
+test("buildRecipeShareF2Text omits portions line and Source when absent", () => {
   const text = buildRecipeShareF2Text(
     baseRecipe({
       servingsBase: undefined,
@@ -143,8 +178,9 @@ test("buildRecipeShareF2Text omits Portions and Source when absent", () => {
     })
   );
   assert.ok(!text.includes("Portions:"));
+  assert.ok(!/\d+\s+portions?/i.test(text.split("\n").slice(0, 3).join("\n")));
   assert.ok(!text.includes("Source:"));
-  assert.ok(text.startsWith("Titre:\nTiramisu\n\nIngrédients:"));
+  assert.ok(text.startsWith("Tiramisu\n\nIngrédients:"));
   assert.ok(text.endsWith(RECIPE_SHARE_F2_CTA));
 });
 
@@ -168,7 +204,7 @@ test("buildRecipeShareF2Text CTA is exactly one trailing line", () => {
   assert.equal(lines.filter((l) => l.startsWith("Tu veux garder")).length, 1);
 });
 
-test("tryParseRecipeShareF2Text — Tiramisu fixture exacte", () => {
+test("tryParseRecipeShareF2Text — nouveau wire Tiramisu", () => {
   const draft = tryParseRecipeShareF2Text(TIRAMISU_F2_TEXT);
   assert.ok(draft);
   assert.equal(draft.title, "Tiramisu");
@@ -182,6 +218,16 @@ test("tryParseRecipeShareF2Text — Tiramisu fixture exacte", () => {
   assert.ok(!draft.steps.some((s) => s.text.includes("Tu veux garder")));
 });
 
+test("tryParseRecipeShareF2Text — ancien wire Titre:/Portions:", () => {
+  const draft = tryParseRecipeShareF2Text(TIRAMISU_F2_TEXT_LEGACY);
+  assert.ok(draft);
+  assert.equal(draft.title, "Tiramisu");
+  assert.equal(draft.servingsBase, 6);
+  assert.equal(draft.ingredients.length, 6);
+  assert.equal(draft.steps.length, 6);
+  assert.equal(draft.source?.url, "https://example.com/tiramisu");
+});
+
 test("tryParseRecipeShareF2Text — CTA ignorée, pas source.url", () => {
   const draft = tryParseRecipeShareF2Text(TIRAMISU_F2_TEXT);
   assert.ok(draft);
@@ -193,7 +239,27 @@ test("tryParseRecipeShareF2Text — CTA ignorée, pas source.url", () => {
   assert.ok(!JSON.stringify(draft).includes(RECIPE_SHARE_F2_CTA));
 });
 
-test("tryParseRecipeShareF2Text — sans Portions", () => {
+test("tryParseRecipeShareF2Text — sans portions (nouveau)", () => {
+  const text = [
+    "Soupe",
+    "",
+    "Ingrédients:",
+    "- 1 oignon",
+    "",
+    "Étapes:",
+    "1. Couper.",
+    "",
+    RECIPE_SHARE_F2_CTA
+  ].join("\n");
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assert.equal(draft.title, "Soupe");
+  assert.equal(draft.servingsBase, undefined);
+  assert.equal(draft.ingredients.length, 1);
+  assert.equal(draft.steps.length, 1);
+});
+
+test("tryParseRecipeShareF2Text — ancien wire sans Portions:", () => {
   const text = [
     "Titre:",
     "Soupe",
@@ -214,13 +280,74 @@ test("tryParseRecipeShareF2Text — sans Portions", () => {
   assert.equal(draft.steps.length, 1);
 });
 
-test("tryParseRecipeShareF2Text — sans Source", () => {
+test("tryParseRecipeShareF2Text — hybride Titre: + ligne N portions en préambule", () => {
   const text = [
+    "4 portions",
+    "",
     "Titre:",
     "Soupe",
     "",
-    "Portions:",
-    "2",
+    "Ingrédients:",
+    "- 1 oignon",
+    "",
+    "Étapes:",
+    "1. Couper."
+  ].join("\n");
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assert.equal(draft.title, "Soupe");
+  assert.equal(draft.servingsBase, 4);
+});
+
+test("tryParseRecipeShareF2Text — singular 1 portion + round-trip emit", () => {
+  const text = buildRecipeShareF2Text(
+    baseRecipe({
+      servingsBase: 1,
+      source: undefined
+    })
+  );
+  assert.ok(text.split("\n").includes("1 portion"));
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assert.equal(draft.title, "Tiramisu");
+  assert.equal(draft.servingsBase, 1);
+});
+
+test("tryParseRecipeShareF2Text — portions décimales en préambule", () => {
+  const text = [
+    "Soupe",
+    "6,5 portions",
+    "",
+    "Ingrédients:",
+    "- 1 oignon",
+    "",
+    "Étapes:",
+    "1. Couper."
+  ].join("\n");
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assert.equal(draft.title, "Soupe");
+  assert.equal(draft.servingsBase, 6.5);
+});
+
+test("buildRecipeShareF2Text — servingsBase 6.5 round-trip sans arrondi", () => {
+  const text = buildRecipeShareF2Text(
+    baseRecipe({
+      servingsBase: 6.5,
+      source: undefined
+    })
+  );
+  assert.ok(text.split("\n").includes("6,5 portions"));
+  assert.ok(!text.split("\n").includes("7 portions"));
+  const draft = tryParseRecipeShareF2Text(text);
+  assert.ok(draft);
+  assert.equal(draft.servingsBase, 6.5);
+});
+
+test("tryParseRecipeShareF2Text — sans Source", () => {
+  const text = [
+    "Soupe",
+    "2 portions",
     "",
     "Ingrédients:",
     "- 1 oignon",
@@ -241,8 +368,9 @@ test("tryParseRecipeShareF2Text — non-F2 → null", () => {
 });
 
 test("tryParseRecipeShareF2Text — titre seul sans ingrédients ni étapes → null", () => {
-  const text = ["Titre:", "Vide", "", RECIPE_SHARE_F2_CTA].join("\n");
+  const text = ["Vide", "", RECIPE_SHARE_F2_CTA].join("\n");
   assert.equal(tryParseRecipeShareF2Text(text), null);
+  assert.equal(tryParseRecipeShareF2Text(["Titre:", "Vide", "", RECIPE_SHARE_F2_CTA].join("\n")), null);
 });
 
 test("tryParseRecipeShareF2Text — sourceType SHARE pour share_target", () => {

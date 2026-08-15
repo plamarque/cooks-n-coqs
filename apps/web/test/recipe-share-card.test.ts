@@ -3,9 +3,9 @@ import test from "node:test";
 import type { Recipe } from "@cookies-et-coquilettes/domain";
 import {
   RECIPE_SHARE_CARD_COLORS,
+  RECIPE_SHARE_CARD_CTA_LABEL,
   RECIPE_SHARE_CARD_SIZE,
   buildRecipeShareCardFile,
-  buildShareCardIngredientPreview,
   formatShareCardServings,
   layoutContainsForbiddenChrome,
   planRecipeShareCardLayout
@@ -37,39 +37,6 @@ function baseRecipe(overrides: Partial<Recipe> = {}): Recipe {
         unit: "",
         isScalable: true,
         rawText: "4 œufs"
-      },
-      {
-        id: "i3",
-        order: 3,
-        label: "sucre",
-        quantity: 100,
-        unit: "g",
-        isScalable: true
-      },
-      {
-        id: "i4",
-        order: 4,
-        label: "biscuits à la cuillère",
-        quantity: 24,
-        unit: "",
-        isScalable: true,
-        rawText: "24 biscuits à la cuillère"
-      },
-      {
-        id: "i5",
-        order: 5,
-        label: "café serré",
-        quantity: 30,
-        unit: "cl",
-        isScalable: true
-      },
-      {
-        id: "i6",
-        order: 6,
-        label: "cacao amer",
-        quantity: 2,
-        unit: "c.à.s",
-        isScalable: true
       }
     ],
     steps: [{ id: "s1", order: 1, text: "Séparer les blancs des jaunes." }],
@@ -83,121 +50,37 @@ test("formatShareCardServings omits when absent", () => {
   assert.equal(formatShareCardServings(undefined), null);
   assert.equal(formatShareCardServings(null), null);
   assert.equal(formatShareCardServings(0), null);
-  assert.equal(formatShareCardServings(0.4), null);
+  assert.equal(formatShareCardServings(0.4), "0,4 portions");
   assert.equal(formatShareCardServings(6), "6 portions");
   assert.equal(formatShareCardServings(1), "1 portion");
+  assert.equal(formatShareCardServings(6.5), "6,5 portions");
 });
 
-test("buildShareCardIngredientPreview truncates with ellipsis", () => {
-  const { lines, truncated } = buildShareCardIngredientPreview(baseRecipe(), 5);
-  assert.equal(truncated, true);
-  assert.equal(lines.at(-1), "…");
-  assert.ok(lines.length <= 5);
-  assert.ok(lines[0]?.startsWith("- "));
-});
-
-test("buildShareCardIngredientPreview maxLines=1 stays within budget", () => {
-  const { lines, truncated } = buildShareCardIngredientPreview(baseRecipe(), 1);
-  assert.equal(truncated, true);
-  assert.deepEqual(lines, ["…"]);
-});
-
-test("buildShareCardIngredientPreview empty list is not aggressive", () => {
-  const { lines, truncated } = buildShareCardIngredientPreview(
-    baseRecipe({ ingredients: [] })
-  );
-  assert.deepEqual(lines, []);
-  assert.equal(truncated, false);
-});
-
-test("buildShareCardIngredientPreview tie-breaks equal order by id then label", () => {
-  const { lines } = buildShareCardIngredientPreview(
-    baseRecipe({
-      ingredients: [
-        {
-          id: "z-id",
-          order: 1,
-          label: "zeta",
-          quantity: 1,
-          unit: "",
-          isScalable: true
-        },
-        {
-          id: "a-id",
-          order: 1,
-          label: "alpha",
-          quantity: 1,
-          unit: "",
-          isScalable: true
-        },
-        {
-          id: "m-id",
-          order: 1,
-          label: "mu",
-          quantity: 1,
-          unit: "",
-          isScalable: true
-        }
-      ]
-    }),
-    5
-  );
-  assert.deepEqual(lines, ["- 1 alpha", "- 1 mu", "- 1 zeta"]);
-});
-
-test("buildShareCardIngredientPreview treats NaN order as unordered", () => {
-  const { lines } = buildShareCardIngredientPreview(
-    baseRecipe({
-      ingredients: [
-        {
-          id: "nan-first",
-          order: Number.NaN,
-          label: "zeta",
-          quantity: 1,
-          unit: "",
-          isScalable: true
-        },
-        {
-          id: "ordered",
-          order: 1,
-          label: "alpha",
-          quantity: 1,
-          unit: "",
-          isScalable: true
-        }
-      ]
-    }),
-    5
-  );
-  assert.deepEqual(lines, ["- 1 alpha", "- 1 zeta"]);
-});
-
-test("planRecipeShareCardLayout: photo band, logo top-right, no chrome", () => {
+test("planRecipeShareCardLayout: full-bleed photo, CTA band, logo top-right, no fiche", () => {
   const layout = planRecipeShareCardLayout(baseRecipe({ imageId: "img1" }), {
     hasPhoto: true
   });
   assert.equal(layout.size, RECIPE_SHARE_CARD_SIZE);
-  assert.equal(layout.photoHeight, RECIPE_SHARE_CARD_SIZE / 2);
-  assert.equal(layout.title, "Tiramisu");
-  assert.equal(layout.servingsLine, "6 portions");
+  assert.equal(layout.photoHeight, RECIPE_SHARE_CARD_SIZE);
+  assert.equal(layout.cta.label, RECIPE_SHARE_CARD_CTA_LABEL);
+  assert.ok(layout.cta.y + layout.cta.height === layout.size);
   assert.equal(layout.hasPhoto, true);
   assert.ok(layout.logo.x > layout.size / 2);
-  assert.ok(layout.logo.y < layout.photoHeight / 2);
+  assert.ok(layout.logo.y < layout.size / 4);
   assert.equal(layoutContainsForbiddenChrome(layout), false);
-  assert.ok(!layout.ingredientLines.some((l) => /cuisiner|retour/i.test(l)));
+  assert.ok(!/cuisiner|retour/i.test(layout.cta.label));
 });
 
-test("planRecipeShareCardLayout without photo or servings", () => {
+test("planRecipeShareCardLayout without photo", () => {
   const layout = planRecipeShareCardLayout(
     baseRecipe({ imageId: undefined, servingsBase: undefined }),
     { hasPhoto: false }
   );
   assert.equal(layout.hasPhoto, false);
-  assert.equal(layout.servingsLine, null);
-  assert.equal(layout.title, "Tiramisu");
+  assert.equal(layout.cta.label, RECIPE_SHARE_CARD_CTA_LABEL);
 });
 
-test("buildRecipeShareCardFile exports PNG File via stubs (no chrome)", async () => {
+test("buildRecipeShareCardFile exports PNG — photo/placeholder + CTA + logo, pas de fiche", async () => {
   const draws: string[] = [];
   const fakeCanvas = {
     width: 0,
@@ -205,7 +88,7 @@ test("buildRecipeShareCardFile exports PNG File via stubs (no chrome)", async ()
   } as unknown as HTMLCanvasElement;
 
   const file = await buildRecipeShareCardFile(
-    baseRecipe({ servingsBase: undefined }),
+    baseRecipe(),
     { imageBlob: null, faviconUrl: "/favicon.svg" },
     {
       createCanvas: (w, h) => {
@@ -257,9 +140,13 @@ test("buildRecipeShareCardFile exports PNG File via stubs (no chrome)", async ()
   assert.ok(file!.name.endsWith("-share.png"));
   assert.ok(draws.includes("placeholder-arc"), "placeholder sage sans photo");
   assert.ok(draws.includes("logo"));
-  assert.ok(draws.some((d) => d.startsWith("text:Tiramisu")));
+  assert.ok(draws.some((d) => d === `text:${RECIPE_SHARE_CARD_CTA_LABEL}`));
+  assert.ok(!draws.some((d) => /https?:/i.test(d)), "CTA image sans URL");
+  assert.ok(!/https?:/i.test(RECIPE_SHARE_CARD_CTA_LABEL));
+  assert.ok(!draws.some((d) => d.startsWith("text:Tiramisu")), "pas de titre sur l’image");
+  assert.ok(!draws.some((d) => d.includes("6 portions")), "pas de portions sur l’image");
+  assert.ok(!draws.some((d) => /mascarpone|œufs/i.test(d)), "pas d’ingrédients sur l’image");
   assert.ok(!draws.some((d) => /cuisiner|retour|♥/i.test(d)));
-  assert.ok(!draws.some((d) => d.includes("6 portions")), "sans portions");
   assert.equal(RECIPE_SHARE_CARD_COLORS.primary, "#1f4f46");
 });
 
@@ -402,6 +289,8 @@ test("buildRecipeShareCardFile with imageBlob draws photo not placeholder", asyn
     assert.ok(draws.includes("clip"));
     assert.ok(draws.includes("clip-rect"));
     assert.ok(!draws.includes("placeholder-arc"));
+    assert.ok(draws.some((d) => d === `text:${RECIPE_SHARE_CARD_CTA_LABEL}`));
+    assert.ok(!draws.some((d) => /https?:/i.test(d)), "CTA image sans URL");
     assert.equal(file!.type, "image/png");
   } finally {
     if (originalCreateImageBitmap) {
@@ -416,7 +305,6 @@ test("buildRecipeShareCardFile falls back to placeholder when photo decode fails
   const draws: string[] = [];
   const fakeCanvas = {} as HTMLCanvasElement;
   const originalCreateImageBitmap = globalThis.createImageBitmap;
-  // Force decode failure path.
   (globalThis as { createImageBitmap?: unknown }).createImageBitmap = async () => {
     throw new Error("bad bitmap");
   };
@@ -579,53 +467,4 @@ test("buildRecipeShareCardFile uses placeholder when photo is 0x0", async () => 
   } finally {
     globalThis.createImageBitmap = originalCreateImageBitmap;
   }
-});
-
-test("buildRecipeShareCardFile draws vertical ellipsis when ingredient band runs out", async () => {
-  const texts: string[] = [];
-  const fakeCanvas = {} as HTMLCanvasElement;
-  const longTitle =
-    "Bonjour Monde Recette Partage Vignette Extra Longue Pour Deux Lignes";
-
-  const file = await buildRecipeShareCardFile(
-    baseRecipe({ title: longTitle }),
-    { imageBlob: null },
-    {
-      createCanvas: () => ({
-        canvas: fakeCanvas,
-        ctx: {
-          fillStyle: "",
-          font: "",
-          textBaseline: "top",
-          globalAlpha: 1,
-          shadowColor: "",
-          shadowBlur: 0,
-          shadowOffsetY: 0,
-          fillRect() {},
-          beginPath() {},
-          rect() {},
-          clip() {},
-          arc() {},
-          fill() {},
-          fillText(text: string) {
-            texts.push(text);
-          },
-          measureText(text: string) {
-            return { width: text.length * 80 };
-          },
-          drawImage() {},
-          save() {},
-          restore() {},
-          moveTo() {},
-          arcTo() {},
-          closePath() {}
-        } as unknown as CanvasRenderingContext2D
-      }),
-      loadImage: async () => ({}) as CanvasImageSource,
-      toBlob: async () => new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" })
-    }
-  );
-
-  assert.ok(file);
-  assert.ok(texts.includes("…"), `attendu marqueur … dans ${JSON.stringify(texts)}`);
 });

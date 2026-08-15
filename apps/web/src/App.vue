@@ -1659,7 +1659,7 @@ async function backToList(): Promise<void> {
   formRecipeId.value = null;
 }
 
-/** Partage OS natif : texte F2 ± vignette PNG via Web Share (fallback presse-papiers). */
+/** Partage OS natif : texte F2 ± image illustrative PNG via Web Share (fallback presse-papiers). */
 async function shareSelectedRecipeNative(): Promise<void> {
   const recipe = selectedRecipe.value;
   if (!recipe || nativeShareBusy.value) {

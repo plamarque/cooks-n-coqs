@@ -25,13 +25,13 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 11. Sauvegarde explicite du formulaire recette (`Enregistrer` / `Annuler`).
 12. Import direct : création immédiate de la recette, édition possible à tout moment.
 13. Export et import du cahier : fichier **.zip** téléchargeable (tout le cahier ou la liste filtrée affichée), import **.zip** depuis l’écran « Nouvelle recette », avec **dédoublonnage best-effort** par clé source stable (voir Export / import du cahier) ; pas de fusion automatique de contenu entre fiches distinctes.
-14. Partage d’une recette via le **partage système natif** (Web Share) : texte contractuel **F2** (± vignette image générée localement) ; destinataire sans app peut lire/cuisiner sans installer ; import côté utilisateur C&C via collage / `share_target` (voir Partage natif).
+14. Partage d’une recette via le **partage système natif** (Web Share) : texte contractuel **F2** (± image illustrative générée localement) ; destinataire sans app peut lire/cuisiner sans installer ; import côté utilisateur C&C via collage / `share_target` (voir Partage natif).
 
 ### Hors périmètre v1
 
 1. Landing / dépôt serveur de **contenu** recette (cache OG, URL de fiche hébergée) comme véhicule de partage.
 2. Partage / réception par **QR proximité** (deep link `/r`, Mode A/B, dépôt BFF) — retiré du produit.
-3. Fichier joint hors vignette image Web Share (zip/json/PDF) comme véhicule de partage V1.
+3. Fichier joint hors image illustrative Web Share (zip/json/PDF) comme véhicule de partage V1.
 4. Transformation vidéo -> recette structurée.
 5. Liste de courses intégrée.
 6. Synchronisation cloud multi-appareils.
@@ -63,13 +63,13 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 ### Partage natif (OS)
 
 1. Depuis le détail d’une recette, **une seule** action Partager ouvre le partage système natif (Web Share). Pas de partage QR proximité en parallèle.
-2. Le payload **texte** suit le contrat **F2** : en-têtes en ligne seule `Titre:`, `Portions:`, `Ingrédients:`, `Étapes:`, `Source:` (corps multiligne sous chaque en-tête). `Portions:` et `Source:` sont omis si absents. Sans URL source, le texte porte la fiche **complète** pour cuisiner hors app. Avec URL http(s), la section `Source:` la mentionne (optimisation) sans remplacer le contenu des autres blocs.
+2. Le payload **texte** suit le contrat **F2** : première ligne = **titre nu** (sans préfixe `Titre:`) ; si les portions sont connues, une ligne `N portions` immédiatement sous le titre ; puis en-têtes en ligne seule `Ingrédients:`, `Étapes:`, `Source:` (corps multiligne sous chaque en-tête). La ligne portions et `Source:` sont omises si absentes. Sans URL source, le texte porte la fiche **complète** pour cuisiner hors app. Avec URL http(s), la section `Source:` la mentionne (optimisation) sans remplacer le contenu des autres blocs. À l’import, l’ancien wire (`Titre:` / `Portions:`) reste accepté.
 3. **CTA install** : une seule ligne en **tout dernier**, jamais au milieu du texte :  
    `Tu veux garder cette recette ? https://plamarque.github.io/cookies-et-coquilettes/`  
    Aucun lien vers une landing ou un dépôt de **contenu** recette.
-4. **Vignette image** (secondaire) : générée **localement** (~1080×1080) — photo principale de la recette (placeholder sage si absente), titre en grand, portions si connues, aperçu d’ingrédients en texte, logo `favicon.svg` en **overlay haut-droite** sur la photo. Pas de faux chrome UI (retour, cœur, Cuisiner). Jointe au partage si l’OS accepte un fichier image ; sinon le partage **texte seul** doit réussir.
+4. **Image illustrative** (secondaire) : générée **localement** (~1080×1080) — photo principale du plat plein cadre (placeholder sage si absente), **CTA visuel** en bandeau bas (même intention que la ligne texte : garder / installer, sans URL), logo `favicon.svg` en **overlay haut-droite**. **Interdit** sur l’image : titre, portions, aperçu d’ingrédients, faux chrome UI (retour, cœur, Cuisiner). La fiche vit dans le texte. Jointe au partage si l’OS accepte un fichier image ; sinon le partage **texte seul** doit réussir. L’ordre des bulles OS (texte vs image) n’est pas contractuel.
 5. Critère de succès principal : un destinataire **sans** l’app (ex. messagerie) peut lire et cuisiner depuis le message, sans installer C&C.
-6. Un utilisateur qui a déjà C&C peut créer une fiche via **collage** (Nouvelle recette) ou **`share_target`** du même texte F2 ; le pipeline d’import texte/share existant s’applique (reconnaissance F2 ; ignorer la ligne CTA). Friction manuelle acceptée ; pas d’import « magique » via dépôt serveur.
+6. Un utilisateur qui a déjà C&C peut créer une fiche via **collage** (Nouvelle recette) ou **`share_target`** du même texte F2 ; le pipeline d’import texte/share existant s’applique (reconnaissance F2 nouveau + ancien ; ignorer la ligne CTA). Friction manuelle acceptée ; pas d’import « magique » via dépôt serveur.
 
 ### Organisation et recherche rapide
 
