@@ -21,7 +21,7 @@ Contraintes inchangées : local-first, peu/pas de conservation serveur de recett
 
 Choisir le **partage système natif (option 1)** comme unique action Partager.
 
-- Payload texte **F2** : titre nu en L1, ligne optionnelle `N portions`, en-têtes `Ingrédients:` / `Étapes:` / `Source:` ; CTA soft unique en dernière ligne vers l’origine PWA. Parse entrant : nouveau wire **et** ancien `Titre:` / `Portions:`.
+- Payload texte **F2** : titre nu en L1, ligne optionnelle `N portions` (**N = portions affichées** sur le détail après scaling appliqué, pas `servingsBase` si l’affichage diffère), quantités = liste détail ; en-têtes `Ingrédients:` / `Étapes:` / `Source:` ; CTA soft unique en dernière ligne vers l’origine PWA. Partager ne mute pas `servingsBase` / `quantityBase`. Parse entrant : nouveau wire **et** ancien `Titre:` / `Portions:` ; à l’import, N + quantités du texte deviennent la base de la fiche. Export/import zip cahier inchangé (fiche persistée, pas le scale d’affichage du partage).
 - Image illustrative ~1080×1080 générée localement : photo principale plein cadre, CTA visuel bas, logo `favicon.svg` overlay haut-droite — **pas** de fiche (titre / portions / ingrédients) sur l’image ; dégradation **texte seul** si fichiers non partageables.
 - Pas de landing ni dépôt serveur pour le **contenu** recette ; si lien = CTA install seulement.
 - Retrait produit du QR / `/r` / Mode B ; cleanup BFF `proximity-drop` en livraison suivante après retrait UI.
@@ -31,6 +31,7 @@ Choisir le **partage système natif (option 1)** comme unique action Partager.
 
 1. `docs/SPEC.md` décrit « Partage natif (OS) » à la place de « Partage proximité (QR) ».
 2. `docs/ARCH.md` cible les seams `recipe-share-f2` / `recipe-share-card` / `recipe-native-share` ; seams proximité obsolètes.
-3. `docs/DOMAIN.md` note l’échange texte F2 sans nouvelle entité persistée.
+3. `docs/DOMAIN.md` note l’échange texte F2 sans nouvelle entité persistée ; émission depuis l’affichage, import = base reçue.
 4. Compat Web Share + fichiers variable selon OS — le texte F2 reste le véhicule obligatoire.
 5. Feature SPEC de référence : `_bmad-output/specs/spec-partage-recette-distant/`.
+6. **CAP-7** : le F2 émis reflète l’écran détail (portions + quantités visibles) ; zip cahier et image sans portions restent hors de ce recalibrage.

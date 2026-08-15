@@ -44,30 +44,43 @@ export function formatShareServingsLine(servings?: number | null): string | null
   return `${String(servings).replace(".", ",")} portions`;
 }
 
-/** Ligne d’ingrédient lisible hors app (quantité + unité + libellé, ou rawText). */
+/** Portions visibles sur le détail (après scaling appliqué) ; sinon base. */
+export function displayedServingsForShare(recipe: Recipe): number | undefined {
+  const current = recipe.servingsCurrent;
+  if (current !== undefined && current !== null && Number.isFinite(current) && current > 0) {
+    return current;
+  }
+  const base = recipe.servingsBase;
+  if (base !== undefined && base !== null && Number.isFinite(base) && base > 0) {
+    return base;
+  }
+  return undefined;
+}
+
+/** Ligne d’ingrédient lisible hors app : quantité affichée + unité + libellé ; sinon rawText. */
 export function formatIngredientLineForShare(ingredient: IngredientLine): string {
+  const label = ingredient.label?.trim() ?? "";
+  const qty = ingredient.quantity;
+  const unit = ingredient.unit?.trim() ?? "";
+  const hasDisplayedQty = qty !== undefined && qty !== null && !Number.isNaN(Number(qty));
+
+  if (hasDisplayedQty) {
+    const parts: string[] = [String(qty)];
+    if (unit) {
+      parts.push(unit);
+    }
+    if (label) {
+      parts.push(label);
+    }
+    return parts.join(" ").trim() || label;
+  }
+
   const raw = ingredient.rawText?.trim();
   if (raw) {
     return raw;
   }
 
-  const label = ingredient.label?.trim() ?? "";
-  const qty =
-    ingredient.quantity ??
-    (ingredient.quantityBase !== undefined ? ingredient.quantityBase : undefined);
-  const unit = ingredient.unit?.trim() ?? "";
-
-  const parts: string[] = [];
-  if (qty !== undefined && qty !== null && !Number.isNaN(Number(qty))) {
-    parts.push(String(qty));
-  }
-  if (unit) {
-    parts.push(unit);
-  }
-  if (label) {
-    parts.push(label);
-  }
-  return parts.join(" ").trim() || label;
+  return label;
 }
 
 function sortedIngredients(recipe: Recipe): IngredientLine[] {
@@ -94,12 +107,14 @@ function block(header: "Ingrédients" | "Étapes" | "Source", bodyLines: string[
 
 /**
  * Sérialise une recette au wire F2 (partage natif).
- * L1 = titre nu ; ligne optionnelle `N portions` ; omet Source si absente ; CTA toujours en dernière ligne.
+ * L1 = titre nu ; ligne optionnelle `N portions` (= affichage détail) ;
+ * quantités = celles affichées ; omet Source si absente ; CTA toujours en dernière ligne.
+ * Ne mute pas `servingsBase` / `quantityBase`.
  */
 export function buildRecipeShareF2Text(recipe: Recipe): string {
   const title = recipe.title?.trim() || "Sans titre";
   const head: string[] = [title];
-  const servingsLine = formatShareServingsLine(recipe.servingsBase);
+  const servingsLine = formatShareServingsLine(displayedServingsForShare(recipe));
   if (servingsLine) {
     head.push(servingsLine);
   }

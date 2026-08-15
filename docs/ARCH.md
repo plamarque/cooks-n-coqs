@@ -83,7 +83,7 @@ Règles de contrat :
 ### Partage natif (OS) — texte F2 ± image illustrative
 
 - SoR recettes = IndexedDB ; **pas** de dépôt / landing serveur pour le contenu partagé.
-- `recipe-share-f2` — sérialise titre nu, ligne `N portions` (si connues), ingrédients, étapes, source URL (si http(s)), puis CTA soft en dernière ligne ; parse dual nouveau + ancien `Titre:` / `Portions:` (contrat `docs/SPEC.md` / feature SPEC `payload-f2.md`).
+- `recipe-share-f2` — sérialise depuis les **portions/quantités affichées** du détail (après scaling appliqué) : titre nu, ligne `N portions` (si affichées), ingrédients, étapes, source URL (si http(s)), puis CTA soft en dernière ligne ; ne mute pas `servingsBase` / `quantityBase` ; parse dual nouveau + ancien `Titre:` / `Portions:` (contrat `docs/SPEC.md` / feature SPEC `payload-f2.md`).
 - `recipe-share-card` — canvas local ~1080×1080 : photo principale plein cadre (`RecipeImage` / placeholder), CTA visuel bandeau bas, logo `public/favicon.svg` overlay haut-droite ; **pas** de fiche (titre / portions / ingrédients) sur l’image.
 - `recipe-native-share` — `navigator.share` avec `{ text }` et, si `canShare({ files })`, fichier image ; échec fichiers → partage texte seul obligatoire ; pas de contrôle de l’ordre des bulles OS.
 - Import entrant du même texte : `importFromText` / `share_target` ; reconnaître wire F2 (nouveau + ancien) ; ignorer la ligne CTA.
