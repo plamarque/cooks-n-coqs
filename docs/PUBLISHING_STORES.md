@@ -12,8 +12,8 @@ Références : `docs/ARCH.md`, `docs/DEPLOYMENT.md`
 
 | Champ formulaire | URL à coller |
 |------------------|--------------|
-| **Politique de confidentialité** (Play Store, App Store Connect) | `https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html` |
-| **URL de la PWA** (PWABuilder) | `https://plamarque.github.io/cookies-et-coquilettes/` |
+| **Politique de confidentialité** (Play Store, App Store Connect) | `https://plamarque.github.io/cooks-n-coqs/politique-confidentialite.html` |
+| **URL de la PWA** (PWABuilder) | `https://plamarque.github.io/cooks-n-coqs/` |
 
 ---
 
@@ -40,13 +40,13 @@ Références : `docs/ARCH.md`, `docs/DEPLOYMENT.md`
 La PWA doit être accessible en HTTPS avant le packaging.
 
 1. Suivre `docs/DEPLOYMENT.md` pour déployer sur GitHub Pages ou un domaine custom.
-2. Vérifier que l'URL de production charge correctement l'app (ex. `https://plamarque.github.io/cookies-et-coquilettes/`).
+2. Vérifier que l'URL de production charge correctement l'app (ex. `https://plamarque.github.io/cooks-n-coqs/`).
 
 ## Étape A3. Préparer les assets marketing (hors dépôt)
 
 À préparer avant de remplir les fiches store :
 
-- **Politique de confidentialité** : disponible à `https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html` (fichier `apps/web/public/politique-confidentialite.html`, déployé avec la PWA).
+- **Politique de confidentialité** : disponible à `https://plamarque.github.io/cooks-n-coqs/politique-confidentialite.html` (fichier `apps/web/public/politique-confidentialite.html`, déployé avec la PWA).
 - **Description courte** (80 caractères max pour Play Store).
 - **Description longue** (4000 caractères max).
 - **Feature graphic** (Play Store) : 1024×500 px.
@@ -55,7 +55,7 @@ La PWA doit être accessible en HTTPS avant le packaging.
 ## Étape A4. Packaging via PWABuilder
 
 1. Aller sur [https://pwabuilder.com](https://pwabuilder.com).
-2. Saisir l'URL de production de la PWA (ex. `https://plamarque.github.io/cookies-et-coquilettes/`).
+2. Saisir l'URL de production de la PWA (ex. `https://plamarque.github.io/cooks-n-coqs/`).
 3. Vérifier que le manifest et les icônes passent (sinon, corriger dans le dépôt — voir Partie B).
 4. Cliquer sur **Package for stores**.
 5. Télécharger :
@@ -68,7 +68,7 @@ La PWA doit être accessible en HTTPS avant le packaging.
 2. Remplir la fiche store :
    - Description courte / longue
    - Catégorie (ex. Style de vie)
-   - **Politique de confidentialité** : `https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html`
+   - **Politique de confidentialité** : `https://plamarque.github.io/cooks-n-coqs/politique-confidentialite.html`
    - Captures smartphone + tablette (depuis `apps/web/public/screenshots/`)
    - Feature graphic
 3. Créer une piste **Internal testing**.
@@ -80,7 +80,7 @@ La PWA doit être accessible en HTTPS avant le packaging.
 ## Étape A6. Apple App Store — App Store Connect et publication
 
 1. Créer l'app dans [App Store Connect](https://appstoreconnect.apple.com).
-2. Remplir les métadonnées (dont **Politique de confidentialité** : `https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html`).
+2. Remplir les métadonnées (dont **Politique de confidentialité** : `https://plamarque.github.io/cooks-n-coqs/politique-confidentialite.html`).
 3. Uploader les screenshots iPhone/iPad (depuis `apps/web/public/screenshots/ios/`).
 4. Sur Mac : ouvrir le projet Xcode généré par PWABuilder.
 5. Configurer le bundle ID, le compte Apple Developer, les capabilities.
@@ -139,7 +139,7 @@ Structure (à adapter avec ton package name et ton SHA-256) :
 - `package_name` : celui défini dans PWABuilder / Play Console.
 - `sha256_cert_fingerprints` : depuis Play Console → App Integrity → App signing.
 
-**Important** : ce fichier doit être servi à `https://plamarque.github.io/cookies-et-coquilettes/.well-known/assetlinks.json`. Placer le fichier dans `public/.well-known/` ; il sera copié à la racine du site déployé.
+**Important** : ce fichier doit être servi à `https://plamarque.github.io/cooks-n-coqs/.well-known/assetlinks.json`. Placer le fichier dans `public/.well-known/` ; il sera copié à la racine du site déployé.
 
 ## Étape B3. Générer les screenshots
 
@@ -158,7 +158,7 @@ Les utiliser pour les fiches Play Store et App Store Connect.
 Pour le build de production (GitHub Pages, etc.) :
 
 - **Secret GitHub** : `VITE_BFF_URL` = URL publique du BFF (ex. `https://cookies-et-coquilettes-bff.onrender.com`).
-- **Vérifier** : `VITE_BASE_PATH` correspond à l’URL de déploiement (ex. `/cookies-et-coquilettes/` pour un GitHub Pages project site).
+- **Vérifier** : `VITE_BASE_PATH` correspond à l’URL de déploiement (ex. `/cooks-n-coqs/` pour un GitHub Pages project site).
 
 Voir `docs/DEPLOYMENT.md` pour les détails.
 
@@ -168,7 +168,7 @@ Voir `docs/DEPLOYMENT.md` pour les détails.
 
 **URL politique de confidentialité** (pour formulaires Play Store / App Store Connect) :
 ```
-https://plamarque.github.io/cookies-et-coquilettes/politique-confidentialite.html
+https://plamarque.github.io/cooks-n-coqs/politique-confidentialite.html
 ```
 
 | Fichier | Action |
