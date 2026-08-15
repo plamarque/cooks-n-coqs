@@ -32,7 +32,8 @@ import {
   postSaveNavigationOnSuccess,
   recipeSaveSuccessLabel,
   resolveDetailRecipe,
-  selectionAfterFilteredRefresh
+  selectionAfterFilteredRefresh,
+  servingsInputFromRecipe
 } from "./utils/recipe-detail-selection";
 import { shareRecipeTextNative } from "./services/recipe-native-share";
 import {
@@ -1619,6 +1620,7 @@ async function createRecipeFromDraft(
     feedbackType.value = "warning";
     feedback.value = fallbackImportMessage(draft.source);
   } else {
+    servingsInput.value = servingsInputFromRecipe(recipe);
     viewMode.value = "DETAIL";
     feedback.value = "Recette importée.";
     startAsyncImageForRecipe(recipe.id, draft);
@@ -1675,11 +1677,7 @@ function openDetail(recipe: Recipe): void {
   selectedRecipeId.value = recipe.id;
   cookingStepIndex.value = 0;
   showCookingIngredients.value = false;
-  servingsInput.value = recipe.servingsCurrent
-    ? String(recipe.servingsCurrent)
-    : recipe.servingsBase
-      ? String(recipe.servingsBase)
-      : "";
+  servingsInput.value = servingsInputFromRecipe(recipe);
   viewMode.value = "DETAIL";
 
   if (
@@ -2093,6 +2091,8 @@ async function saveForm(): Promise<void> {
   selectedRecipeId.value = savedId;
   const nav = postSaveNavigationOnSuccess();
   if (nav.goToDetail) {
+    // Toujours aligner le champ CAP-1 ({} → vide si savedRecipe manquait, purge un stale).
+    servingsInput.value = servingsInputFromRecipe(savedRecipe ?? {});
     viewMode.value = "DETAIL";
   }
   if (nav.showSuccessBadge) {

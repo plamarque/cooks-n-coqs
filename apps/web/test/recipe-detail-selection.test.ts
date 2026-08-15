@@ -10,7 +10,9 @@ import {
   postSaveNavigationOnSuccess,
   recipeSaveSuccessLabel,
   resolveDetailRecipe,
-  selectionAfterFilteredRefresh
+  resolveDisplayedServings,
+  selectionAfterFilteredRefresh,
+  servingsInputFromRecipe
 } from "../src/utils/recipe-detail-selection";
 
 function recipe(partial: Partial<Recipe> & Pick<Recipe, "id" | "title">): Recipe {
@@ -130,4 +132,69 @@ test("selectionAfterFilteredRefresh does not preserve mismatched allowOutsideFil
     clearToList: true,
     clearOverride: true
   });
+});
+
+// Matrice CAP-1 : current exploitable
+test("CAP-1 : servingsCurrent exploitable → champ = current", () => {
+  const src = { servingsCurrent: 4, servingsBase: 6 };
+  assert.equal(resolveDisplayedServings(src), 4);
+  assert.equal(servingsInputFromRecipe(src), "4");
+});
+
+// Matrice CAP-1 : current absent, base OK
+test("CAP-1 : current absent, base OK → champ = base", () => {
+  const src = { servingsBase: 6 };
+  assert.equal(resolveDisplayedServings(src), 6);
+  assert.equal(servingsInputFromRecipe(src), "6");
+});
+
+// Matrice CAP-1 : current invalide (≤0 / non fini) → fallback base
+test("CAP-1 : current invalide, base OK → champ = base", () => {
+  assert.equal(resolveDisplayedServings({ servingsCurrent: 0, servingsBase: 6 }), 6);
+  assert.equal(resolveDisplayedServings({ servingsCurrent: -1, servingsBase: 6 }), 6);
+  assert.equal(resolveDisplayedServings({ servingsCurrent: NaN, servingsBase: 6 }), 6);
+  assert.equal(resolveDisplayedServings({ servingsCurrent: Infinity, servingsBase: 6 }), 6);
+  assert.equal(servingsInputFromRecipe({ servingsCurrent: 0, servingsBase: 6 }), "6");
+});
+
+// Matrice CAP-1 : aucune portion valide
+test("CAP-1 : aucune portion valide → champ vide", () => {
+  assert.equal(resolveDisplayedServings({}), undefined);
+  assert.equal(resolveDisplayedServings({ servingsCurrent: 0, servingsBase: 0 }), undefined);
+  assert.equal(resolveDisplayedServings({ servingsCurrent: NaN, servingsBase: -2 }), undefined);
+  assert.equal(servingsInputFromRecipe({}), "");
+  assert.equal(servingsInputFromRecipe({ servingsCurrent: undefined, servingsBase: null }), "");
+});
+
+// Matrice : toutes les entrées DETAIL peuplent via CAP-1 ; peupler ≠ scaler
+test("App.vue : entrées DETAIL peuplent servingsInput via CAP-1 sans scaleRecipe", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  assert.match(app, /servingsInputFromRecipe/);
+  // openDetail, saveForm (goToDetail), createRecipeFromDraft (branche DETAIL)
+  const openDetail = app.match(/function openDetail\([\s\S]*?\n\}/);
+  assert.ok(openDetail);
+  assert.match(openDetail[0], /servingsInput\.value = servingsInputFromRecipe\(recipe\)/);
+  assert.doesNotMatch(openDetail[0], /scaleRecipe/);
+
+  const saveForm = app.match(/async function saveForm\(\)[\s\S]*?\n\}/);
+  assert.ok(saveForm);
+  assert.match(
+    saveForm[0],
+    /servingsInput\.value = servingsInputFromRecipe\(savedRecipe \?\? \{\}\)/
+  );
+  assert.doesNotMatch(saveForm[0], /scaleRecipe/);
+
+  const createFromDraft = app.match(/async function createRecipeFromDraft\([\s\S]*?\n\}/);
+  assert.ok(createFromDraft);
+  const fallbackFormBranch = createFromDraft[0].match(
+    /if \(isMinimalFallbackDraft\(draft\)\) \{[\s\S]*?\n  \} else \{/
+  );
+  assert.ok(fallbackFormBranch, "branche fallback FORM attendue");
+  assert.doesNotMatch(fallbackFormBranch[0], /servingsInputFromRecipe/);
+  const detailBranch = createFromDraft[0].match(
+    /\} else \{\n    servingsInput\.value = servingsInputFromRecipe\(recipe\);\n    viewMode\.value = "DETAIL";/
+  );
+  assert.ok(detailBranch, "peuplement CAP-1 uniquement sur branche DETAIL");
+  assert.doesNotMatch(createFromDraft[0], /scaleRecipe/);
 });
