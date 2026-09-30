@@ -52,8 +52,9 @@ test("maquette accueil assistant — parcours voix, cahier et recette sur mesure
     assert.equal(await page.locator("#custom-result").isVisible(), false);
 
     await page.locator("#recipe-preview").click();
-    assert.match(await page.locator("#toast").innerText(), /ouverture de la recette/);
-    await page.getByRole("button", { name: "Abandonner" }).click();
+    assert.equal(await page.locator("#recipe-screen").isVisible(), true);
+    await page.locator("#recipe-preview").click();
+    await page.locator("#close-recipe").click();
     assert.equal(await page.locator("#notebook-result").isVisible(), false);
   });
 });
@@ -83,7 +84,8 @@ test("maquette accueil assistant — le compositeur route import, recherche et c
     await page.locator("#notebook-result.is-visible").waitFor();
     assert.match(await page.locator("#result-status").innerText(), /Lien reconnu/);
 
-    await page.getByRole("button", { name: "Abandonner" }).click();
+    await page.locator("#recipe-preview").click();
+    await page.locator("#close-recipe").click();
     await page.locator("#image-input").setInputFiles({ name: "frigo.png", mimeType: "image/png", buffer: Buffer.from("mock") });
     assert.equal(await page.locator("#attachment").isVisible(), true);
     await page.locator("#send").click();
@@ -91,7 +93,8 @@ test("maquette accueil assistant — le compositeur route import, recherche et c
     await page.locator("#notebook-result.is-visible").waitFor();
     assert.match(await page.locator("#result-status").innerText(), /Image reconnue/);
 
-    await page.getByRole("button", { name: "Abandonner" }).click();
+    await page.locator("#recipe-preview").click();
+    await page.locator("#close-recipe").click();
     await page.locator("#remove-attachment").click();
     await page.locator("#brief").fill("Invente-moi un dîner végétarien vraiment rapide");
     await page.locator("#send").click();
@@ -107,7 +110,7 @@ test("maquette accueil assistant — brief requis et idées réutilisables", asy
     assert.match(await page.locator("#brief").inputValue(), /reste dans le frigo/);
     await page.locator("#send").click();
     await page.locator("#notebook-result.is-visible").waitFor();
-    await page.getByRole("button", { name: "Abandonner" }).click();
+    await page.locator("#close-recipe").click();
     assert.equal(await page.locator("#notebook-result").isVisible(), false);
   });
 });
