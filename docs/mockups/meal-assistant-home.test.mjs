@@ -27,16 +27,23 @@ test("maquette accueil assistant — parcours voix, cahier et recette sur mesure
     await page.locator("#micro").click();
     assert.equal(await page.locator("#recording").isVisible(), true);
     assert.equal(await page.locator("#micro").getAttribute("aria-pressed"), "true");
+    assert.equal(await page.locator("#stop").isVisible(), true);
+    assert.equal(await page.locator("#cancel").isVisible(), true);
 
     await page.locator("#cancel").click();
     assert.equal(await page.locator("#recording").isVisible(), false);
     assert.equal(await page.locator("#brief").inputValue(), "");
 
-    await page.locator("#brief").fill("J’ai déjà des courgettes.");
+    await page.locator("#brief").fill("J’ai déjà des courgettes. Ensuite je verrai.");
+    await page.locator("#brief").evaluate((field) => {
+      const index = field.value.indexOf(" Ensuite");
+      field.setSelectionRange(index, index);
+    });
     await page.locator("#micro").click();
     await page.locator("#stop").click();
     assert.equal(await page.locator("#recording").isVisible(), false);
-    assert.match(await page.locator("#brief").inputValue(), /courgettes.*champignons/);
+    assert.match(await page.locator("#brief").inputValue(), /courgettes\. J’ai des champignons.*Ensuite je verrai/);
+    assert.equal(await page.locator("#composer").getAttribute("class"), "composer");
 
     await page.locator("#send").click();
     await page.locator("#notebook-result.is-visible").waitFor();
