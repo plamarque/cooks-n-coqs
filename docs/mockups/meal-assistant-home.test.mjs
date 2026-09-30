@@ -58,12 +58,12 @@ test("maquette accueil assistant — parcours voix, cahier et recette sur mesure
   });
 });
 
-test("maquette accueil assistant — idées avant compositeur et envoi sans défilement imposé", async () => {
+test("maquette accueil assistant — starters sous le compositeur et envoi sans défilement imposé", async () => {
   await withPage(async (page) => {
     assert.equal(await page.evaluate(() => {
-      const track = document.querySelector("#track");
+      const suggestions = document.querySelector(".suggestions");
       const composer = document.querySelector("#composer");
-      return Boolean(track && composer && track.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return Boolean(suggestions && composer && composer.compareDocumentPosition(suggestions) & Node.DOCUMENT_POSITION_FOLLOWING);
     }), true);
     await page.locator("#brief").fill("Un dîner rapide avec ce qu’il reste.");
     await page.locator("#send").scrollIntoViewIfNeeded();
@@ -75,10 +75,32 @@ test("maquette accueil assistant — idées avant compositeur et envoi sans déf
   });
 });
 
+test("maquette accueil assistant — le compositeur route import, recherche et création", async () => {
+  await withPage(async (page) => {
+    await page.locator("#brief").fill("https://example.test/ma-recette");
+    await page.locator("#send").click();
+    assert.match(await page.locator("#thinking-message").innerText(), /reconnais ce lien/);
+    await page.locator("#notebook-result.is-visible").waitFor();
+    assert.match(await page.locator("#result-status").innerText(), /Lien reconnu/);
+
+    await page.locator("#image-input").setInputFiles({ name: "frigo.png", mimeType: "image/png", buffer: Buffer.from("mock") });
+    assert.equal(await page.locator("#attachment").isVisible(), true);
+    await page.locator("#send").click();
+    assert.match(await page.locator("#thinking-message").innerText(), /lis votre image/);
+    await page.locator("#notebook-result.is-visible").waitFor();
+    assert.match(await page.locator("#result-status").innerText(), /Image reconnue/);
+
+    await page.locator("#remove-attachment").click();
+    await page.locator("#brief").fill("Invente-moi un dîner végétarien vraiment rapide");
+    await page.locator("#send").click();
+    await page.locator("#custom-result.is-visible").waitFor();
+  });
+});
+
 test("maquette accueil assistant — brief requis et idées réutilisables", async () => {
   await withPage(async (page) => {
     await page.locator("#send").click();
-    assert.match(await page.locator("#brief-error").innerText(), /Décrivez une envie/);
+    assert.match(await page.locator("#brief-error").innerText(), /Collez un lien/);
     await page.getByRole("button", { name: "Un repas frais du frigo" }).click();
     assert.match(await page.locator("#brief").inputValue(), /reste dans le frigo/);
     await page.locator("#send").click();
@@ -92,6 +114,7 @@ test("maquette accueil assistant — alternative sans JavaScript documentée", a
   const html = await import("node:fs/promises").then(({ readFile }) => readFile(mockupPath, "utf8"));
   assert.match(html, /<noscript>/);
   assert.match(html, /alternative texte au micro/);
+  assert.match(html, /lien, une recette, une image/);
   assert.doesNotMatch(html, /<img/);
 });
 
