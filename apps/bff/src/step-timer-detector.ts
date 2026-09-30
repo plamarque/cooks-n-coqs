@@ -133,7 +133,6 @@ ${stepText.slice(0, 2000)}`;
     const client = new OpenAI({ apiKey });
     const completion = await client.chat.completions.create({
       model: getChatModel("step_timer"),
-      temperature: 0,
       messages: [{ role: "user", content: prompt }]
     });
     const rawContent = completion.choices[0]?.message?.content?.trim();

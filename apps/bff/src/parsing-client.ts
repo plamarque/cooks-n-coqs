@@ -359,7 +359,6 @@ ${snippet}`;
     const client = new OpenAI({ apiKey });
     const completion = await client.chat.completions.create({
       model: getChatModel("extract"),
-      temperature: 0,
       messages: [{ role: "user", content: prompt }]
     });
     const rawContent = completion.choices[0]?.message?.content?.trim();
@@ -757,7 +756,6 @@ ${snippet}`;
     const client = new OpenAI({ apiKey });
     const completion = await client.chat.completions.create({
       model: getChatModel("extract"),
-      temperature: 0,
       messages: [{ role: "user", content: prompt }]
     });
     const rawContent = completion.choices[0]?.message?.content?.trim();
@@ -1727,8 +1725,7 @@ ${text.slice(0, 12000)}`;
   try {
     const completion = await client.chat.completions.create({
       model: getChatModel("parse"),
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.2
+      messages: [{ role: "user", content: prompt }]
     });
     const raw = completion.choices[0]?.message?.content?.trim();
     if (!raw) return fallbackDraft(fallbackTitle, sourceType, url, { imageUrl });
@@ -1794,8 +1791,7 @@ Règles :
             }
           ]
         }
-      ],
-      temperature: 0.1
+      ]
     });
 
     const raw = completion.choices[0]?.message?.content?.trim();
@@ -1995,7 +1991,6 @@ ${JSON.stringify(input.ingredients)}`;
     const client = new OpenAI({ apiKey });
     const completion = await client.chat.completions.create({
       model: getChatModel("extract"),
-      temperature: 0,
       messages: [{ role: "user", content: prompt }]
     });
     const rawContent = completion.choices[0]?.message?.content?.trim();
@@ -2181,8 +2176,7 @@ ${stepTexts}`;
   const client = new OpenAI({ apiKey });
   const completion = await client.chat.completions.create({
     model: getChatModel("reorder"),
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0.1
+    messages: [{ role: "user", content: prompt }]
   });
   const raw = completion.choices[0]?.message?.content?.trim();
   if (!raw) return steps;

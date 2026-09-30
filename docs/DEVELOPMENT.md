@@ -91,6 +91,8 @@ Les modèles utilisés (images et chat) sont configurables via variables d'envir
 
 Chaîne de résolution chat : override use-case → `AI_CHAT_MODEL` (si posé) → défaut code du use-case (ex. `parse` → terra, pas luna).
 
+Les sept appels `chat.completions.create` omettent volontairement `temperature`, y compris lorsqu’un override résout un modèle historique. Ne pas la réintroduire par variable d’environnement : l’absence du champ est le contrat de compatibilité pour tout modèle Chat résolu.
+
 Référence tarifs : [OpenAI Pricing](https://developers.openai.com/api/docs/pricing).
 
 ## Prérequis E2E / screenshots
