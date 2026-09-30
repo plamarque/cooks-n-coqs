@@ -56,6 +56,22 @@ test("maquette accueil assistant — parcours voix, cahier et recette sur mesure
   });
 });
 
+test("maquette accueil assistant — idées avant compositeur et envoi sans défilement imposé", async () => {
+  await withPage(async (page) => {
+    assert.equal(await page.evaluate(() => {
+      const track = document.querySelector("#track");
+      const composer = document.querySelector("#composer");
+      return Boolean(track && composer && track.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING);
+    }), true);
+    await page.locator("#brief").fill("Un dîner rapide avec ce qu’il reste.");
+    await page.locator("#send").scrollIntoViewIfNeeded();
+    const before = await page.evaluate(() => window.scrollY);
+    await page.locator("#send").click();
+    await page.locator("#notebook-result.is-visible").waitFor();
+    assert.equal(await page.evaluate(() => window.scrollY), before);
+  });
+});
+
 test("maquette accueil assistant — brief requis et idées réutilisables", async () => {
   await withPage(async (page) => {
     await page.locator("#send").click();
