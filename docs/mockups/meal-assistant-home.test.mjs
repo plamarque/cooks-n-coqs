@@ -46,6 +46,8 @@ test("maquette accueil assistant — parcours voix, cahier et recette sur mesure
     assert.equal(await page.locator("#composer").getAttribute("class"), "composer");
 
     await page.locator("#send").click();
+    await page.locator("#thinking").waitFor();
+    assert.match(await page.locator("#thinking-message").innerText(), /Je regarde dans votre cahier/);
     await page.locator("#notebook-result.is-visible").waitFor();
     assert.equal(await page.locator("#custom-result").isVisible(), false);
 
@@ -67,6 +69,7 @@ test("maquette accueil assistant — idées avant compositeur et envoi sans déf
     await page.locator("#send").scrollIntoViewIfNeeded();
     const before = await page.evaluate(() => window.scrollY);
     await page.locator("#send").click();
+    assert.equal(await page.locator("#thinking").isVisible(), true);
     await page.locator("#notebook-result.is-visible").waitFor();
     assert.equal(await page.evaluate(() => window.scrollY), before);
   });
