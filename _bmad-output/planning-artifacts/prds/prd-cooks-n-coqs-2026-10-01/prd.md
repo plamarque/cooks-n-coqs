@@ -101,10 +101,10 @@ En cas d'ambiguïté entre une recette structurée et une demande libre, le prod
 
 ### FR-3 — Recherche dans le cahier et création si nécessaire
 
-- La recherche approximative considère le titre et les ingrédients, conformément au périmètre de recherche v1. Elle peut interpréter une envie, des ingrédients, une durée ou un ton de repas ; elle ne prétend pas à une correspondance exacte. Aucun algorithme de scoring ni seuil de pertinence n'est défini dans ce PRD.
+- La recherche approximative considère le titre, les ingrédients et la durée connue. Elle peut interpréter une envie, des ingrédients, une durée ou un ton de repas ; elle ne prétend pas à une correspondance exacte. À l'envoi explicite d'une demande d'au plus 1 200 caractères, elle transmet au BFF un snapshot limité du Cahier (trié favoris puis dernière modification, limité à 60 ; titre, libellés d'ingrédients, durée et références éphémères, sans étapes, images, notes, URL source ni identifiants durables), sans opt-in ni interstitiel par recherche. Une demande trop longue échoue sans appel distant. Jev classe les recettes et retient au plus trois candidates dont la pertinence est au moins 0,5 ; GPT-5.6 Luna avec effort `none` ne sert qu'en continuité si Jev est indisponible ou invalide, avec le même seuil. Le score n'est jamais affiché.
 - Une réponse issue du cahier identifie clairement la recette existante et donne une raison courte, orientée utilisateur (par exemple ingrédients communs ou repas rapide), sans score ni explication du raisonnement.
 - Si une recette est suffisamment proche, l'utilisateur peut l'ouvrir ou ajuster sa demande. La recette existante n'est pas dupliquée ni modifiée.
-- Si aucune proposition utile n'est disponible, l'assistant propose une recette sur mesure à prévisualiser. La création n'écrit rien dans le cahier avant l'action explicite de sauvegarde.
+- Si aucune proposition utile n'est disponible après ce classement et les contraintes littérales vérifiables localement, l'assistant propose une recette sur mesure à prévisualiser. Une indisponibilité des deux fournisseurs est une erreur, pas une absence de recette. La création n'écrit rien dans le cahier avant l'action explicite de sauvegarde.
 
 ### FR-4 — Progression et annulation
 
@@ -185,8 +185,6 @@ Les diagnostics techniques nécessaires peuvent indiquer le type de voie suivie 
 - Toute utilisation d'audio brut ou synchronisation des entrées assistant.
 
 ## Décisions ouvertes avant implémentation
-
-1. Définir, dans l'UX/architecture suivante, la règle de sélection et de présentation d'une recette du Cahier : champs, ordre, nombre de résultats et condition de passage à la proposition sur mesure. Aucun score ou seuil n'est décidé ici.
 
 ## Alignement avec les sources normatives
 
