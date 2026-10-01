@@ -12,6 +12,7 @@ async function saveRecipeForm(page) {
 }
 
 async function createRecipeViaManual(page, name = "Cookies test") {
+  await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
   await page.getByRole("button", { name: "Nouvelle recette" }).click();
   await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
   await page.getByRole("button", { name: "Saisir à la main" }).click();
@@ -27,6 +28,7 @@ async function createRecipeViaImport(page, recipeText = "Recette brute") {
   const filePath = path.join(tmpDir, "recipe.txt");
   writeFileSync(filePath, recipeText, "utf-8");
 
+  await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
   await page.getByRole("button", { name: "Nouvelle recette" }).click();
   await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
   // setInputFiles plus fiable que filechooser en headless (CI) — cibler l’input images/txt, pas l’archive .zip
@@ -48,35 +50,72 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "On mange quoi ?" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Ouvrir le Cahier" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Nouvelle recette" })).toBeVisible();
     await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await expect(page.getByRole("button", { name: "Favoris", exact: true })).toBeVisible();
     // Filtre favoris actif par défaut : les recettes seed (favorites) sont visibles
     await expect(page.getByText("Coquillettes au jambon de Juan Arbelaez")).toBeVisible();
     await expect(page.getByText("Cookies aux pépites de chocolat")).toBeVisible();
+    await expect(page.locator(".notebook-header").getByRole("button", { name: "Nouvelle recette" })).toBeVisible();
+    await expect(page.locator(".toolbar-actions").getByRole("button", { name: "Nouvelle recette" })).toHaveCount(0);
+    await expect(page.locator(".notebook-header .assistant-nav")).toBeVisible();
+    await expect(page.locator(".toolbar-actions .assistant-nav")).toHaveCount(0);
+    await page.locator(".notebook-header .assistant-nav").click();
+    await expect(page.getByLabel("Votre demande")).toBeFocused();
   });
 
-  test("les entrées v1 de l'accueil restent explicites", async ({ page }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: "Nouvelle recette" }).click();
-    await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
-    await page.getByRole("button", { name: "Annuler" }).click();
+  test("l'accueil Assistant reprend la structure compacte de la maquette à chaque largeur", async ({ page }) => {
+    for (const width of [375, 640, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto("/");
 
-    await page.goto("/");
-    const zipChooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Importer une archive .zip" }).click();
-    await expect(await zipChooser).toBeTruthy();
+      await expect(page.locator(".assistant-header")).toBeVisible();
+      await expect(page.locator(".assistant-composer")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Dicter" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Ajouter une image" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Préparer", exact: true })).toBeVisible();
+      await expect(page.locator(".assistant-starter-list")).toHaveCSS("display", "flex");
+      await expect(page.getByRole("button", { name: "Suggestion précédente" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Suggestion suivante" })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+  });
 
+  test("Compositeur : les trois icônes sont centrées", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
     await page.goto("/");
-    await page.getByRole("button", { name: "Éditer ou partager une recette" }).click();
+    const assistantLayout = await page.locator(".assistant-composer-section").evaluate((section) => {
+      const composer = section.querySelector(".assistant-composer");
+      const actions = Array.from(section.querySelectorAll(".assistant-icon-action"));
+      if (!composer || actions.length !== 3) return false;
+      return actions.every((action) => {
+        const icon = action.querySelector(".p-button-icon");
+        if (!icon) return false;
+        const actionRect = action.getBoundingClientRect();
+        const iconRect = icon.getBoundingClientRect();
+        return actionRect.width === 44 && actionRect.height === 44
+          && Math.abs((actionRect.left + actionRect.width / 2) - (iconRect.left + iconRect.width / 2)) <= 1
+          && Math.abs((actionRect.top + actionRect.height / 2) - (iconRect.top + iconRect.height / 2)) <= 1;
+      });
+    });
+    expect(assistantLayout).toBe(true);
+  });
+
+  test("l'accueil Assistant ne duplique pas les actions du Cahier", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Les actions du Cahier" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Nouvelle recette" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
+    await expect(page.locator(".notebook-header").getByRole("button", { name: "Nouvelle recette" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Favoris", exact: true })).toBeVisible();
   });
 
   test("Compositeur : starter, demande vide et raccourci restent locaux", async ({ page }) => {
     await page.goto("/");
     const field = page.getByLabel("Votre demande");
-    await page.getByRole("button", { name: /rapide ce soir/i }).click();
-    await expect(field).toHaveValue(/rapide ce soir/i);
+    const quickStarter = page.getByRole("button", { name: /rapide ce soir/i });
+    await expect(quickStarter).toHaveText("Rapide ce soir");
+    await quickStarter.click();
+    await expect(field).toHaveValue("J'ai envie de cuisiner quelque chose de rapide ce soir.");
     await field.fill("");
     await page.getByRole("button", { name: "Préparer", exact: true }).click();
     await expect(page.getByRole("status")).toContainText(/Écrivez une intention/i);
@@ -99,6 +138,29 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await page.getByRole("button", { name: "Assistant" }).click();
     await expect(field).toBeFocused();
+  });
+
+  test("Compositeur : un nom d’image long laisse le retrait accessible", async ({ page }) => {
+    await page.goto("/");
+    const longName = `${"recette-du-frigo-".repeat(20)}.png`;
+    await page.locator(".assistant-home input[type='file']").setInputFiles({
+      name: longName,
+      mimeType: "image/png",
+      buffer: Buffer.from("image")
+    });
+
+    const attachment = page.locator(".assistant-attachment");
+    const remove = page.getByRole("button", { name: "Retirer l’image" });
+    await expect(attachment).toContainText(longName);
+    expect(await attachment.evaluate((element) => {
+      const button = element.querySelector("button");
+      if (!button) return false;
+      const attachmentRect = element.getBoundingClientRect();
+      const buttonRect = button.getBoundingClientRect();
+      return buttonRect.width > 0 && buttonRect.left >= attachmentRect.left && buttonRect.right <= attachmentRect.right;
+    })).toBe(true);
+    await remove.click();
+    await expect(attachment).toHaveCount(0);
   });
 
   test("Compositeur : collage image, rejet fichier et préparation restent locaux", async ({ page }) => {
@@ -170,6 +232,26 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(cards.nth(1)).toBeFocused();
   });
 
+  test("Compositeur : les contrôles et le conteneur font défiler le carrousel dans la bonne direction", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 500 });
+    await page.goto("/");
+    const carousel = page.locator(".assistant-carousel");
+    await expect.poll(() => carousel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+
+    await carousel.evaluate((element) => { element.scrollLeft = 0; });
+    await page.getByRole("button", { name: "Suggestion suivante" }).click();
+    await expect.poll(() => carousel.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+    const afterNext = await carousel.evaluate((element) => element.scrollLeft);
+
+    await page.getByRole("button", { name: "Suggestion précédente" }).click();
+    await expect.poll(() => carousel.evaluate((element) => element.scrollLeft)).toBeLessThan(afterNext);
+
+    await carousel.focus();
+    const beforeKeyboard = await carousel.evaluate((element) => element.scrollLeft);
+    await carousel.press("ArrowRight");
+    await expect.poll(() => carousel.evaluate((element) => element.scrollLeft)).toBeGreaterThan(beforeKeyboard);
+  });
+
   test("supprimer depuis le carrousel retourne à l'Assistant et au Compositeur", async ({ page }) => {
     await page.goto("/");
     await page.locator(".assistant-carousel-card").first().click();
@@ -223,6 +305,7 @@ test.describe("Cookies & Coquillettes v1", () => {
 
   test("images ingrédient : icône visible sur détail et carte", async ({ page }) => {
     await page.goto("/");
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await page.getByRole("button", { name: "Nouvelle recette" }).click();
     await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
     await page.getByRole("button", { name: "Saisir à la main" }).click();
@@ -245,6 +328,7 @@ test.describe("Cookies & Coquillettes v1", () => {
 
   test("ordre des ingrédients conservé après sauvegarde", async ({ page }) => {
     await page.goto("/");
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await page.getByRole("button", { name: "Nouvelle recette" }).click();
     await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
     await page.getByRole("button", { name: "Saisir à la main" }).click();
@@ -302,6 +386,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     test.skip(!bffOk, "BFF non disponible - lancer npm run dev:bff dans un terminal séparé");
 
     await page.goto("/");
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await page.getByRole("button", { name: "Nouvelle recette" }).click();
     await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
 
@@ -359,6 +444,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     test.skip(!bffOk, "BFF non disponible - lancer npm run dev:bff dans un terminal séparé");
 
     await page.goto("/");
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await page.getByRole("button", { name: "Nouvelle recette" }).click();
     await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
 
@@ -409,6 +495,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     const imagePath = path.join(process.cwd(), "e2e", "fixtures", "test-image.png");
 
     const fileChooserPromise = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await page.getByRole("button", { name: "Nouvelle recette" }).click();
     await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
     await page.getByRole("button", { name: "Saisir à la main" }).click();

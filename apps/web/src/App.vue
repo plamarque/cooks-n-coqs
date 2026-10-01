@@ -177,7 +177,13 @@ const assistantAttachment = ref<AssistantAttachment | null>(null);
 const assistantAnnouncement = ref("");
 const assistantTextareaRef = ref<HTMLTextAreaElement | null>(null);
 const assistantFileInputRef = ref<HTMLInputElement | null>(null);
+const assistantCarouselRef = ref<HTMLElement | null>(null);
 const assistantListening = ref(false);
+const ASSISTANT_STARTER_LABELS: Record<(typeof ASSISTANT_STARTERS)[number], string> = {
+  "J'ai envie de cuisiner quelque chose de rapide ce soir.": "Rapide ce soir",
+  "Voici une recette à préparer :": "Préparer une recette",
+  "Que puis-je faire avec ce que j'ai dans le frigo ?": "Dans mon frigo"
+};
 let assistantSpeechSession: SpeechRecognitionSession | null = null;
 let detailReturnView: "ASSISTANT" | "LIST" = "LIST";
 
@@ -1136,12 +1142,17 @@ function toggleAssistantDictation(): void {
 function onAssistantCarouselKeydown(event: KeyboardEvent): void {
   if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
   event.preventDefault();
+  const direction: -1 | 1 = event.key === "ArrowRight" ? 1 : -1;
+  if (event.currentTarget === assistantCarouselRef.value) {
+    scrollAssistantCarousel(direction);
+    return;
+  }
   const current = event.currentTarget as HTMLElement;
   const items = Array.from(
     current.parentElement?.querySelectorAll<HTMLElement>(".assistant-carousel-card") ?? []
   );
   const index = items.indexOf(current);
-  const nextIndex = event.key === "ArrowRight" ? index + 1 : index - 1;
+  const nextIndex = index + direction;
   const next = items.at(nextIndex);
   if (next) {
     next.focus();
@@ -1149,19 +1160,20 @@ function onAssistantCarouselKeydown(event: KeyboardEvent): void {
   }
 }
 
+function scrollAssistantCarousel(direction: -1 | 1): void {
+  const carousel = assistantCarouselRef.value;
+  if (!carousel) return;
+  carousel.scrollBy({
+    left: direction * Math.min(carousel.clientWidth * 0.8, 280),
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+  });
+}
+
 function openAddChoice(): void {
   if (viewMode.value === "ASSISTANT") stopAssistantDictation(false);
   clearMessages();
   pasteFieldContent.value = "";
   viewMode.value = "ADD_CHOICE";
-}
-
-function openRecipeBookImportFromAssistant(): void {
-  if (viewMode.value === "ASSISTANT") stopAssistantDictation(false);
-  clearMessages();
-  pasteFieldContent.value = "";
-  viewMode.value = "ADD_CHOICE";
-  void nextTick(() => triggerRecipeBookFilePick());
 }
 
 function closeAddChoice(): void {
@@ -2672,7 +2684,7 @@ onUnmounted(() => {
 
     <section v-if="viewMode === 'ASSISTANT'" class="assistant-home" aria-labelledby="assistant-title">
       <header class="assistant-header">
-        <p class="assistant-eyebrow">Cookies &amp; Coquillettes</p>
+        <img class="brand-logo" src="/favicon.svg" alt="Cookies & Coquillettes" />
         <button
           type="button"
           class="assistant-notebook-link"
@@ -2686,94 +2698,93 @@ onUnmounted(() => {
 
       <div class="assistant-intro">
         <h1 id="assistant-title">On mange quoi&nbsp;?</h1>
-        <p>Décrivez une envie ou apportez une recette. Rien n’est envoyé ou sauvegardé depuis cet accueil.</p>
       </div>
 
-      <section class="assistant-composer" aria-label="Compositeur Assistant">
-        <label id="assistant-composer-title" for="assistant-composer-text">Votre demande</label>
-        <textarea
-          id="assistant-composer-text"
-          ref="assistantTextareaRef"
-          v-model="assistantText"
-          class="assistant-composer-text"
-          rows="5"
-          placeholder="Une envie, un lien ou une recette à préparer…"
-          aria-describedby="assistant-composer-help assistant-composer-status"
-          @keydown="onAssistantKeydown"
-          @paste="onAssistantPaste"
-        />
-        <p id="assistant-composer-help" class="assistant-composer-help">
-          Texte, lien, recette collée ou image locale. Cmd/Ctrl+Entrée prépare la demande.
-        </p>
-        <div v-if="assistantAttachment" class="assistant-attachment">
-          <i class="pi pi-image" aria-hidden="true" />
-          <span>{{ assistantAttachment.name }}</span>
-          <button type="button" class="assistant-attachment-remove" @click="clearAssistantAttachment">
-            Retirer l’image
-          </button>
-        </div>
-        <div class="assistant-composer-actions">
-          <Button
-            :label="assistantListening ? 'Arrêter la dictée' : 'Dicter'"
-            :icon="assistantListening ? 'pi pi-stop-circle' : 'pi pi-microphone'"
-            severity="secondary"
-            outlined
-            :aria-pressed="assistantListening"
-            @click="toggleAssistantDictation"
+      <section class="assistant-composer-section">
+        <div class="assistant-composer">
+          <label class="sr-only" for="assistant-composer-text">Votre demande</label>
+          <textarea
+            id="assistant-composer-text"
+            ref="assistantTextareaRef"
+            v-model="assistantText"
+            class="assistant-composer-text"
+            rows="4"
+            placeholder="Copiez un lien, une image, une recette ou demandez juste ce dont vous avez envie"
+            aria-describedby="assistant-composer-status"
+            @keydown="onAssistantKeydown"
+            @paste="onAssistantPaste"
           />
-          <Button
-            label="Ajouter une image"
-            icon="pi pi-paperclip"
-            severity="secondary"
-            outlined
-            @click="assistantFileInputRef?.click()"
+          <div v-if="assistantAttachment" class="assistant-attachment">
+            <i class="pi pi-image" aria-hidden="true" />
+            <span>{{ assistantAttachment.name }}</span>
+            <button type="button" class="assistant-attachment-remove" aria-label="Retirer l’image" @click="clearAssistantAttachment">
+              <i class="pi pi-times" aria-hidden="true" />
+            </button>
+          </div>
+          <div class="assistant-composer-actions" :class="{ 'is-listening': assistantListening }">
+            <Button
+              aria-label="Ajouter une image"
+              icon="pi pi-paperclip"
+              class="assistant-icon-action assistant-attach-action"
+              @click="assistantFileInputRef?.click()"
+            />
+            <Button
+              :aria-label="assistantListening ? 'Arrêter la dictée' : 'Dicter'"
+              :icon="assistantListening ? 'pi pi-stop-circle' : 'pi pi-microphone'"
+              class="assistant-icon-action assistant-dictation-action"
+              :aria-pressed="assistantListening"
+              @click="toggleAssistantDictation"
+            />
+            <Button aria-label="Préparer" icon="pi pi-arrow-up" class="assistant-icon-action assistant-submit" @click="prepareAssistantRequest" />
+          </div>
+          <input
+            ref="assistantFileInputRef"
+            type="file"
+            class="hidden-file-input"
+            accept="image/*"
+            tabindex="-1"
+            @change="onAssistantFileChange"
           />
-          <Button label="Préparer" icon="pi pi-arrow-up" class="assistant-submit" @click="prepareAssistantRequest" />
+          <p id="assistant-composer-status" class="assistant-live sr-only" role="status" aria-live="polite">
+            {{ assistantAnnouncement }}
+          </p>
         </div>
-        <input
-          ref="assistantFileInputRef"
-          type="file"
-          class="hidden-file-input"
-          accept="image/*"
-          tabindex="-1"
-          @change="onAssistantFileChange"
-        />
-        <p id="assistant-composer-status" class="assistant-live" role="status" aria-live="polite">
-          {{ assistantAnnouncement }}
-        </p>
       </section>
 
-      <section class="assistant-starters" aria-labelledby="assistant-starters-title">
-        <h2 id="assistant-starters-title">Pour commencer</h2>
+      <section class="assistant-starters" aria-label="Suggestions de demandes">
         <div class="assistant-starter-list">
           <button
             v-for="starter in ASSISTANT_STARTERS"
             :key="starter"
             type="button"
             class="assistant-starter"
+            :aria-label="starter"
             @click="useAssistantStarter(starter)"
           >
-            {{ starter }}
+            {{ ASSISTANT_STARTER_LABELS[starter] }}
           </button>
-        </div>
-      </section>
-
-      <section class="assistant-v1-actions" aria-labelledby="assistant-v1-title">
-        <h2 id="assistant-v1-title">Les actions du Cahier</h2>
-        <p>Création, import, édition et partage restent des parcours du Cahier v1.</p>
-        <div class="assistant-v1-buttons">
-          <Button label="Nouvelle recette" icon="pi pi-pencil" severity="secondary" @click="openAddChoice" />
-          <Button label="Importer une archive .zip" icon="pi pi-file-import" severity="secondary" @click="openRecipeBookImportFromAssistant" />
-          <Button label="Éditer ou partager une recette" icon="pi pi-book" severity="secondary" @click="openNotebookFromAssistant" />
         </div>
       </section>
 
       <section class="assistant-discovery" aria-labelledby="assistant-discovery-title">
         <div class="assistant-section-heading">
-          <h2 id="assistant-discovery-title">Dans votre Cahier</h2>
-          <button type="button" class="assistant-text-link" @click="openNotebookFromAssistant">Tout voir</button>
+          <h2 id="assistant-discovery-title">À découvrir dans votre Cahier</h2>
+          <div class="assistant-carousel-controls">
+            <button type="button" class="assistant-carousel-control" aria-label="Suggestion précédente" @click="scrollAssistantCarousel(-1)">
+              <i class="pi pi-angle-left" aria-hidden="true" />
+            </button>
+            <button type="button" class="assistant-carousel-control" aria-label="Suggestion suivante" @click="scrollAssistantCarousel(1)">
+              <i class="pi pi-angle-right" aria-hidden="true" />
+            </button>
+          </div>
         </div>
-        <div class="assistant-carousel" aria-label="Recettes du Cahier, utilisez les flèches gauche et droite">
+        <div
+          ref="assistantCarouselRef"
+          class="assistant-carousel"
+          tabindex="0"
+          aria-label="Recettes du Cahier, utilisez les flèches gauche et droite"
+          @keydown="onAssistantCarouselKeydown"
+        >
           <button
             v-for="recipe in recipes.slice(0, 8)"
             :key="recipe.id"
@@ -2794,10 +2805,30 @@ onUnmounted(() => {
           <p v-if="recipes.length === 0" class="assistant-empty-notebook">Votre Cahier est prêt à accueillir une recette.</p>
         </div>
       </section>
+
       <noscript>Le Compositeur fonctionne en JavaScript. Vous pouvez utiliser le Cahier pour créer ou consulter vos recettes.</noscript>
     </section>
 
     <section v-else-if="viewMode === 'LIST'" class="list-view">
+      <header class="notebook-header">
+        <h1 class="sr-only">Mon Cahier</h1>
+        <img class="brand-logo" src="/favicon.svg" alt="Cookies & Coquillettes" />
+        <Button
+          label="Nouvelle recette"
+          icon="pi pi-plus"
+          rounded
+          :loading="importBusy"
+          @click="openAddChoice"
+        />
+        <Button
+          label="Assistant"
+          icon="pi pi-sparkles"
+          severity="secondary"
+          rounded
+          class="assistant-nav"
+          @click="openAssistant"
+        />
+      </header>
       <div class="toolbar">
         <div class="filters">
           <div class="filters-inner">
@@ -2846,14 +2877,6 @@ onUnmounted(() => {
         </div>
         <div class="toolbar-actions">
           <Button
-            label="Assistant"
-            icon="pi pi-sparkles"
-            severity="secondary"
-            rounded
-            class="assistant-nav"
-            @click="openAssistant"
-          />
-          <Button
             icon="pi pi-upload"
             severity="secondary"
             rounded
@@ -2861,13 +2884,6 @@ onUnmounted(() => {
             title="Exporter le cahier"
             :disabled="importBusy"
             @click="openExportBookDialog"
-          />
-          <Button
-            label="Nouvelle recette"
-            icon="pi pi-plus"
-            rounded
-            :loading="importBusy"
-            @click="openAddChoice"
           />
         </div>
       </div>
