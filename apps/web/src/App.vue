@@ -27,6 +27,20 @@ import { buildRecipeShareF2Text } from "./utils/recipe-share-f2";
 import { buildRecipeShareCardFile } from "./utils/recipe-share-card";
 import { resolveClipboardImport } from "./utils/clipboard-import";
 import {
+  ASSISTANT_IMAGE_TYPE_MESSAGE,
+  ASSISTANT_STARTERS,
+  insertAssistantTranscript,
+  isAssistantSubmitShortcut,
+  isImageAttachment,
+  validateAssistantComposer,
+  type AssistantAttachment
+} from "./utils/assistant-composer";
+import {
+  startBrowserSpeechRecognition,
+  type SpeechRecognitionSession,
+  type SpeechRecognitionWindow
+} from "./services/speech-recognition-adapter";
+import {
   SAVE_SUCCESS_BADGE_MS,
   SAVE_SUCCESS_BADGE_POINTER_EVENTS,
   postSaveNavigationOnFailure,
@@ -83,7 +97,7 @@ import {
   readShareImportPayloadFromWindow
 } from "./services/share-target-service";
 
-type ViewMode = "LIST" | "DETAIL" | "FORM" | "ADD_CHOICE";
+type ViewMode = "ASSISTANT" | "LIST" | "DETAIL" | "FORM" | "ADD_CHOICE";
 type FormMode = "CREATE" | "EDIT";
 type ImportProgressType = "url" | "text" | "screenshot" | "file" | "share";
 
@@ -131,7 +145,7 @@ interface CookingSessionTimingSummary {
 
 const recipes = ref<Recipe[]>([]);
 const selectedRecipeId = ref<string | null>(null);
-const viewMode = ref<ViewMode>("LIST");
+const viewMode = ref<ViewMode>("ASSISTANT");
 const formMode = ref<FormMode>("CREATE");
 const formRecipeId = ref<string | null>(null);
 const cookingState = ref<"OFF" | "WAKE_LOCK" | "FALLBACK">("OFF");
@@ -157,6 +171,15 @@ function toggleSearchExpanded() {
 }
 const categoryFilter = ref<"ALL" | RecipeCategory>("ALL");
 const favoriteOnly = ref(true);
+
+const assistantText = ref("");
+const assistantAttachment = ref<AssistantAttachment | null>(null);
+const assistantAnnouncement = ref("");
+const assistantTextareaRef = ref<HTMLTextAreaElement | null>(null);
+const assistantFileInputRef = ref<HTMLInputElement | null>(null);
+const assistantListening = ref(false);
+let assistantSpeechSession: SpeechRecognitionSession | null = null;
+let detailReturnView: "ASSISTANT" | "LIST" = "LIST";
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const recipeBookFileInputRef = ref<HTMLInputElement | null>(null);
@@ -970,10 +993,175 @@ const formSourceUrl = computed({
   }
 });
 
+function focusAssistantComposer(): void {
+  void nextTick(() => assistantTextareaRef.value?.focus());
+}
+
+function openAssistant(): void {
+  clearMessages();
+  viewMode.value = "ASSISTANT";
+  focusAssistantComposer();
+}
+
+function openNotebookFromAssistant(): void {
+  stopAssistantDictation(false);
+  clearMessages();
+  viewMode.value = "LIST";
+  void nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-nav")?.focus());
+}
+
+function useAssistantStarter(starter: string): void {
+  assistantText.value = starter;
+  assistantAnnouncement.value = "Suggestion ajoutée au Compositeur.";
+  focusAssistantComposer();
+}
+
+function clearAssistantAttachment(): void {
+  assistantAttachment.value = null;
+  if (assistantFileInputRef.value) assistantFileInputRef.value.value = "";
+  assistantAnnouncement.value = "Image retirée.";
+  focusAssistantComposer();
+}
+
+function setAssistantAttachment(file: File): void {
+  if (!isImageAttachment(file)) {
+    assistantAnnouncement.value = ASSISTANT_IMAGE_TYPE_MESSAGE;
+    focusAssistantComposer();
+    return;
+  }
+  assistantAttachment.value = { file, name: file.name || "image locale" };
+  assistantAnnouncement.value = `Image ajoutée : ${assistantAttachment.value.name}.`;
+}
+
+function onAssistantFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (file) setAssistantAttachment(file);
+  input.value = "";
+}
+
+function onAssistantPaste(event: ClipboardEvent): void {
+  const files = Array.from(event.clipboardData?.files ?? []);
+  const file = files.find((candidate) =>
+    isImageAttachment(candidate)
+  );
+  if (file) {
+    setAssistantAttachment(file);
+  } else if (files[0]) {
+    // Ne pas empêcher le collage : le texte du presse-papiers reste modifiable.
+    setAssistantAttachment(files[0]);
+  }
+}
+
+function prepareAssistantRequest(): void {
+  const validation = validateAssistantComposer({
+    text: assistantText.value,
+    attachment: assistantAttachment.value
+  });
+  if (!validation.valid) {
+    assistantAnnouncement.value = validation.message;
+    focusAssistantComposer();
+    return;
+  }
+  assistantAnnouncement.value = "Demande préparée localement, sans envoi ni sauvegarde.";
+}
+
+function onAssistantKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && assistantListening.value) {
+    event.preventDefault();
+    stopAssistantDictation();
+    return;
+  }
+  if (isAssistantSubmitShortcut(event)) {
+    event.preventDefault();
+    prepareAssistantRequest();
+  }
+}
+
+function stopAssistantDictation(restoreFocus = true): void {
+  assistantSpeechSession?.stop();
+  assistantSpeechSession = null;
+  assistantListening.value = false;
+  if (restoreFocus) {
+    assistantAnnouncement.value = "Dictée arrêtée. Votre texte est conservé.";
+    focusAssistantComposer();
+  }
+}
+
+function toggleAssistantDictation(): void {
+  if (assistantListening.value) {
+    stopAssistantDictation();
+    return;
+  }
+  assistantListening.value = true;
+  assistantAnnouncement.value = "Écoute en cours. Vous pouvez aussi écrire.";
+  assistantSpeechSession = startBrowserSpeechRecognition(
+    typeof window === "undefined" ? undefined : (window as unknown as SpeechRecognitionWindow),
+    {
+      onTranscript: (transcript) => {
+        const field = assistantTextareaRef.value;
+        const insertion = insertAssistantTranscript(
+          assistantText.value,
+          transcript,
+          field?.selectionStart ?? assistantText.value.length,
+          field?.selectionEnd ?? assistantText.value.length
+        );
+        assistantText.value = insertion.value;
+        assistantAnnouncement.value = "Texte dicté ajouté au Compositeur.";
+        void nextTick(() => {
+          assistantTextareaRef.value?.focus();
+          assistantTextareaRef.value?.setSelectionRange(insertion.cursor, insertion.cursor);
+        });
+      },
+      onUnavailable: (message) => {
+        assistantListening.value = false;
+        assistantAnnouncement.value = message;
+        focusAssistantComposer();
+      },
+      onError: (message) => {
+        assistantSpeechSession = null;
+        assistantListening.value = false;
+        assistantAnnouncement.value = message;
+        focusAssistantComposer();
+      },
+      onEnd: () => {
+        assistantSpeechSession = null;
+        assistantListening.value = false;
+      }
+    }
+  );
+  if (!assistantSpeechSession) assistantListening.value = false;
+}
+
+function onAssistantCarouselKeydown(event: KeyboardEvent): void {
+  if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+  event.preventDefault();
+  const current = event.currentTarget as HTMLElement;
+  const items = Array.from(
+    current.parentElement?.querySelectorAll<HTMLElement>(".assistant-carousel-card") ?? []
+  );
+  const index = items.indexOf(current);
+  const nextIndex = event.key === "ArrowRight" ? index + 1 : index - 1;
+  const next = items.at(nextIndex);
+  if (next) {
+    next.focus();
+    next.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
 function openAddChoice(): void {
+  if (viewMode.value === "ASSISTANT") stopAssistantDictation(false);
   clearMessages();
   pasteFieldContent.value = "";
   viewMode.value = "ADD_CHOICE";
+}
+
+function openRecipeBookImportFromAssistant(): void {
+  if (viewMode.value === "ASSISTANT") stopAssistantDictation(false);
+  clearMessages();
+  pasteFieldContent.value = "";
+  viewMode.value = "ADD_CHOICE";
+  void nextTick(() => triggerRecipeBookFilePick());
 }
 
 function closeAddChoice(): void {
@@ -1666,13 +1854,14 @@ function startAsyncImageForRecipe(recipeId: string, draft: ParsedRecipeDraft): v
   }
 }
 
-function openDetail(recipe: Recipe): void {
+function openDetail(recipe: Recipe, returnView: "ASSISTANT" | "LIST" = "LIST"): void {
   clearMessages();
   detailRecipeOverride.value = null;
   selectedRecipeId.value = recipe.id;
   cookingStepIndex.value = 0;
   showCookingIngredients.value = false;
   servingsInput.value = servingsInputFromRecipe(recipe);
+  detailReturnView = returnView;
   viewMode.value = "DETAIL";
 
   if (
@@ -1700,7 +1889,9 @@ async function backToList(): Promise<void> {
     await stopCookingModeIfActive();
   }
   detailRecipeOverride.value = null;
-  viewMode.value = "LIST";
+  viewMode.value = detailReturnView;
+  if (detailReturnView === "ASSISTANT") focusAssistantComposer();
+  detailReturnView = "LIST";
   formRecipeId.value = null;
 }
 
@@ -2114,8 +2305,11 @@ async function deleteRecipe(recipe: Recipe): Promise<void> {
     feedback.value = "Recette supprimée.";
     detailRecipeOverride.value = null;
     selectedRecipeId.value = null;
-    viewMode.value = "LIST";
+    const destination = detailReturnView;
+    viewMode.value = destination;
+    detailReturnView = "LIST";
     await refresh();
+    if (destination === "ASSISTANT") focusAssistantComposer();
   } catch (error) {
     setError(error);
   }
@@ -2358,6 +2552,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  assistantSpeechSession?.stop();
+  assistantSpeechSession = null;
   if (typeof window !== "undefined") {
     window.removeEventListener("resize", onPasteFieldViewportChange);
     window.visualViewport?.removeEventListener("resize", onPasteFieldViewportChange);
@@ -2474,7 +2670,134 @@ onUnmounted(() => {
     <section v-if="errorMessage" class="message error">{{ errorMessage }}</section>
     <section v-else-if="feedback" :class="['message', feedbackType === 'warning' ? 'warning' : 'success']">{{ feedback }}</section>
 
-    <section v-if="viewMode === 'LIST'" class="list-view">
+    <section v-if="viewMode === 'ASSISTANT'" class="assistant-home" aria-labelledby="assistant-title">
+      <header class="assistant-header">
+        <p class="assistant-eyebrow">Cookies &amp; Coquillettes</p>
+        <button
+          type="button"
+          class="assistant-notebook-link"
+          aria-label="Ouvrir le Cahier"
+          @click="openNotebookFromAssistant"
+        >
+          <i class="pi pi-book" aria-hidden="true" />
+          Cahier
+        </button>
+      </header>
+
+      <div class="assistant-intro">
+        <h1 id="assistant-title">On mange quoi&nbsp;?</h1>
+        <p>Décrivez une envie ou apportez une recette. Rien n’est envoyé ou sauvegardé depuis cet accueil.</p>
+      </div>
+
+      <section class="assistant-composer" aria-label="Compositeur Assistant">
+        <label id="assistant-composer-title" for="assistant-composer-text">Votre demande</label>
+        <textarea
+          id="assistant-composer-text"
+          ref="assistantTextareaRef"
+          v-model="assistantText"
+          class="assistant-composer-text"
+          rows="5"
+          placeholder="Une envie, un lien ou une recette à préparer…"
+          aria-describedby="assistant-composer-help assistant-composer-status"
+          @keydown="onAssistantKeydown"
+          @paste="onAssistantPaste"
+        />
+        <p id="assistant-composer-help" class="assistant-composer-help">
+          Texte, lien, recette collée ou image locale. Cmd/Ctrl+Entrée prépare la demande.
+        </p>
+        <div v-if="assistantAttachment" class="assistant-attachment">
+          <i class="pi pi-image" aria-hidden="true" />
+          <span>{{ assistantAttachment.name }}</span>
+          <button type="button" class="assistant-attachment-remove" @click="clearAssistantAttachment">
+            Retirer l’image
+          </button>
+        </div>
+        <div class="assistant-composer-actions">
+          <Button
+            :label="assistantListening ? 'Arrêter la dictée' : 'Dicter'"
+            :icon="assistantListening ? 'pi pi-stop-circle' : 'pi pi-microphone'"
+            severity="secondary"
+            outlined
+            :aria-pressed="assistantListening"
+            @click="toggleAssistantDictation"
+          />
+          <Button
+            label="Ajouter une image"
+            icon="pi pi-paperclip"
+            severity="secondary"
+            outlined
+            @click="assistantFileInputRef?.click()"
+          />
+          <Button label="Préparer" icon="pi pi-arrow-up" class="assistant-submit" @click="prepareAssistantRequest" />
+        </div>
+        <input
+          ref="assistantFileInputRef"
+          type="file"
+          class="hidden-file-input"
+          accept="image/*"
+          tabindex="-1"
+          @change="onAssistantFileChange"
+        />
+        <p id="assistant-composer-status" class="assistant-live" role="status" aria-live="polite">
+          {{ assistantAnnouncement }}
+        </p>
+      </section>
+
+      <section class="assistant-starters" aria-labelledby="assistant-starters-title">
+        <h2 id="assistant-starters-title">Pour commencer</h2>
+        <div class="assistant-starter-list">
+          <button
+            v-for="starter in ASSISTANT_STARTERS"
+            :key="starter"
+            type="button"
+            class="assistant-starter"
+            @click="useAssistantStarter(starter)"
+          >
+            {{ starter }}
+          </button>
+        </div>
+      </section>
+
+      <section class="assistant-v1-actions" aria-labelledby="assistant-v1-title">
+        <h2 id="assistant-v1-title">Les actions du Cahier</h2>
+        <p>Création, import, édition et partage restent des parcours du Cahier v1.</p>
+        <div class="assistant-v1-buttons">
+          <Button label="Nouvelle recette" icon="pi pi-pencil" severity="secondary" @click="openAddChoice" />
+          <Button label="Importer une archive .zip" icon="pi pi-file-import" severity="secondary" @click="openRecipeBookImportFromAssistant" />
+          <Button label="Éditer ou partager une recette" icon="pi pi-book" severity="secondary" @click="openNotebookFromAssistant" />
+        </div>
+      </section>
+
+      <section class="assistant-discovery" aria-labelledby="assistant-discovery-title">
+        <div class="assistant-section-heading">
+          <h2 id="assistant-discovery-title">Dans votre Cahier</h2>
+          <button type="button" class="assistant-text-link" @click="openNotebookFromAssistant">Tout voir</button>
+        </div>
+        <div class="assistant-carousel" aria-label="Recettes du Cahier, utilisez les flèches gauche et droite">
+          <button
+            v-for="recipe in recipes.slice(0, 8)"
+            :key="recipe.id"
+            type="button"
+            class="assistant-carousel-card"
+            @click="openDetail(recipe, 'ASSISTANT')"
+            @keydown="onAssistantCarouselKeydown"
+          >
+            <RecipeImage
+              v-if="recipe.imageId"
+              :image-id="recipe.imageId"
+              :alt="`Photo de ${recipe.title}`"
+              img-class="assistant-carousel-image"
+            />
+            <span v-else class="assistant-carousel-placeholder" aria-hidden="true"><i class="pi pi-book" /></span>
+            <span class="assistant-carousel-title">{{ recipe.title }}</span>
+          </button>
+          <p v-if="recipes.length === 0" class="assistant-empty-notebook">Votre Cahier est prêt à accueillir une recette.</p>
+        </div>
+      </section>
+      <noscript>Le Compositeur fonctionne en JavaScript. Vous pouvez utiliser le Cahier pour créer ou consulter vos recettes.</noscript>
+    </section>
+
+    <section v-else-if="viewMode === 'LIST'" class="list-view">
       <div class="toolbar">
         <div class="filters">
           <div class="filters-inner">
@@ -2522,6 +2845,14 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="toolbar-actions">
+          <Button
+            label="Assistant"
+            icon="pi pi-sparkles"
+            severity="secondary"
+            rounded
+            class="assistant-nav"
+            @click="openAssistant"
+          />
           <Button
             icon="pi pi-upload"
             severity="secondary"

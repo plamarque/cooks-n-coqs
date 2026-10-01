@@ -42,15 +42,142 @@ async function createRecipeViaImport(page, recipeText = "Recette brute") {
 }
 
 test.describe("Cookies & Coquillettes v1", () => {
-  test("affiche l'écran principal avec les cartes et filtre favoris actif par défaut", async ({
+  test("affiche l'accueil Assistant et donne accès au Cahier v1", async ({
     page
   }) => {
     await page.goto("/");
+    await expect(page.getByRole("heading", { name: "On mange quoi ?" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ouvrir le Cahier" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Nouvelle recette" })).toBeVisible();
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await expect(page.getByRole("button", { name: "Favoris", exact: true })).toBeVisible();
     // Filtre favoris actif par défaut : les recettes seed (favorites) sont visibles
     await expect(page.getByText("Coquillettes au jambon de Juan Arbelaez")).toBeVisible();
     await expect(page.getByText("Cookies aux pépites de chocolat")).toBeVisible();
+  });
+
+  test("les entrées v1 de l'accueil restent explicites", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Nouvelle recette" }).click();
+    await expect(page.getByRole("heading", { name: "Nouvelle recette" })).toBeVisible();
+    await page.getByRole("button", { name: "Annuler" }).click();
+
+    await page.goto("/");
+    const zipChooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Importer une archive .zip" }).click();
+    await expect(await zipChooser).toBeTruthy();
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Éditer ou partager une recette" }).click();
+    await expect(page.getByRole("button", { name: "Favoris", exact: true })).toBeVisible();
+  });
+
+  test("Compositeur : starter, demande vide et raccourci restent locaux", async ({ page }) => {
+    await page.goto("/");
+    const field = page.getByLabel("Votre demande");
+    await page.getByRole("button", { name: /rapide ce soir/i }).click();
+    await expect(field).toHaveValue(/rapide ce soir/i);
+    await field.fill("");
+    await page.getByRole("button", { name: "Préparer", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText(/Écrivez une intention/i);
+    await field.fill("Une quiche");
+    await field.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+    await expect(page.getByRole("status")).toContainText(/préparée localement/i);
+    await expect(field).toHaveValue("Une quiche");
+  });
+
+  test("Compositeur : image locale retirable et retour Cahier/Assistant au focus", async ({ page }) => {
+    await page.goto("/");
+    const imagePath = path.join(process.cwd(), "e2e", "fixtures", "test-image.png");
+    const field = page.getByLabel("Votre demande");
+
+    await page.locator(".assistant-home input[type='file']").setInputFiles(imagePath);
+    await expect(page.locator(".assistant-attachment span")).toHaveText("test-image.png");
+    await page.getByRole("button", { name: "Retirer l’image" }).click();
+    await expect(page.locator(".assistant-attachment")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
+    await page.getByRole("button", { name: "Assistant" }).click();
+    await expect(field).toBeFocused();
+  });
+
+  test("Compositeur : collage image, rejet fichier et préparation restent locaux", async ({ page }) => {
+    await page.goto("/");
+    const field = page.getByLabel("Votre demande");
+    await field.fill("Texte conservé");
+
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.items.add(new File(["image"], "collée.png", { type: "image/png" }));
+      document.querySelector("#assistant-composer-text")?.dispatchEvent(
+        new ClipboardEvent("paste", { bubbles: true, clipboardData: data })
+      );
+    });
+    await expect(field).toHaveValue("Texte conservé");
+    await expect(page.locator(".assistant-attachment")).toContainText("collée.png");
+
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.items.add(new File(["texte"], "notes.txt", { type: "text/plain" }));
+      document.querySelector("#assistant-composer-text")?.dispatchEvent(
+        new ClipboardEvent("paste", { bubbles: true, clipboardData: data })
+      );
+    });
+    await expect(field).toHaveValue("Texte conservé");
+    await expect(page.getByRole("status")).toContainText(/Choisissez une image/i);
+
+    await page.evaluate(() => {
+      let fetchCalls = 0;
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (...args) => {
+        fetchCalls += 1;
+        return originalFetch(...args);
+      };
+      let writes = 0;
+      for (const method of ["add", "put"]) {
+        const original = IDBObjectStore.prototype[method];
+        IDBObjectStore.prototype[method] = function (...args) {
+          writes += 1;
+          return original.apply(this, args);
+        };
+      }
+      window.__assistantLocalProof = () => ({ fetchCalls, writes });
+    });
+    await field.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+    await expect(page.getByRole("status")).toContainText(/préparée localement/i);
+    expect(await page.evaluate(() => window.__assistantLocalProof())).toEqual({ fetchCalls: 0, writes: 0 });
+  });
+
+  test("Compositeur : flèches du carrousel déplacent le focus sans faire défiler la page", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 500 });
+    await page.goto("/");
+    const cards = page.locator(".assistant-carousel-card");
+    await expect(cards).toHaveCount(2);
+    await cards.first().focus();
+    await page.evaluate(() => {
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          window.__assistantArrowPrevented = event.defaultPrevented;
+        }
+      });
+    });
+    const before = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
+    await cards.first().press("ArrowLeft");
+    expect(await page.evaluate(() => window.__assistantArrowPrevented)).toBe(true);
+    expect(await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual(before);
+    await cards.first().focus();
+    await cards.first().press("ArrowRight");
+    await expect(cards.nth(1)).toBeFocused();
+  });
+
+  test("supprimer depuis le carrousel retourne à l'Assistant et au Compositeur", async ({ page }) => {
+    await page.goto("/");
+    await page.locator(".assistant-carousel-card").first().click();
+    await page.locator(".recipe-detail-actions").getByRole("button", { name: "Supprimer" }).click();
+    await page.getByText(/Supprimer définitivement/).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "Supprimer" }).last().click();
+    await expect(page.getByRole("heading", { name: "On mange quoi ?" })).toBeVisible();
+    await expect(page.getByLabel("Votre demande")).toBeFocused();
   });
 
   test("active le mode cuisine depuis l'écran détail", async ({ page }) => {

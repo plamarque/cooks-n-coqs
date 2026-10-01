@@ -131,3 +131,16 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 3. Les unités pratiques doivent être conservées quand possible (ex : œufs en nombre, pas en grammes).
 4. Le recalcul des portions doit se baser sur une référence immuable (pas de dérive cumulative).
 5. Le produit est optimisé pour le français en v1 ; autres langues en best effort.
+
+## Évolution Assistant — fondations locales (story 1.1)
+
+L’accueil peut proposer un Compositeur Assistant distinct du Cahier v1. Il accepte localement du
+texte, une URL, une recette collée ou une image locale : le texte et l’image restent en mémoire de
+l’interface, sont modifiables et peuvent être retirés. Cette fondation ne route, n’importe, ne
+sauvegarde ni n’envoie aucune donnée. Les starters ne font que préremplir puis focaliser le champ.
+
+La dictée, lorsqu’elle est fournie par le navigateur, insère seulement une transcription acceptée au
+curseur ; aucun audio brut n’est stocké ou transmis. Si elle est indisponible, le texte reste
+l’alternative immédiate. Le Cahier conserve ses parcours v1 nommés : création manuelle, import
+`.zip`, édition et partage. Les traitements Assistant, prévisualisations et sauvegardes explicites
+seront introduits par leurs stories dédiées sans modifier ces contrats v1.

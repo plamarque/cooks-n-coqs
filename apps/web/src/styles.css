@@ -19,6 +19,283 @@ body {
   padding: 1rem;
 }
 
+.assistant-home {
+  width: min(100%, 720px);
+  margin: 0 auto;
+  padding: clamp(0.25rem, 2vw, 1rem) 0 2rem;
+}
+
+.assistant-header,
+.assistant-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.assistant-eyebrow {
+  margin: 0;
+  color: #486057;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.assistant-notebook-link,
+.assistant-text-link,
+.assistant-attachment-remove,
+.assistant-starter,
+.assistant-carousel-card {
+  font: inherit;
+}
+
+.assistant-notebook-link,
+.assistant-text-link,
+.assistant-attachment-remove {
+  min-height: 2.75rem;
+  border: 0;
+  background: transparent;
+  color: #16493d;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.assistant-notebook-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.assistant-intro {
+  margin: clamp(1.8rem, 6vw, 3.75rem) 0 1.25rem;
+}
+
+.assistant-intro h1 {
+  margin: 0;
+  font-size: clamp(2.25rem, 8vw, 4.25rem);
+  line-height: 1;
+  letter-spacing: -0.055em;
+}
+
+.assistant-intro p {
+  max-width: 39rem;
+  margin: 0.9rem 0 0;
+  color: #3e4b46;
+  line-height: 1.55;
+}
+
+.assistant-composer {
+  padding: clamp(1rem, 4vw, 1.5rem);
+  border: 1px solid rgba(17, 81, 63, 0.32);
+  border-radius: 1.25rem;
+  background: linear-gradient(145deg, #216451, #174d40);
+  box-shadow: 0 1rem 2rem rgba(25, 72, 57, 0.16);
+  color: #fff;
+}
+
+.assistant-composer label {
+  display: block;
+  margin-bottom: 0.55rem;
+  font-weight: 750;
+}
+
+.assistant-composer-text {
+  width: 100%;
+  min-height: 9rem;
+  border-color: transparent;
+  border-radius: 0.9rem;
+  padding: 0.9rem;
+  resize: vertical;
+}
+
+.assistant-composer-help,
+.assistant-live {
+  margin: 0.7rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.assistant-composer-help {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.assistant-live {
+  min-height: 1.25rem;
+  color: #fff;
+}
+
+.assistant-composer-actions,
+.assistant-v1-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.assistant-composer-actions .p-button,
+.assistant-v1-buttons .p-button {
+  min-height: 2.75rem;
+}
+
+.assistant-submit.p-button {
+  margin-left: auto;
+  background: #f4c95d !important;
+  border-color: #f4c95d !important;
+  color: #263026 !important;
+}
+
+.assistant-attachment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.7rem;
+  margin-top: 0.85rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.assistant-attachment-remove {
+  min-height: 2.75rem;
+  padding: 0.2rem 0.3rem;
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.assistant-starters,
+.assistant-v1-actions,
+.assistant-discovery {
+  margin-top: 2rem;
+}
+
+.assistant-starters h2,
+.assistant-v1-actions h2,
+.assistant-discovery h2 {
+  margin: 0;
+  font-size: 1.18rem;
+}
+
+.assistant-starter-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+}
+
+.assistant-starter {
+  min-height: 2.75rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(31, 79, 70, 0.2);
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.74);
+  color: #25352f;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assistant-v1-actions {
+  padding: 1rem;
+  border: 1px solid rgba(31, 79, 70, 0.16);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.assistant-v1-actions p {
+  margin: 0.55rem 0 0;
+  color: #3e4b46;
+  line-height: 1.45;
+}
+
+.assistant-text-link {
+  padding: 0.3rem;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.assistant-carousel {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline mandatory;
+  padding: 0.9rem 0.1rem 0.5rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.assistant-carousel-card {
+  display: flex;
+  flex: 0 0 min(15rem, 76vw);
+  flex-direction: column;
+  min-height: 12.5rem;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(31, 79, 70, 0.2);
+  border-radius: 0.95rem;
+  background: #fff;
+  color: #1d1f1c;
+  cursor: pointer;
+  scroll-snap-align: start;
+  text-align: left;
+}
+
+.assistant-carousel-image,
+.assistant-carousel-placeholder {
+  width: 100%;
+  height: 8.5rem;
+  object-fit: cover;
+}
+
+.assistant-carousel-placeholder {
+  display: grid;
+  place-items: center;
+  background: rgba(31, 79, 70, 0.08);
+  color: #216451;
+  font-size: 1.6rem;
+}
+
+.assistant-carousel-title {
+  padding: 0.75rem;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.assistant-empty-notebook {
+  margin: 0;
+  color: #3e4b46;
+}
+
+.assistant-home button:focus-visible,
+.assistant-home textarea:focus-visible {
+  outline: 3px solid #1b75bb;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .assistant-composer-actions .p-button {
+    flex: 1 1 100%;
+  }
+
+  .assistant-submit.p-button {
+    margin-left: 0;
+  }
+
+  .assistant-v1-buttons .p-button {
+    width: 100%;
+  }
+}
+
 .app-footer {
   margin-top: 2rem;
   padding: 1rem 0;
@@ -2211,5 +2488,3 @@ select {
   flex: 1;
   min-width: 200px;
 }
-
-

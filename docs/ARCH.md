@@ -42,6 +42,8 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `ingredient-image-service` | Résolution d'image ingrédient (cache local, génération IA), stockage | `apps/web/src/services/ingredient-image-service.ts` |
 | `cooking-step-image-service` | Résolution d'image d'étape en mode cuisine (cache local, génération IA), fallback image recette | `apps/web/src/services/cooking-step-image-service.ts` |
 | `step-timer-service` | Détection de durée de timer d'étape (sémantique IA + fallback) | `apps/web/src/services/step-timer-service.ts` |
+| `assistant-composer` | Validation locale, starters, raccourci et pièce jointe éphémère de l’accueil Assistant | `apps/web/src/utils/assistant-composer.ts` |
+| `speech-recognition-adapter` | Adaptateur optionnel de transcription navigateur, sans blob audio ni persistance | `apps/web/src/services/speech-recognition-adapter.ts` |
 | `IngredientImage` (composant Vue) | Affichage de l'icône ingrédient (fallback si absent) | `apps/web/src/components/IngredientImage.vue` |
 | `StepMentionedIngredientIcons` (composant Vue) | Icônes des ingrédients mentionnés par étape (max 3 visibles, surplus via popin PrimeVue) — détail recette et mode cuisine ; source = `ingredientIds` persistés si non vides, sinon matching tokens | `apps/web/src/components/StepMentionedIngredientIcons.vue` |
 | `import-api` | Endpoints BFF pour OCR/parsing | `apps/bff/src` |
@@ -155,6 +157,9 @@ Index minimaux :
 1. Écriture locale immédiate après création/édition.
 2. Données disponibles hors-ligne pour lecture et édition.
 3. Images compressées à l’import avant stockage local.
+4. Le Compositeur Assistant d’accueil n’écrit dans aucune table : texte et image locale restent dans
+   l’état Vue. Les flux import, prévisualisation et sauvegarde Assistant seront branchés par des
+   services dédiés ; les flux v1 `parse -> create -> détail` restent inchangés jusque-là.
 
 ## Import et parsing
 
