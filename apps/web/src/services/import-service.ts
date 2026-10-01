@@ -66,6 +66,10 @@ export async function generateCookingStepImage(stepText: string): Promise<string
 
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
 
+function rethrowAbort(error: unknown): void {
+  if ((error as Error)?.name === "AbortError") throw error;
+}
+
 async function parseResponse(response: Response): Promise<ParsedRecipeDraft> {
   if (!response.ok) {
     throw new Error(`Import failed: ${response.status}`);
@@ -131,15 +135,16 @@ async function compressScreenshot(file: File): Promise<File> {
 }
 
 class BffImportService implements ImportService {
-  async importFromUrl(url: string): Promise<ParsedRecipeDraft> {
+  async importFromUrl(url: string, options?: { signal?: AbortSignal }): Promise<ParsedRecipeDraft> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/import/url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url })
+        body: JSON.stringify({ url }), signal: options?.signal
       });
       return await parseResponse(response);
     } catch (error) {
+      rethrowAbort(error);
       // eslint-disable-next-line no-console
       console.warn("importFromUrl fallback draft", error);
       return fallbackDraft("URL", "Recette depuis URL", url);
@@ -167,7 +172,7 @@ class BffImportService implements ImportService {
     }
   }
 
-  async importFromScreenshot(file: File): Promise<ParsedRecipeDraft> {
+  async importFromScreenshot(file: File, options?: { signal?: AbortSignal; contextText?: string }): Promise<ParsedRecipeDraft> {
     try {
       const compressed = await compressScreenshot(file);
       if (compressed.size > MAX_SCREENSHOT_BYTES) {
@@ -176,13 +181,15 @@ class BffImportService implements ImportService {
 
       const body = new FormData();
       body.append("file", compressed);
+      if (options?.contextText?.trim()) body.append("contextText", options.contextText.trim());
 
       const response = await fetch(`${API_BASE_URL}/api/import/screenshot`, {
         method: "POST",
-        body
+        body, signal: options?.signal
       });
       return await parseResponse(response);
     } catch (error) {
+      rethrowAbort(error);
       // eslint-disable-next-line no-console
       console.warn("importFromScreenshot fallback draft", error);
       return fallbackDraft("SCREENSHOT", file.name.replace(/\.[^.]+$/, ""));
@@ -214,7 +221,7 @@ class BffImportService implements ImportService {
     return merged;
   }
 
-  async importFromText(text: string): Promise<ParsedRecipeDraft> {
+  async importFromText(text: string, options?: { signal?: AbortSignal }): Promise<ParsedRecipeDraft> {
     const f2 = tryParseRecipeShareF2Text(text, { sourceType: "TEXT" });
     if (f2) {
       return f2;
@@ -223,10 +230,11 @@ class BffImportService implements ImportService {
       const response = await fetch(`${API_BASE_URL}/api/import/text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text }), signal: options?.signal
       });
       return await parseResponse(response);
     } catch (error) {
+      rethrowAbort(error);
       // eslint-disable-next-line no-console
       console.warn("importFromText fallback draft", error);
       return fallbackDraft("TEXT", "Recette depuis texte");
@@ -235,3 +243,10 @@ class BffImportService implements ImportService {
 }
 
 export const bffImportService = new BffImportService();
+
+/** Adaptateur Assistant : aucun appel Dexie ni hydratation média. */
+export const assistantImportAdapter = {
+  importImage: (file: File, contextText: string, signal: AbortSignal) => bffImportService.importFromScreenshot(file, { contextText, signal }),
+  importUrl: (url: string, signal: AbortSignal) => bffImportService.importFromUrl(url, { signal }),
+  importText: (text: string, signal: AbortSignal) => bffImportService.importFromText(text, { signal })
+};

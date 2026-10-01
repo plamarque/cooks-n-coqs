@@ -144,3 +144,7 @@ curseur ; aucun audio brut n’est stocké ou transmis. Si elle est indisponible
 l’alternative immédiate. Le Cahier conserve ses parcours v1 nommés : création manuelle, import
 `.zip`, édition et partage. Les traitements Assistant, prévisualisations et sauvegardes explicites
 seront introduits par leurs stories dédiées sans modifier ces contrats v1.
+
+## Import Assistant éphémère (story 1.2)
+
+Depuis le seul Compositeur Assistant, une image est prioritaire sur une URL HTTP(S), elle-même prioritaire sur le texte (dont F2). L'import réemploie le parseur existant mais produit une prévisualisation en mémoire, annulable : ni recette, ni fichier, ni état Assistant n'est écrit dans IndexedDB, l'URL ou `sessionStorage`. Annuler ou fermer détruit la prévisualisation et ignore les réponses tardives tout en conservant texte, curseur et image dans le Compositeur. La sauvegarde explicite est hors de cette story ; les flux v1 `parse → create → détail` restent inchangés.

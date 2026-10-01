@@ -67,9 +67,11 @@ import { db } from "./storage/db";
 import { browserCookingModeService } from "./services/cooking-mode-service";
 import {
   bffImportService,
+  assistantImportAdapter,
   generateCookingStepImage,
   generateRecipeImage
 } from "./services/import-service";
+import { AssistantSession, type AssistantPreview } from "./utils/assistant-session";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
   getCookingStepImageBlobUrl,
@@ -97,7 +99,7 @@ import {
   readShareImportPayloadFromWindow
 } from "./services/share-target-service";
 
-type ViewMode = "ASSISTANT" | "LIST" | "DETAIL" | "FORM" | "ADD_CHOICE";
+type ViewMode = "ASSISTANT" | "ASSISTANT_PREVIEW" | "LIST" | "DETAIL" | "FORM" | "ADD_CHOICE";
 type FormMode = "CREATE" | "EDIT";
 type ImportProgressType = "url" | "text" | "screenshot" | "file" | "share";
 
@@ -179,6 +181,10 @@ const assistantTextareaRef = ref<HTMLTextAreaElement | null>(null);
 const assistantFileInputRef = ref<HTMLInputElement | null>(null);
 const assistantCarouselRef = ref<HTMLElement | null>(null);
 const assistantListening = ref(false);
+const assistantSession = new AssistantSession();
+const assistantPhase = ref(assistantSession.phase);
+const assistantPreview = ref<AssistantPreview | null>(null);
+const assistantError = ref<string | null>(null);
 const ASSISTANT_STARTER_LABELS: Record<(typeof ASSISTANT_STARTERS)[number], string> = {
   "J'ai envie de cuisiner quelque chose de rapide ce soir.": "Rapide ce soir",
   "Voici une recette à préparer :": "Préparer une recette",
@@ -1059,7 +1065,7 @@ function onAssistantPaste(event: ClipboardEvent): void {
   }
 }
 
-function prepareAssistantRequest(): void {
+async function prepareAssistantRequest(): Promise<void> {
   const validation = validateAssistantComposer({
     text: assistantText.value,
     attachment: assistantAttachment.value
@@ -1069,7 +1075,48 @@ function prepareAssistantRequest(): void {
     focusAssistantComposer();
     return;
   }
-  assistantAnnouncement.value = "Demande préparée localement, sans envoi ni sauvegarde.";
+  stopAssistantDictation(false);
+  const importPromise = assistantSession.import(
+    assistantText.value,
+    assistantAttachment.value?.file ?? null,
+    assistantImportAdapter
+  );
+  assistantPhase.value = assistantSession.phase;
+  assistantPreview.value = null;
+  assistantError.value = null;
+  nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-import-progress button")?.focus());
+  const preview = await importPromise;
+  assistantPhase.value = assistantSession.phase;
+  assistantPreview.value = assistantSession.preview;
+  assistantError.value = assistantSession.error;
+  if (preview) {
+    assistantAnnouncement.value = "Prévisualisation prête. Ouvrez la carte pour la consulter.";
+    nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-preview-card")?.focus());
+  }
+  else if (assistantSession.phase === "error") assistantAnnouncement.value = assistantSession.error ?? "Import impossible.";
+}
+
+function cancelAssistantImport(): void {
+  assistantSession.cancel();
+  assistantPhase.value = assistantSession.phase;
+  assistantError.value = null;
+  assistantAnnouncement.value = "Import annulé. Votre saisie est conservée.";
+  focusAssistantComposer();
+}
+
+function openAssistantPreview(): void {
+  if (!assistantPreview.value) return;
+  viewMode.value = "ASSISTANT_PREVIEW";
+}
+
+function closeAssistantPreview(): void {
+  assistantSession.closePreview();
+  assistantPreview.value = null;
+  assistantPhase.value = assistantSession.phase;
+  assistantError.value = null;
+  viewMode.value = "ASSISTANT";
+  assistantAnnouncement.value = "Prévisualisation abandonnée. Votre saisie est conservée.";
+  nextTick(() => focusAssistantComposer());
 }
 
 function onAssistantKeydown(event: KeyboardEvent): void {
@@ -2711,13 +2758,14 @@ onUnmounted(() => {
             rows="4"
             placeholder="Copiez un lien, une image, une recette ou demandez juste ce dont vous avez envie"
             aria-describedby="assistant-composer-status"
+            :disabled="assistantPhase === 'importing'"
             @keydown="onAssistantKeydown"
             @paste="onAssistantPaste"
           />
           <div v-if="assistantAttachment" class="assistant-attachment">
             <i class="pi pi-image" aria-hidden="true" />
             <span>{{ assistantAttachment.name }}</span>
-            <button type="button" class="assistant-attachment-remove" aria-label="Retirer l’image" @click="clearAssistantAttachment">
+            <button type="button" class="assistant-attachment-remove" aria-label="Retirer l’image" :disabled="assistantPhase === 'importing'" @click="clearAssistantAttachment">
               <i class="pi pi-times" aria-hidden="true" />
             </button>
           </div>
@@ -2726,6 +2774,7 @@ onUnmounted(() => {
               aria-label="Ajouter une image"
               icon="pi pi-paperclip"
               class="assistant-icon-action assistant-attach-action"
+              :disabled="assistantPhase === 'importing'"
               @click="assistantFileInputRef?.click()"
             />
             <Button
@@ -2733,9 +2782,10 @@ onUnmounted(() => {
               :icon="assistantListening ? 'pi pi-stop-circle' : 'pi pi-microphone'"
               class="assistant-icon-action assistant-dictation-action"
               :aria-pressed="assistantListening"
+              :disabled="assistantPhase === 'importing'"
               @click="toggleAssistantDictation"
             />
-            <Button aria-label="Préparer" icon="pi pi-arrow-up" class="assistant-icon-action assistant-submit" @click="prepareAssistantRequest" />
+            <Button aria-label="Importer la recette" icon="pi pi-arrow-up" class="assistant-icon-action assistant-submit" :disabled="assistantPhase === 'importing'" @click="prepareAssistantRequest" />
           </div>
           <input
             ref="assistantFileInputRef"
@@ -2749,6 +2799,22 @@ onUnmounted(() => {
             {{ assistantAnnouncement }}
           </p>
         </div>
+        <div v-if="assistantPhase === 'importing'" class="assistant-import-progress" role="status" aria-live="polite">
+          <span>Analyse de votre recette…</span>
+          <Button label="Annuler" severity="secondary" @click="cancelAssistantImport" />
+        </div>
+        <p v-if="assistantError" class="assistant-import-error" role="alert">{{ assistantError }}</p>
+        <button
+          v-if="assistantPreview"
+          type="button"
+          class="assistant-preview-card"
+          @click="openAssistantPreview"
+          @keydown.enter.prevent="openAssistantPreview"
+          @keydown.space.prevent="openAssistantPreview"
+        >
+          <span class="assistant-preview-card-title">{{ assistantPreview.draft.title }}</span>
+          <span>Prévisualisation prête — ouvrir</span>
+        </button>
       </section>
 
       <section class="assistant-starters" aria-label="Suggestions de demandes">
@@ -2759,6 +2825,7 @@ onUnmounted(() => {
             type="button"
             class="assistant-starter"
             :aria-label="starter"
+            :disabled="assistantPhase === 'importing'"
             @click="useAssistantStarter(starter)"
           >
             {{ ASSISTANT_STARTER_LABELS[starter] }}
@@ -2807,6 +2874,16 @@ onUnmounted(() => {
       </section>
 
       <noscript>Le Compositeur fonctionne en JavaScript. Vous pouvez utiliser le Cahier pour créer ou consulter vos recettes.</noscript>
+    </section>
+
+    <section v-else-if="viewMode === 'ASSISTANT_PREVIEW'" class="assistant-preview-detail" aria-labelledby="assistant-preview-title">
+      <button type="button" class="assistant-preview-close" aria-label="Fermer la prévisualisation" @click="closeAssistantPreview"><i class="pi pi-times" aria-hidden="true" /></button>
+      <p class="assistant-preview-origin">Importé depuis {{ assistantPreview?.source?.type?.toLowerCase() ?? 'le Compositeur' }}</p>
+      <h1 id="assistant-preview-title">{{ assistantPreview?.draft.title }}</h1>
+      <h2>Ingrédients</h2>
+      <ul><li v-for="ingredient in assistantPreview?.draft.ingredients" :key="ingredient.id">{{ ingredient.rawText || ingredient.label }}</li></ul>
+      <h2>Préparation</h2>
+      <ol><li v-for="step in assistantPreview?.draft.steps" :key="step.id">{{ step.text }}</li></ol>
     </section>
 
     <section v-else-if="viewMode === 'LIST'" class="list-view">

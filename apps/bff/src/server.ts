@@ -8,6 +8,7 @@ import {
   parseRecipeWithCloud,
   reorderStepsByRecipeLogic
 } from "./parsing-client.js";
+import type { ParseRecipeInput } from "./parsing-client.js";
 import {
   buildCookingStepImageCacheKey,
   buildIngredientImageCacheKey,
@@ -99,18 +100,26 @@ app.post("/api/import/text", async (req, res) => {
   res.json(parsed);
 });
 
+/** Pont multipart pur : le contexte d'image reste un champ texte du parseur, jamais un log. */
+export function screenshotParseInput(
+  file: { buffer: Buffer; mimetype: string },
+  contextText: unknown
+): ParseRecipeInput {
+  return {
+    sourceType: "SCREENSHOT",
+    text: typeof contextText === "string" ? contextText : undefined,
+    screenshotBase64: file.buffer.toString("base64"),
+    screenshotMimeType: file.mimetype
+  };
+}
+
 app.post("/api/import/screenshot", upload.single("file"), async (req, res) => {
   if (!req.file?.buffer) {
     res.status(400).json({ error: "file is required" });
     return;
   }
 
-  const screenshotBase64 = req.file.buffer.toString("base64");
-  const parsed = await parseRecipeWithCloud({
-    sourceType: "SCREENSHOT",
-    screenshotBase64,
-    screenshotMimeType: req.file.mimetype
-  });
+  const parsed = await parseRecipeWithCloud(screenshotParseInput(req.file, req.body?.contextText));
   res.json(parsed);
 });
 

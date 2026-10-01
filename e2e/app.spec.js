@@ -72,7 +72,7 @@ test.describe("Cookies & Coquillettes v1", () => {
       await expect(page.locator(".assistant-composer")).toBeVisible();
       await expect(page.getByRole("button", { name: "Dicter" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Ajouter une image" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Préparer", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Importer la recette", exact: true })).toBeVisible();
       await expect(page.locator(".assistant-starter-list")).toHaveCSS("display", "flex");
       await expect(page.getByRole("button", { name: "Suggestion précédente" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Suggestion suivante" })).toBeVisible();
@@ -109,7 +109,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByRole("button", { name: "Favoris", exact: true })).toBeVisible();
   });
 
-  test("Compositeur : starter, demande vide et raccourci restent locaux", async ({ page }) => {
+  test("Compositeur : starter, demande vide et raccourci importent une prévisualisation", async ({ page }) => {
     await page.goto("/");
     const field = page.getByLabel("Votre demande");
     const quickStarter = page.getByRole("button", { name: /rapide ce soir/i });
@@ -117,12 +117,12 @@ test.describe("Cookies & Coquillettes v1", () => {
     await quickStarter.click();
     await expect(field).toHaveValue("J'ai envie de cuisiner quelque chose de rapide ce soir.");
     await field.fill("");
-    await page.getByRole("button", { name: "Préparer", exact: true }).click();
+    await page.getByRole("button", { name: "Importer la recette", exact: true }).click();
     await expect(page.getByRole("status")).toContainText(/Écrivez une intention/i);
-    await field.fill("Une quiche");
+    await field.fill("Quiche\n\nIngrédients:\n- 2 oeufs\n\nÉtapes:\n1. Mélanger.");
     await field.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
-    await expect(page.getByRole("status")).toContainText(/préparée localement/i);
-    await expect(field).toHaveValue("Une quiche");
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+    await expect(field).toHaveValue(/Quiche/);
   });
 
   test("Compositeur : image locale retirable et retour Cahier/Assistant au focus", async ({ page }) => {
@@ -205,9 +205,65 @@ test.describe("Cookies & Coquillettes v1", () => {
       }
       window.__assistantLocalProof = () => ({ fetchCalls, writes });
     });
-    await field.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
-    await expect(page.getByRole("status")).toContainText(/préparée localement/i);
-    expect(await page.evaluate(() => window.__assistantLocalProof())).toEqual({ fetchCalls: 0, writes: 0 });
+    // Une image est prioritaire : l'import peut appeler le BFF, mais n'écrit jamais avant sauvegarde.
+    await expect(page.getByRole("button", { name: "Importer la recette", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => window.__assistantLocalProof().writes)).toBe(0);
+  });
+
+  test("Assistant : carte F2, détail, fermeture et aucune écriture IndexedDB", async ({ page }) => {
+    await page.goto("/");
+    const field = page.getByLabel("Votre demande");
+    await field.fill("Soupe express\n\nIngrédients:\n- 1 oignon\n\nÉtapes:\n1. Mixer.");
+    const countStores = () => page.evaluate(async () => {
+      const database = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("cookies-et-coquilettes");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const stores = ["recipes", "images", "ingredientImages", "cookingStepImages"];
+      return Object.fromEntries(await Promise.all(stores.map(async (store) => {
+        const transaction = database.transaction(store, "readonly");
+        const count = await new Promise((resolve, reject) => {
+          const request = transaction.objectStore(store).count();
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        return [store, count];
+      })));
+    });
+    // L'amorçage v1 est asynchrone : attendre son état stable avant la mesure.
+    await expect.poll(countStores).toMatchObject({ recipes: 2 });
+    const before = await countStores();
+    await page.getByRole("button", { name: "Importer la recette", exact: true }).click();
+    const card = page.getByRole("button", { name: /Prévisualisation prête/ });
+    await expect(card).toBeVisible();
+    await expect(card).toBeFocused();
+    await card.press("Enter");
+    await expect(page.getByRole("heading", { name: "Soupe express" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toBeVisible();
+    expect(await countStores()).toEqual(before);
+    await page.getByRole("button", { name: "Fermer la prévisualisation" }).click();
+    await expect(page.getByRole("heading", { name: "On mange quoi ?" })).toBeVisible();
+    await expect(field).toBeFocused();
+    expect(await countStores()).toEqual(before);
+  });
+
+  test("Assistant : les entrées concurrentes sont gelées pendant l'import", async ({ page }) => {
+    await page.goto("/");
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    await page.route("**/api/import/screenshot", async (route) => {
+      await gate;
+      await route.fulfill({ json: { title: "Import", category: "SALE", ingredients: [], steps: [] } });
+    });
+    await page.getByLabel("Votre demande").fill("texte de contexte");
+    await page.locator(".assistant-home input[type='file']").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
+    await page.getByRole("button", { name: "Importer la recette", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Annuler" })).toBeFocused();
+    await expect(page.getByRole("button", { name: "Retirer l’image" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /J'ai envie de cuisiner quelque chose de rapide/i })).toBeDisabled();
+    release();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
   });
 
   test("Compositeur : flèches du carrousel déplacent le focus sans faire défiler la page", async ({ page }) => {

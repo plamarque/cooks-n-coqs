@@ -43,6 +43,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `cooking-step-image-service` | Résolution d'image d'étape en mode cuisine (cache local, génération IA), fallback image recette | `apps/web/src/services/cooking-step-image-service.ts` |
 | `step-timer-service` | Détection de durée de timer d'étape (sémantique IA + fallback) | `apps/web/src/services/step-timer-service.ts` |
 | `assistant-composer` | Validation locale, starters, raccourci et pièce jointe éphémère de l’accueil Assistant | `apps/web/src/utils/assistant-composer.ts` |
+| `assistant-session` | Routage import prioritaire, `AbortController`, `requestId` et `AssistantPreview` non sérialisable | `apps/web/src/utils/assistant-session.ts` |
 | `speech-recognition-adapter` | Adaptateur optionnel de transcription navigateur, sans blob audio ni persistance | `apps/web/src/services/speech-recognition-adapter.ts` |
 | `IngredientImage` (composant Vue) | Affichage de l'icône ingrédient (fallback si absent) | `apps/web/src/components/IngredientImage.vue` |
 | `StepMentionedIngredientIcons` (composant Vue) | Icônes des ingrédients mentionnés par étape (max 3 visibles, surplus via popin PrimeVue) — détail recette et mode cuisine ; source = `ingredientIds` persistés si non vides, sinon matching tokens | `apps/web/src/components/StepMentionedIngredientIcons.vue` |
