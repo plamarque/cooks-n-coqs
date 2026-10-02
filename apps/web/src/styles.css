@@ -128,6 +128,14 @@ body {
 .assistant-preview-close { position: absolute; top: 12px; right: 12px; min-width: 44px; min-height: 44px; border: 0; border-radius: 50%; background: #edf4ef; color: #1f4f46; cursor: pointer; }
 .assistant-preview-origin { color: #52665e; font-size: .9rem; }
 
+@media (max-width: 560px) {
+  .assistant-preview-detail { margin: 0; padding: 0 16px 24px; }
+  .assistant-preview-detail .recipe-detail-header { margin: 0 -16px 16px; display: grid; gap: 10px; }
+  .assistant-preview-detail .recipe-detail-image, .assistant-preview-detail .recipe-detail-image-placeholder { min-height: 220px; max-height: 46vh; }
+  .assistant-preview-detail .recipe-detail-header-actions { position: static; order: 2; padding: 0 16px; }
+  .assistant-preview-save { min-width: 132px; }
+}
+
 .assistant-composer {
   position: relative;
   min-height: 178px;

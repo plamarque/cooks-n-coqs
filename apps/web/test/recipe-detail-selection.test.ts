@@ -98,6 +98,25 @@ test("badge succès : pointer-events none (fiche utilisable)", () => {
   assert.match(css, /\.save-success-badge\s*\{[^}]*pointer-events:\s*none/s);
 });
 
+test("Assistant : illustration candidate dédupliquée, compensée et sauvegarde nettoyée", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const openPreview = app.match(/async function openAssistantPreview\([\s\S]*?\n\}/);
+  assert.ok(openPreview);
+  assert.match(openPreview[0], /assistantCandidateAcceptedId = candidate\.id/);
+  assert.match(openPreview[0], /persistCandidateIllustration/);
+  assert.match(app, /assistantCandidateImagePersistence/);
+  assert.match(app, /const key = `\$\{candidate\.id\}/);
+  assert.match(app, /await db\.images\.delete\(imageId\)/);
+  assert.match(app, /assistantCandidateGenerationId/);
+  const savePreview = app.match(/async function saveAssistantPreview\([\s\S]*?\n\}/);
+  assert.ok(savePreview);
+  assert.match(savePreview[0], /await storeImageFromUrlWithResult/);
+  assert.match(savePreview[0], /imagePersistenceFailed = !imageId/);
+  assert.match(savePreview[0], /if \(imageId\) await db\.images\.delete\(imageId\)/);
+  assert.match(app, /seule la conservation de son illustration a échoué/);
+});
+
 test("resolveDetailRecipe returns null without selected id", () => {
   assert.equal(resolveDetailRecipe([recipe({ id: "a", title: "A" })], null, null), null);
 });

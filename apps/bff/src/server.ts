@@ -36,6 +36,11 @@ export const assistantDependencies = {
 };
 
 export const app = express();
+// Le BFF est servi derrière le proxy TLS Tailscale : req.protocol doit refléter
+// X-Forwarded-Proto pour que les URLs d'images soient récupérables par le navigateur.
+// Seul le proxy local est digne de confiance : une requête directe ne doit pas
+// pouvoir forger son protocole public avec cet en-tête.
+app.set("trust proxy", "loopback");
 const upload = multer();
 const assistantImageUpload = multer({ limits: { files: 5, fileSize: 4 * 1024 * 1024, fields: 1, fieldSize: 1_200, parts: 6 } });
 const port = Number(process.env.PORT ?? 8787);

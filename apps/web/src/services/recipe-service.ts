@@ -13,10 +13,25 @@ import { deleteCookingStepImagesForRecipe } from "./cooking-step-image-service";
 
 const BFF_URL = import.meta.env.VITE_BFF_URL || "http://localhost:8787";
 
-export async function storeImageFromUrl(url: string): Promise<string | undefined> {
+export type ImageStorageResult =
+  | { imageId: string }
+  | { imageId: undefined; issue: "fetch" | "invalid-image" | "storage" };
+
+function isGeneratedImageFromConfiguredBff(url: string): boolean {
+  try {
+    const imageUrl = new URL(url);
+    const bffUrl = new URL(BFF_URL);
+    return imageUrl.origin === bffUrl.origin && imageUrl.pathname.startsWith("/api/generated-images/");
+  } catch {
+    return false;
+  }
+}
+
+/** Télécharge puis écrit l'illustration dans IndexedDB sans exposer l'URL source. */
+export async function storeImageFromUrlWithResult(url: string): Promise<ImageStorageResult> {
   try {
     const isExternal = url.startsWith("http://") || url.startsWith("https://");
-    const isBffGeneratedImage = url.includes("/api/generated-images/");
+    const isBffGeneratedImage = isGeneratedImageFromConfiguredBff(url);
     const fetchUrl = isExternal && !isBffGeneratedImage
       ? `${BFF_URL}/api/proxy-image`
       : url;
@@ -29,9 +44,9 @@ export async function storeImageFromUrl(url: string): Promise<string | undefined
         }
       : { mode: "cors", signal: AbortSignal.timeout(10000) };
     const res = await fetch(fetchUrl, fetchOpts);
-    if (!res.ok) return undefined;
+    if (!res.ok) return { imageId: undefined, issue: "fetch" };
     const blob = await res.blob();
-    if (!blob.type.startsWith("image/")) return undefined;
+    if (!blob.type.startsWith("image/")) return { imageId: undefined, issue: "invalid-image" };
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     await db.images.add({
@@ -41,10 +56,15 @@ export async function storeImageFromUrl(url: string): Promise<string | undefined
       createdAt: now,
       blob
     });
-    return id;
+    return { imageId: id };
   } catch {
-    return undefined;
+    return { imageId: undefined, issue: "storage" };
   }
+}
+
+/** Contrat historique pour les flux best-effort existants. */
+export async function storeImageFromUrl(url: string): Promise<string | undefined> {
+  return (await storeImageFromUrlWithResult(url)).imageId;
 }
 
 export async function getImageBlobUrl(imageId: string): Promise<string | undefined> {

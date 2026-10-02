@@ -57,7 +57,8 @@ import {
   dexieRecipeService,
   getImageBlobUrl,
   storeImageFromFile,
-  storeImageFromUrl
+  storeImageFromUrl,
+  storeImageFromUrlWithResult
 } from "./services/recipe-service";
 import {
   exportRecipeBookZipBlob,
@@ -209,6 +210,9 @@ const ASSISTANT_STARTER_LABELS: Record<(typeof ASSISTANT_STARTERS)[number], stri
 };
 let assistantSpeechSession: SpeechRecognitionSession | null = null;
 let detailReturnView: "ASSISTANT" | "LIST" = "LIST";
+let assistantCandidateGenerationId = 0;
+let assistantCandidateImagePersistence: { key: string; promise: Promise<void> } | null = null;
+let assistantCandidateAcceptedId: string | null = null;
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const recipeBookFileInputRef = ref<HTMLInputElement | null>(null);
@@ -1151,6 +1155,8 @@ async function prepareAssistantRequest(): Promise<void> {
     // cancellation button focusable until the session takes over.
     assistantPhase.value = assistantSession.phase === "idle" ? "analyzing" : assistantSession.phase;
     assistantPreview.value = null;
+    ++assistantCandidateGenerationId;
+    assistantCandidateAcceptedId = null;
     assistantCandidatePreview.value = null;
     assistantError.value = null;
     nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-import-progress button")?.focus());
@@ -1271,6 +1277,8 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
       assistantSession.phase = "error";
       return null;
     }
+    const generationId = ++assistantCandidateGenerationId;
+    assistantCandidateAcceptedId = null;
     assistantCandidatePreview.value = recipe;
     // Une recette du Cahier peut ne pas avoir d'illustration. Dans ce cas, la
     // carte se comporte comme une recette sur mesure : elle montre l'attente,
@@ -1280,11 +1288,16 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
     if (!recipe.imageId) {
       const candidateId = recipe.id;
       void generateRecipeImage(recipe).then((imageUrl) => {
-        if (assistantCandidatePreview.value?.id !== candidateId) return;
-        if (imageUrl) assistantPreviewImageUrl.value = imageUrl;
+        if (assistantCandidateGenerationId !== generationId || assistantCandidatePreview.value?.id !== candidateId) return;
+        if (imageUrl) {
+          assistantPreviewImageUrl.value = imageUrl;
+          if (assistantCandidateAcceptedId === candidateId && selectedRecipeId.value === candidateId) {
+            void persistCandidateIllustration(recipe, imageUrl);
+          }
+        }
         else assistantPreviewImageUnavailable.value = true;
       }).catch(() => {
-        if (assistantCandidatePreview.value?.id === candidateId) assistantPreviewImageUnavailable.value = true;
+        if (assistantCandidateGenerationId === generationId && assistantCandidatePreview.value?.id === candidateId) assistantPreviewImageUnavailable.value = true;
       });
     }
     assistantSession.phase = "ready";
@@ -1306,10 +1319,17 @@ function cancelAssistantImport(): void {
   focusAssistantComposer();
 }
 
-function openAssistantPreview(): void {
+async function openAssistantPreview(): Promise<void> {
+  // Une preview est une nouvelle action : aucun retour d'une suppression passée.
+  clearMessages();
   if (assistantCandidatePreview.value) {
-    openDetail(assistantCandidatePreview.value, "ASSISTANT");
-    detailRecipeOverride.value = assistantCandidatePreview.value;
+    const candidate = assistantCandidatePreview.value;
+    openDetail(candidate, "ASSISTANT");
+    detailRecipeOverride.value = candidate;
+    assistantCandidateAcceptedId = candidate.id;
+    if (!candidate.imageId && assistantPreviewImageUrl.value) {
+      await persistCandidateIllustration(candidate, assistantPreviewImageUrl.value);
+    }
     return;
   }
   if (!assistantPreview.value) return;
@@ -1319,6 +1339,8 @@ function openAssistantPreview(): void {
 async function closeAssistantPreview(): Promise<void> {
   const confirmed = await requestConfirmation({ header: "Fermer ce résultat ?", message: "Votre saisie restera dans le Compositeur.", acceptLabel: "Fermer", rejectLabel: "Garder", acceptSeverity: "danger" });
   if (!confirmed) return;
+  ++assistantCandidateGenerationId;
+  assistantCandidateAcceptedId = null;
   assistantSession.closePreview();
   assistantPreview.value = null;
   assistantCandidatePreview.value = null;
@@ -1339,13 +1361,58 @@ async function saveAssistantPreview(): Promise<void> {
   assistantPreviewSaving.value = true;
   const imageUrl = assistantPreviewImageUrl.value;
   try {
-    await createRecipeFromDraft(imageUrl ? { ...preview.draft, imageUrl } : preview.draft, preview.sourceFiles);
+    let imageId: string | undefined;
+    let imagePersistenceFailed = false;
+    if (imageUrl) {
+      const stored = await storeImageFromUrlWithResult(imageUrl);
+      imageId = stored.imageId;
+      imagePersistenceFailed = !imageId;
+    }
+    try {
+      await createRecipeFromDraft(preview.draft, preview.sourceFiles, imageId, Boolean(imageUrl), imagePersistenceFailed);
+    } catch (error) {
+      if (imageId) await db.images.delete(imageId);
+      throw error;
+    }
     assistantSession.closePreview();
     assistantPreview.value = null;
     assistantPreviewImageUrl.value = null;
   } finally {
     assistantPreviewSaving.value = false;
   }
+}
+
+async function persistCandidateIllustration(candidate: Recipe, imageUrl: string): Promise<void> {
+  const key = `${candidate.id}\u0000${imageUrl}`;
+  if (assistantCandidateImagePersistence?.key === key) return assistantCandidateImagePersistence.promise;
+  const promise = (async () => {
+    assistantAnnouncement.value = "Conservation de l’illustration de la recette du Cahier…";
+    const stored = await storeImageFromUrlWithResult(imageUrl);
+    if (!stored.imageId) {
+      feedbackType.value = "warning";
+      feedback.value = "La recette du Cahier reste utilisable ; son illustration temporaire n’a pas pu être enregistrée.";
+      return;
+    }
+    const imageId = stored.imageId;
+    const isCurrent = () => assistantCandidatePreview.value?.id === candidate.id && selectedRecipeId.value === candidate.id && assistantCandidateAcceptedId === candidate.id;
+    if (!isCurrent()) { await db.images.delete(imageId); return; }
+    try {
+      await dexieRecipeService.updateRecipe(candidate.id, { imageId });
+      if (!isCurrent()) { await dexieRecipeService.updateRecipe(candidate.id, { imageId: undefined }); await db.images.delete(imageId); return; }
+      const enriched = { ...candidate, imageId };
+      assistantCandidatePreview.value = enriched;
+      detailRecipeOverride.value = enriched;
+      await refresh();
+      assistantAnnouncement.value = "Illustration conservée dans votre Cahier.";
+    } catch {
+      try { await dexieRecipeService.updateRecipe(candidate.id, { imageId: undefined }); } catch { /* état détail déjà utilisable */ }
+      await db.images.delete(imageId);
+      feedbackType.value = "warning";
+      feedback.value = "La recette du Cahier reste utilisable ; l’enregistrement de son illustration a échoué.";
+    }
+  })();
+  assistantCandidateImagePersistence = { key, promise };
+  try { await promise; } finally { if (assistantCandidateImagePersistence?.key === key) assistantCandidateImagePersistence = null; }
 }
 
 function onAssistantKeydown(event: KeyboardEvent): void {
@@ -2047,11 +2114,15 @@ function fallbackImportMessage(source?: ImportSource): string {
 
 async function createRecipeFromDraft(
   draft: ParsedRecipeDraft,
-  screenshotFiles?: File[]
+  screenshotFiles?: File[],
+  initialImageId?: string,
+  imageAlreadyAttempted = false,
+  imagePersistenceFailed = false
 ): Promise<void> {
   clearMessages();
   form.value = draftToForm(draft);
   let recipe = formToRecipe(undefined); // sans image, on la traite en async
+  if (initialImageId) recipe = { ...recipe, imageId: initialImageId };
 
   if (recipe.ingredients.length === 0 && recipe.steps.length === 0) {
     recipe = {
@@ -2094,8 +2165,13 @@ async function createRecipeFromDraft(
   } else {
     servingsInput.value = servingsInputFromRecipe(recipe);
     viewMode.value = "DETAIL";
-    feedback.value = "Recette importée.";
-    startAsyncImageForRecipe(recipe.id, draft);
+    feedbackType.value = imagePersistenceFailed ? "warning" : "success";
+    feedback.value = imagePersistenceFailed
+      ? "Recette importée ; seule la conservation de son illustration a échoué."
+      : initialImageId
+        ? "Recette importée avec son illustration."
+        : "Recette importée.";
+    if (!initialImageId && !imageAlreadyAttempted) startAsyncImageForRecipe(recipe.id, draft);
     void hydrateStepMediaFromDraft(recipe.id, recipe.steps, draft.steps).then(() => refresh());
   }
 }
@@ -3716,6 +3792,12 @@ onUnmounted(() => {
             <i class="pi pi-search-plus" aria-hidden="true" />
           </span>
         </button>
+        <img
+          v-else-if="assistantCandidatePreview?.id === selectedRecipe.id && assistantPreviewImageUrl"
+          class="recipe-detail-image"
+          :src="assistantPreviewImageUrl"
+          :alt="`Illustration temporaire de ${selectedRecipe.title}`"
+        />
         <div
           v-else-if="selectedRecipe.id === recipeIdWithPendingImage"
           class="recipe-detail-image-placeholder recipe-detail-image-placeholder--loading"

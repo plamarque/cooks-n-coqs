@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Server } from "node:http";
 import { app, assistantDependencies } from "../src/server.js";
+import { buildCachedImageUrl } from "../src/image-cache.js";
 
 const original = { ...assistantDependencies };
 const candidate = { candidateRef: "candidate-1", title: "Tarte", ingredientLabels: ["pomme"], durationMin: 30 };
@@ -18,6 +19,20 @@ async function post(base: string, path: string, body: unknown): Promise<Response
   return fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
 test.afterEach(() => Object.assign(assistantDependencies, original));
+
+test("BFF : le proxy TLS local transmet HTTPS à la requête qui construit les URLs générées", async () => {
+  app.get("/__test/forwarded-image-url", (req, res) => {
+    res.json({ protocol: req.protocol, imageUrl: buildCachedImageUrl(req, "test-key") });
+  });
+  await withServer(async (base) => {
+    const response = await fetch(`${base}/__test/forwarded-image-url`, {
+      headers: { Host: "patrices-macbook-pro.tail3f7249.ts.net", "X-Forwarded-Proto": "https" }
+    });
+    const payload = await response.json() as { protocol: string; imageUrl: string };
+    assert.equal(payload.protocol, "https");
+    assert.match(payload.imageUrl, /^https:\/\/.+\/api\/generated-images\/test-key$/);
+  });
+});
 
 test("assistant select HTTP: entrée invalide, candidat, import, nouveau et indisponible", async () => {
   await withServer(async (base) => {

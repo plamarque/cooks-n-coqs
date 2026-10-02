@@ -390,28 +390,10 @@ test.describe("Cookies & Coquillettes v1", () => {
     expect(await countStores()).toEqual(before);
   });
 
-  test("Assistant : noCandidate Jev produit une preview temporaire, puis sauvegarde une seule recette", async ({ page }) => {
+  test("Assistant : noCandidate Jev conserve l’illustration avant de confirmer la recette sur mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
-    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
-      title: "Crumble pommes", category: "SUCRE", ingredients: [{ id: "pomme", label: "pommes", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Cuire 25 minutes." }]
-    } }));
-    await page.getByLabel("Votre demande").fill("un dessert fruité d'automne réconfortant");
-    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
-    const card = page.getByRole("button", { name: /Prévisualisation prête/ });
-    await expect(card).toBeVisible();
-    await card.click();
-    await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
-    await page.getByRole("button", { name: "Sauvegarder", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toHaveCount(0);
-  });
-
-  test("Assistant : candidate Jev affiche la carte Cahier puis ouvre la recette sans copie ni écriture", async ({ page }) => {
-    await page.goto("/");
-    const existingTitle = await page.locator(".assistant-carousel-title").first().textContent();
-    expect(existingTitle).toBeTruthy();
-    const recipeCount = () => page.evaluate(async () => {
+    const savedRecipeImageId = () => page.evaluate(async () => {
       const database = await new Promise((resolve, reject) => {
         const request = indexedDB.open("cookies-et-coquilettes");
         request.onsuccess = () => resolve(request.result);
@@ -419,22 +401,202 @@ test.describe("Cookies & Coquillettes v1", () => {
       });
       const transaction = database.transaction("recipes", "readonly");
       return await new Promise((resolve, reject) => {
-        const request = transaction.objectStore("recipes").count();
-        request.onsuccess = () => resolve(request.result);
+        const request = transaction.objectStore("recipes").getAll();
+        request.onsuccess = () => {
+          const saved = request.result.find((recipe) => recipe.title === "Crumble pommes");
+          resolve(saved?.imageId);
+        };
         request.onerror = () => reject(request.error);
       });
     });
-    await expect.poll(recipeCount).toBe(2);
-    const before = await recipeCount();
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "candidate", candidateRef: "candidate-1", reasonCode: "RELEVANT" } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Crumble pommes", category: "SUCRE", ingredients: [{ id: "pomme", label: "pommes", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Cuire 25 minutes." }]
+    } }));
+    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3C/svg%3E" } }));
+    await page.getByLabel("Votre demande").fill("un dessert fruité d'automne réconfortant");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    const card = page.getByRole("button", { name: /Prévisualisation prête/ });
+    await expect(card).toBeVisible();
+    await expect(card.locator("img")).toBeVisible();
+    await card.click();
+    await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
+    const imageBox = await page.locator(".assistant-preview-detail .recipe-detail-image").boundingBox();
+    const actionsBox = await page.locator(".assistant-preview-detail .recipe-detail-header-actions").boundingBox();
+    expect(imageBox).toBeTruthy();
+    expect(actionsBox).toBeTruthy();
+    expect(actionsBox.y).toBeGreaterThanOrEqual(imageBox.y + imageBox.height);
+    await page.getByRole("button", { name: "Sauvegarder", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
+    await expect(page.locator(".recipe-detail-image")).toBeVisible();
+    await expect(page.locator(".message.success")).toContainText("Recette importée avec son illustration.");
+    await expect.poll(savedRecipeImageId).not.toBeFalsy();
+    await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toHaveCount(0);
+  });
+
+  test("Assistant : candidate Jev sans image conserve l’illustration affichée au premier clic", async ({ page }) => {
+    await page.goto("/");
+    const notebookState = () => page.evaluate(async () => {
+      const database = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("cookies-et-coquilettes");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = database.transaction(["recipes", "images"], "readonly");
+      const recipes = await new Promise((resolve, reject) => {
+        const request = transaction.objectStore("recipes").getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const images = await new Promise((resolve, reject) => {
+        const request = transaction.objectStore("images").count();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const sorted = recipes.sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+      const index = sorted.findIndex((recipe) => !recipe.imageId);
+      return { recipeCount: recipes.length, imageCount: images, title: sorted[index]?.title, candidateRef: `candidate-${index + 1}` };
+    });
+    await expect.poll(async () => (await notebookState()).recipeCount).toBe(2);
+    const before = await notebookState();
+    expect(before.title).toBeTruthy();
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "candidate", candidateRef: before.candidateRef, reasonCode: "RELEVANT" } }));
     await page.route("**/api/assistant/recipe", (route) => route.abort("failed"));
+    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3C/svg%3E" } }));
     await page.getByLabel("Votre demande").fill("une recette du Cahier qui ressemble à celle-ci");
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     const card = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
     await expect(card).toBeVisible();
+    await expect(card.locator("img")).toBeVisible();
     await card.click();
-    await expect(page.getByRole("heading", { name: existingTitle, exact: true })).toBeVisible();
-    expect(await recipeCount()).toBe(before);
+    await expect(page.getByRole("heading", { name: before.title, exact: true })).toBeVisible();
+    await expect(page.locator(".recipe-detail-image")).toBeVisible();
+    await expect.poll(async () => (await notebookState()).imageCount).toBe(before.imageCount + 1);
+    expect((await notebookState()).recipeCount).toBe(before.recipeCount);
+  });
+
+  test("Assistant : candidate sans image reste consultable si son illustration ne peut pas être conservée", async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const database = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("cookies-et-coquilettes");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = database.transaction("recipes", "readwrite");
+      const store = transaction.objectStore("recipes");
+      const template = await new Promise((resolve, reject) => {
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result[0]);
+        request.onerror = () => reject(request.error);
+      });
+      store.put({ ...template, id: "candidate-media-failure", title: "Candidate sans image", imageId: undefined, favorite: true, updatedAt: "9999-12-31T23:59:59.999Z" });
+      await new Promise((resolve, reject) => { transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); });
+    });
+    const notebookState = () => page.evaluate(async () => {
+      const database = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("cookies-et-coquilettes");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = database.transaction(["recipes", "images"], "readonly");
+      const recipes = await new Promise((resolve, reject) => {
+        const request = transaction.objectStore("recipes").getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const candidate = recipes.find((recipe) => recipe.id === "candidate-media-failure");
+      return { candidateImageId: candidate?.imageId, title: "Candidate sans image", candidateRef: "candidate-1" };
+    });
+    const before = await notebookState();
+    expect(before.title).toBeTruthy();
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "candidate", candidateRef: before.candidateRef, reasonCode: "RELEVANT" } }));
+    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "https://images.example.test/candidate.png" } }));
+    await page.route("https://images.example.test/candidate.png", (route) => route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'/>" }));
+    await page.route("**/api/proxy-image", (route) => route.fulfill({ status: 502, json: { error: "unavailable" } }));
+    await page.getByLabel("Votre demande").fill("la recette du Cahier, même sans sa photo");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    const card = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
+    await expect(card.locator("img")).toBeVisible();
+    await card.click();
+    await expect(page.getByRole("heading", { name: before.title, exact: true })).toBeVisible();
+    await expect(page.locator(".message.warning")).toContainText("reste utilisable");
+    await expect.poll(async () => (await notebookState()).candidateImageId).toBeFalsy();
+  });
+
+  test("Assistant : deux ouvertures immédiates d’une candidate ne stockent qu’une illustration", async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const database = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("cookies-et-coquilettes");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = database.transaction("recipes", "readwrite");
+      const store = transaction.objectStore("recipes");
+      const template = await new Promise((resolve, reject) => {
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result[0]);
+        request.onerror = () => reject(request.error);
+      });
+      store.put({ ...template, id: "candidate-media-dedup", title: "Candidate dédupliquée", imageId: undefined, favorite: true, updatedAt: "9999-12-31T23:59:59.999Z" });
+      await new Promise((resolve, reject) => { transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); });
+    });
+    const candidate = { title: "Candidate dédupliquée", candidateRef: "candidate-1" };
+    let proxyCalls = 0;
+    let releaseProxy;
+    const proxyReleased = new Promise((resolve) => { releaseProxy = resolve; });
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "candidate", candidateRef: candidate.candidateRef, reasonCode: "RELEVANT" } }));
+    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "https://images.example.test/deduplicated.png" } }));
+    await page.route("https://images.example.test/deduplicated.png", (route) => route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'/>" }));
+    await page.route("**/api/proxy-image", async (route) => {
+      proxyCalls += 1;
+      await proxyReleased;
+      await route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'/>" });
+    });
+    await page.getByLabel("Votre demande").fill("la candidate sans doublon");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    const card = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
+    await expect(card.locator("img")).toBeVisible();
+    await card.evaluate((element) => { element.click(); element.click(); });
+    await expect.poll(() => proxyCalls).toBe(1);
+    releaseProxy();
+    await expect(page.getByRole("heading", { name: candidate.title, exact: true })).toBeVisible();
+  });
+
+  test("Assistant : l’échec de stockage de l’illustration conserve la recette avec un message honnête", async ({ page }) => {
+    await page.goto("/");
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Tarte temporaire", category: "SUCRE", ingredients: [{ id: "pomme", label: "pommes", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Cuire." }]
+    } }));
+    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "https://images.example.test/tarte.png" } }));
+    await page.route("https://images.example.test/tarte.png", (route) => route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'/>" }));
+    await page.route("**/api/proxy-image", (route) => route.fulfill({ status: 502, json: { error: "unavailable" } }));
+    await page.getByLabel("Votre demande").fill("une tarte");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    const card = page.getByRole("button", { name: /Prévisualisation prête/ });
+    await expect(card.locator("img")).toBeVisible();
+    await card.click();
+    await page.getByRole("button", { name: "Sauvegarder", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Tarte temporaire" })).toBeVisible();
+    await expect(page.locator(".message.warning")).toContainText("seule la conservation de son illustration a échoué");
+  });
+
+  test("Assistant : une ancienne confirmation de suppression disparaît à l’ouverture d’une preview", async ({ page }) => {
+    await page.goto("/");
+    await page.locator(".assistant-carousel-card").first().click();
+    await page.locator(".recipe-detail-actions").getByRole("button", { name: "Supprimer" }).click();
+    await page.getByRole("button", { name: "Supprimer" }).last().click();
+    await expect(page.getByText("Recette supprimée.")).toBeVisible();
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Soupe propre", category: "SALE", ingredients: [{ id: "eau", label: "eau", isScalable: false }], steps: [{ id: "s1", order: 1, text: "Chauffer." }]
+    } }));
+    await page.getByLabel("Votre demande").fill("une soupe");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await page.getByRole("button", { name: /Prévisualisation prête/ }).click();
+    await expect(page.getByText("Recette supprimée.")).toHaveCount(0);
   });
 
   test("Assistant : les entrées concurrentes sont gelées pendant l'import", async ({ page }) => {

@@ -45,6 +45,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `assistant-composer` | Validation locale, starters, raccourci et pièce jointe éphémère de l’accueil Assistant | `apps/web/src/utils/assistant-composer.ts` |
 | `assistant-session` | Routage import prioritaire, fil volatile borné, `AbortController`, `requestId`, phases analyse/recherche/création et `AssistantPreview` non sérialisable | `apps/web/src/utils/assistant-session.ts` |
 | `assistant-service` | Préparation Assistant séquentielle des images (copies sous 4 Mio ou erreur typée avant réseau), contrats HTTP de résumés visuels temporaires, sélection Jev (`clarify` inclus) et génération avec fil final, sans Dexie ; une requête vision par image suit dans l’ordre ; le BFF borne à deux tentatives annulables chaque analyse et raccourcit les résumés trop longs ; les diagnostics des requêtes client/BFF partagent une référence, tandis qu’une erreur locale n’a pas de trace BFF, et les indisponibilités restantes sont des 503 neutres côté UI | `apps/web/src/services/assistant-service.ts` |
+| `assistant-preview-media` | Conserve l’URL seulement dans la session de preview, puis écrit l’image dans IndexedDB avant de confirmer une création ; enrichit au clic une candidate existante dépourvue d’image sans remplacer une image existante | `apps/web/src/App.vue`, `apps/web/src/services/recipe-service.ts` |
 | `speech-recognition-adapter` | Adaptateur optionnel de transcription navigateur, sans blob audio ni persistance | `apps/web/src/services/speech-recognition-adapter.ts` |
 | `IngredientImage` (composant Vue) | Affichage de l'icône ingrédient (fallback si absent) | `apps/web/src/components/IngredientImage.vue` |
 | `StepMentionedIngredientIcons` (composant Vue) | Icônes des ingrédients mentionnés par étape (max 3 visibles, surplus via popin PrimeVue) — détail recette et mode cuisine ; source = `ingredientIds` persistés si non vides, sinon matching tokens | `apps/web/src/components/StepMentionedIngredientIcons.vue` |
@@ -81,6 +82,7 @@ Règles de contrat :
 
 ### BFF — clés de cache image (sans génération)
 
+- Derrière le proxy TLS local Tailscale, Express ne fait confiance à `X-Forwarded-Proto` que depuis la boucle locale ; les URLs d’assets générés restent ainsi en HTTPS sans accepter un en-tête forgé par une requête directe.
 - `POST /api/generated-images/cache-key/recipe-image` — corps identique à `generate-recipe-image` ; réponse `{ key }` uniquement.
 - `POST /api/generated-images/cache-key/cooking-step-image` — corps `{ stepText }` ; réponse `{ key }` (même logique que `generate-cooking-step-image`).
 - `POST /api/generated-images/cache-key/ingredient-image` — corps `{ label }` ; réponse `{ key }` (même logique que `generate-ingredient-image`).
