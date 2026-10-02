@@ -31,6 +31,26 @@ export function routeAssistantImport(text: string, attachments: readonly File[])
   return "text";
 }
 
+export function assistantImageErrorMessage(error: AssistantImageRequestError): string {
+  const explanation = error.category === "preparation"
+    ? error.preparationReason === "count"
+      ? "Vous pouvez joindre cinq photos au maximum."
+      : error.preparationReason === "size"
+      ? "Je n’ai pas pu réduire une photo sous la limite de 4 Mio. Vous pouvez réessayer avec une autre version."
+      : "Je n’ai pas pu préparer une photo pour l’analyse. Vérifiez son format puis réessayez."
+    : error.status === 413
+      ? "Une photo reste trop volumineuse pour le service d’analyse. Vous pouvez réessayer avec une autre version."
+      : error.category === "network"
+        ? "La connexion s’est interrompue pendant l’envoi des photos. Vous pouvez réessayer."
+        : error.status === 400
+          ? "Je n’ai pas pu lire l’une des photos. Vérifiez son format puis réessayez."
+          : error.status === 503
+            ? "Le service d’analyse des photos est momentanément indisponible. Vous pouvez réessayer."
+            : "Je n’ai pas pu terminer l’analyse des photos. Vous pouvez réessayer.";
+  const imageIndex = error.imageIndex ? ` Photo concernée : n° ${error.imageIndex}.` : "";
+  return `${explanation}${imageIndex} Vos photos sont conservées. Réf. ${error.reference.slice(0, 8)}.`;
+}
+
 /** Etat propriétaire, volontairement non sérialisable : les File restent en mémoire. */
 export class AssistantSession {
   phase: AssistantSessionPhase = "idle";
@@ -130,18 +150,7 @@ export class AssistantSession {
         generation: "la création de la recette"
       };
       if (error instanceof AssistantImageRequestError) {
-        const explanation = error.status === 413
-          ? "Une photo est trop volumineuse pour être analysée. Choisissez une version plus légère."
-          : error.category === "preparation"
-          ? "Je n’ai pas pu préparer vos photos. Essayez de les sélectionner à nouveau."
-          : error.category === "network"
-            ? "La connexion s’est interrompue pendant l’envoi des photos. Vous pouvez réessayer."
-            : error.status === 400
-                ? "Je n’ai pas pu lire l’une des photos. Vérifiez son format puis réessayez."
-                : error.status === 503
-                  ? "Le service d’analyse des photos est momentanément indisponible. Vous pouvez réessayer."
-                  : "Je n’ai pas pu terminer l’analyse des photos. Vous pouvez réessayer.";
-        this.error = `${explanation} Vos photos sont conservées. Réf. ${error.reference.slice(0, 8)}.`;
+        this.error = assistantImageErrorMessage(error);
         return null;
       }
       this.error = detail

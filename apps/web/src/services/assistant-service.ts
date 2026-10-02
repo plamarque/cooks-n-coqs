@@ -1,4 +1,5 @@
 import type { AssistantConversationTurnV1, NotebookCandidateWireV1, NotebookSelectionWireV1, ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
+import { compressImageForTransfer, ImageTransferPreparationError } from "./import-service";
 
 function defaultBffUrl(): string {
   // Le proxy Vite peut rejeter un multipart mobile avant le BFF (donc sans
@@ -15,14 +16,39 @@ export const ASSISTANT_IMAGE_CONTEXT_MAX_LENGTH = 1_200;
 
 export class AssistantImageRequestError extends Error {
   readonly assistantStage = "vision";
-  constructor(readonly category: "preparation" | "network" | "http" | "response", readonly reference: string, readonly status?: number) {
+  constructor(readonly category: "preparation" | "network" | "http" | "response", readonly reference: string, readonly status?: number, readonly preparationReason?: "conversion" | "size" | "count", readonly imageIndex?: number) {
     super(`assistant_image:${category}`);
   }
 }
 
-function traceImageRequest(category: AssistantImageRequestError["category"] | "ok", reference: string, imageCount: number, durationMs: number, status?: number): void {
+function traceImageRequest(category: AssistantImageRequestError["category"] | "ok", reference: string, imageIndex: number, originalBytes: number, resultBytes: number | undefined, durationMs: number, status?: number): void {
   // Aucune donnée de photo, demande ou réponse IA n'est journalisée.
-  console.info("assistant_image_diagnostic", { category, reference, imageCount, durationMs, status });
+  console.info("assistant_image_diagnostic", { category, reference, imageIndex, originalBytes, resultBytes, durationMs, status });
+}
+
+/** Prépare le lot dans son ordre initial, sans décodages simultanés. */
+export async function prepareAssistantImages(files: readonly File[], isCurrent: () => boolean): Promise<File[] | null> {
+  if (files.length > 5) throw new AssistantImageRequestError("preparation", crypto.randomUUID(), undefined, "count");
+  const prepared: File[] = [];
+  for (const [index, file] of files.entries()) {
+    if (!isCurrent()) return null;
+    const reference = crypto.randomUUID();
+    const startedAt = Date.now();
+    try {
+      const copy = await compressImageForTransfer(file, 4 * 1024 * 1024);
+      if (!isCurrent()) return null;
+      if (copy.size > 4 * 1024 * 1024) throw new ImageTransferPreparationError("size", file.size, copy.size);
+      traceImageRequest("ok", reference, index + 1, file.size, copy.size, Date.now() - startedAt);
+      prepared.push(copy);
+    } catch (error) {
+      if (!isCurrent()) return null;
+      const reason = error instanceof ImageTransferPreparationError ? error.reason : "conversion";
+      const resultBytes = error instanceof ImageTransferPreparationError ? error.resultBytes : undefined;
+      traceImageRequest("preparation", reference, index + 1, file.size, resultBytes, Date.now() - startedAt);
+      throw new AssistantImageRequestError("preparation", reference, reason === "size" ? 413 : undefined, reason, index + 1);
+    }
+  }
+  return prepared;
 }
 
 export function truncateAssistantImageContext(contextText: string): string {
@@ -66,56 +92,56 @@ export async function summarizeAssistantImage(file: File, contextText: string, s
 /** Une requête courte par image évite qu'un lot de photos garde une connexion
  * HTTP ouverte pendant toutes les reprises fournisseur. Rien n'est persisté. */
 export async function summarizeAssistantImages(files: readonly File[], contextText: string, signal: AbortSignal): Promise<string[]> {
-  if (!files.length || files.length > 5) throw new AssistantImageRequestError("preparation", crypto.randomUUID());
+  if (!files.length || files.length > 5) throw new AssistantImageRequestError("preparation", crypto.randomUUID(), undefined, "count");
   const summaries: string[] = [];
-  for (const file of files) {
+  for (const [index, file] of files.entries()) {
     if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
-    summaries.push(await summarizeOneAssistantImage(file, contextText, signal));
+    summaries.push(await summarizeOneAssistantImage(file, contextText, signal, index + 1));
   }
   return summaries;
 }
 
-async function summarizeOneAssistantImage(file: File, contextText: string, signal: AbortSignal): Promise<string> {
+async function summarizeOneAssistantImage(file: File, contextText: string, signal: AbortSignal, index: number): Promise<string> {
   const reference = crypto.randomUUID();
   const startedAt = Date.now();
   if (file.size > 4 * 1024 * 1024) {
-    traceImageRequest("preparation", reference, 1, Date.now() - startedAt, 413);
-    throw new AssistantImageRequestError("preparation", reference, 413);
+    traceImageRequest("preparation", reference, index, file.size, file.size, Date.now() - startedAt, 413);
+    throw new AssistantImageRequestError("preparation", reference, 413, "size", index);
   }
   const form = new FormData();
   try {
     form.append("file", file);
     form.append("contextText", truncateAssistantImageContext(contextText));
   } catch {
-    traceImageRequest("preparation", reference, 1, Date.now() - startedAt);
-    throw new AssistantImageRequestError("preparation", reference);
+    traceImageRequest("preparation", reference, index, file.size, file.size, Date.now() - startedAt);
+    throw new AssistantImageRequestError("preparation", reference, undefined, "conversion", index);
   }
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}/api/assistant/image-intent?attempt=${reference}`, { method: "POST", body: form, signal });
   } catch (error) {
     if ((error as Error).name === "AbortError") throw error;
-    traceImageRequest("network", reference, 1, Date.now() - startedAt);
-    throw new AssistantImageRequestError("network", reference);
+    traceImageRequest("network", reference, index, file.size, file.size, Date.now() - startedAt);
+    throw new AssistantImageRequestError("network", reference, undefined, undefined, index);
   }
   // The browser may hide response headers on a cross-origin BFF request. The
   // client-generated attempt ID is also sent to the BFF, so it is the stable
   // reference on both sides even when x-request-id is not exposed by CORS.
   const responseReference = reference;
   if (!response.ok) {
-    traceImageRequest("http", responseReference, 1, Date.now() - startedAt, response.status);
-    throw new AssistantImageRequestError("http", responseReference, response.status);
+    traceImageRequest("http", responseReference, index, file.size, file.size, Date.now() - startedAt, response.status);
+    throw new AssistantImageRequestError("http", responseReference, response.status, undefined, index);
   }
   let value: { summaries?: unknown };
   try { value = await response.json() as { summaries?: unknown }; }
   catch {
-    traceImageRequest("response", responseReference, 1, Date.now() - startedAt, response.status);
-    throw new AssistantImageRequestError("response", responseReference, response.status);
+    traceImageRequest("response", responseReference, index, file.size, file.size, Date.now() - startedAt, response.status);
+    throw new AssistantImageRequestError("response", responseReference, response.status, undefined, index);
   }
   if (!Array.isArray(value.summaries) || value.summaries.length !== 1 || typeof value.summaries[0] !== "string" || !value.summaries[0].trim()) {
-    traceImageRequest("response", responseReference, 1, Date.now() - startedAt, response.status);
-    throw new AssistantImageRequestError("response", responseReference, response.status);
+    traceImageRequest("response", responseReference, index, file.size, file.size, Date.now() - startedAt, response.status);
+    throw new AssistantImageRequestError("response", responseReference, response.status, undefined, index);
   }
-  traceImageRequest("ok", responseReference, 1, Date.now() - startedAt, response.status);
+  traceImageRequest("ok", responseReference, index, file.size, file.size, Date.now() - startedAt, response.status);
   return value.summaries[0];
 }

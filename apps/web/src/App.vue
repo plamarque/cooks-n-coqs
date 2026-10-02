@@ -69,13 +69,12 @@ import { db } from "./storage/db";
 import { browserCookingModeService } from "./services/cooking-mode-service";
 import {
   bffImportService,
-  compressImageForTransfer,
   assistantImportAdapter,
   generateCookingStepImage,
   generateRecipeImage
 } from "./services/import-service";
-import { AssistantSession, routeAssistantImport, type AssistantPreview } from "./utils/assistant-session";
-import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
+import { AssistantSession, assistantImageErrorMessage, routeAssistantImport, type AssistantPreview } from "./utils/assistant-session";
+import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
   getCookingStepImageBlobUrl,
@@ -1174,10 +1173,12 @@ async function prepareAssistantRequest(): Promise<void> {
     nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-preview-card")?.focus());
     }
     else if (assistantSession.phase === "error") assistantAnnouncement.value = assistantSession.error ?? "Import impossible.";
-  } catch {
+  } catch (error) {
     if (preparationId === assistantPreparationId) {
       assistantPhase.value = "error";
-      assistantError.value = "Je n’ai pas pu préparer votre demande. Vos images et votre texte sont conservés.";
+      assistantError.value = error instanceof AssistantImageRequestError
+        ? assistantImageErrorMessage(error)
+        : "Je n’ai pas pu préparer votre demande. Vos images et votre texte sont conservés.";
       assistantAnnouncement.value = assistantError.value;
     }
   } finally {
@@ -1189,8 +1190,8 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
   // Une réponse utilisateur ferme la question en attente sans effacer le fil affiché.
   if (assistantSession.question) assistantSession.question = null;
   const inputText = assistantText.value.trim();
-  const attachments = await Promise.all(assistantAttachments.value.map(({ file }) => compressImageForTransfer(file, 4 * 1024 * 1024)));
-  if (preparationId !== assistantPreparationId || !assistantPreparing.value) return null;
+  const attachments = await prepareAssistantImages(assistantAttachments.value.map(({ file }) => file), () => preparationId === assistantPreparationId && assistantPreparing.value);
+  if (!attachments || preparationId !== assistantPreparationId || !assistantPreparing.value) return null;
   const route = routeAssistantImport(inputText, attachments);
   const request = route === "image"
     ? (inputText || (attachments.length > 1 ? "Images jointes à analyser" : "Image jointe à analyser"))
@@ -1234,7 +1235,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
       stage = "lecture_des_photos";
       const draft = route === "image"
         ? attachments.length > 1
-          ? await bffImportService.importFromScreenshots(attachments, { contextText: inputText, signal })
+          ? await bffImportService.importFromScreenshots(attachments, { contextText: inputText, signal, assistantPrepared: true })
           : await assistantImportAdapter.importImage(attachments[0], inputText, signal)
         : route === "url"
           ? await assistantImportAdapter.importUrl(inputText, signal)

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import path from "path";
-import { writeFileSync, mkdirSync } from "fs";
+import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
 
 async function saveRecipeForm(page) {
   // Cible le bouton Enregistrer du header (évite ambiguïté avec celui du footer)
@@ -41,6 +42,58 @@ async function createRecipeViaImport(page, recipeText = "Recette brute") {
   await expect(
     page.locator(".message.success, .message.error, .message.warning")
   ).toContainText(/Recette importée|échoué|incomplète|erreur/i, { timeout: 15000 });
+}
+
+async function makeHeavyPhoto(page, seedValue = 123456789, marker = "#ff0000") {
+  const data = await page.evaluate(async ({ seedValue, marker }) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 3200;
+    canvas.height = 2400;
+    const context = canvas.getContext("2d");
+    const pixels = context.createImageData(canvas.width, canvas.height);
+    let seed = seedValue;
+    for (let index = 0; index < pixels.data.length; index += 4) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      pixels.data[index] = seed & 255;
+      pixels.data[index + 1] = (seed >>> 8) & 255;
+      pixels.data[index + 2] = (seed >>> 16) & 255;
+      pixels.data[index + 3] = 255;
+    }
+    context.putImageData(pixels, 0, 0);
+    context.fillStyle = marker;
+    context.fillRect(0, 0, 320, 320);
+    return canvas.toDataURL("image/jpeg", 1).split(",")[1];
+  }, { seedValue, marker });
+  const buffer = Buffer.from(data, "base64");
+  expect(buffer.length).toBeGreaterThan(4 * 1024 * 1024);
+  return buffer;
+}
+
+function multipartFileBuffer(request) {
+  const body = request.postDataBuffer();
+  const start = body.indexOf(Buffer.from("\r\n\r\n")) + 4;
+  const boundary = Buffer.from("\r\n--");
+  const end = body.indexOf(boundary, start);
+  return body.subarray(start, end);
+}
+
+function multipartFileSize(request) {
+  return multipartFileBuffer(request).length;
+}
+
+async function imageMarkerColors(page, buffers) {
+  return page.evaluate(async (data) => Promise.all(data.map(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const context = canvas.getContext("2d");
+      context.drawImage(bitmap, 20, 20, 1, 1, 0, 0, 1, 1);
+      return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+    } finally { bitmap.close(); }
+  })), buffers.map((buffer) => buffer.toString("base64")));
 }
 
 test.describe("Cookies & Coquillettes v1", () => {
@@ -265,11 +318,8 @@ test.describe("Cookies & Coquillettes v1", () => {
   test("Compositeur mobile : le rail photo reste séparé des actions et l'attente est centrée, lisible et annulable", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
-    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles([
-      { name: "une.png", mimeType: "image/png", buffer: Buffer.from("one") },
-      { name: "deux.png", mimeType: "image/png", buffer: Buffer.from("two") },
-      { name: "trois.png", mimeType: "image/png", buffer: Buffer.from("three") }
-    ]);
+    const photo = path.join(process.cwd(), "e2e", "fixtures", "test-image.png");
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles([photo, photo, photo]);
     const layout = await page.locator(".assistant-composer").evaluate((composer) => {
       const rail = composer.querySelector(".assistant-attachments")?.getBoundingClientRect();
       const actions = composer.querySelector(".assistant-composer-actions")?.getBoundingClientRect();
@@ -425,7 +475,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.route("**/api/assistant/image-intent*", (route) => { calls.push("image-intent"); return route.fulfill({ json: { summaries: ["Un plat."] } }); });
     await page.route("**/api/assistant/select", (route) => { calls.push("select"); return route.fulfill({ json: { kind: "import" } }); });
     await page.route("**/api/import/screenshot", (route) => { calls.push("screenshot"); return route.fulfill({ json: { title: "Photo", category: "SALE", ingredients: [{ id: "i", label: "tomate", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire" }] } }); });
-    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles({ name: "plat.png", mimeType: "image/png", buffer: Buffer.from("image") });
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
     expect(calls).toEqual(["image-intent", "select", "screenshot"]);
@@ -435,7 +485,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.route("**/api/assistant/image-intent*", (route) => { blocked.push("image-intent"); return route.fulfill({ json: { summaries: ["Un plat."] } }); });
     await page.route("**/api/assistant/select", (route) => { blocked.push("select"); return route.fulfill({ json: { kind: "newRecipe" } }); });
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: { title: "Suggestion", category: "SALE", ingredients: [{ id: "i", label: "tomate", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire" }] } }));
-    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles({ name: "sans-import.png", mimeType: "image/png", buffer: Buffer.from("image") });
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
     expect(blocked).toEqual(["image-intent", "select"]);
@@ -483,6 +533,119 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
     expect(analysed).toHaveLength(4);
     expect(new Set(analysed.map((url) => new URL(url).searchParams.get("attempt"))).size).toBe(4);
+  });
+
+  test("Assistant : quatre photos lourdes partent sous 4 Mio dans l'ordre", async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.goto("/");
+    const markers = ["#ff0000", "#00ff00", "#0000ff", "#ffff00"];
+    const buffers = [];
+    for (const [index, marker] of markers.entries()) buffers.push(await makeHeavyPhoto(page, 123456789 + index * 971, marker));
+    const fixtureDir = mkdtempSync(path.join(tmpdir(), "cooks-assistant-photos-"));
+    const files = Array.from({ length: 4 }, (_, index) => path.join(fixtureDir, `photo-${index + 1}.jpg`));
+    for (const [index, file] of files.entries()) writeFileSync(file, buffers[index]);
+    try {
+      await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(files);
+      const uploaded = [];
+      const imported = [];
+      await page.route("**/api/assistant/image-intent*", (route) => {
+        uploaded.push({ data: multipartFileBuffer(route.request()), name: route.request().postDataBuffer().toString("latin1").match(/filename="([^"]+)"/)?.[1] });
+        return route.fulfill({ json: { summaries: [`Photo ${uploaded.length}.`] } });
+      });
+      await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "import" } }));
+      await page.route("**/api/import/screenshot", (route) => {
+        imported.push({ data: multipartFileBuffer(route.request()), name: route.request().postDataBuffer().toString("latin1").match(/filename="([^"]+)"/)?.[1] });
+        return route.fulfill({ json: { title: `Photo ${imported.length}`, category: "SALE", ingredients: [{ id: "i", label: "riz", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire." }] } });
+      });
+      await page.route("**/api/import/reorder-steps", (route) => route.fulfill({ json: { steps: [] } }));
+      await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+      await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+      expect(uploaded.map(({ name }) => name)).toEqual(["photo-1.jpg", "photo-2.jpg", "photo-3.jpg", "photo-4.jpg"]);
+      expect(imported.map(({ name }) => name)).toEqual(["photo-1.jpg", "photo-2.jpg", "photo-3.jpg", "photo-4.jpg"]);
+      expect(uploaded.every(({ data }) => data.length > 0 && data.length <= 4 * 1024 * 1024)).toBe(true);
+      expect(imported.every(({ data }) => data.length > 0 && data.length <= 4 * 1024 * 1024)).toBe(true);
+      const expectedColors = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]];
+      const visionColors = await imageMarkerColors(page, uploaded.map(({ data }) => data));
+      const importColors = await imageMarkerColors(page, imported.map(({ data }) => data));
+      for (const [index, expected] of expectedColors.entries()) {
+        for (const actual of [visionColors[index], importColors[index]]) {
+          expect(actual.every((value, channel) => Math.abs(value - expected[channel]) < 45)).toBe(true);
+        }
+      }
+    } finally { rmSync(fixtureDir, { recursive: true, force: true }); }
+  });
+
+  test("Assistant : une photo illisible trop lourde reste jointe et ne part pas au BFF", async ({ page }) => {
+    await page.goto("/");
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles({ name: "illisible.png", mimeType: "image/png", buffer: Buffer.alloc(4 * 1024 * 1024 + 1) });
+    let requests = 0;
+    await page.route("**/api/assistant/image-intent*", (route) => { requests += 1; return route.abort(); });
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Je n’ai pas pu préparer une photo");
+    await expect(page.locator(".assistant-attachment")).toHaveCount(1);
+    expect(requests).toBe(0);
+  });
+
+  test("Assistant : une réduction impossible sous 4 Mio indique la photo 2 sans envoi", async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.addInitScript(() => {
+      HTMLCanvasElement.prototype.toBlob = function (callback) {
+        callback(new Blob([new Uint8Array(4 * 1024 * 1024 + 1)], { type: "image/jpeg" }));
+      };
+    });
+    await page.goto("/");
+    const heavy = await makeHeavyPhoto(page);
+    const fixtureDir = mkdtempSync(path.join(tmpdir(), "cooks-assistant-size-"));
+    const heavyPath = path.join(fixtureDir, "lourde.jpg");
+    writeFileSync(heavyPath, heavy);
+    try {
+      await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles([path.join(process.cwd(), "e2e", "fixtures", "test-image.png"), heavyPath]);
+      let requests = 0;
+      await page.route("**/api/assistant/**", (route) => { requests += 1; return route.abort(); });
+      await page.route("**/api/import/screenshot", (route) => { requests += 1; return route.abort(); });
+      await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+      await expect(page.getByRole("alert")).toContainText("Je n’ai pas pu réduire une photo sous la limite de 4 Mio");
+      await expect(page.getByRole("alert")).toContainText("Photo concernée : n° 2");
+      await expect(page.locator(".assistant-attachment")).toHaveCount(2);
+      expect(requests).toBe(0);
+    } finally { rmSync(fixtureDir, { recursive: true, force: true }); }
+  });
+
+  test("Assistant : annuler le deuxième encodage empêche toute requête tardive", async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.addInitScript(() => {
+      const decode = window.createImageBitmap.bind(window);
+      let decodes = 0;
+      window.createImageBitmap = async (...args) => { decodes += 1; return decode(...args); };
+      const encode = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
+        if (decodes >= 2 && !window.__secondEncodeHeld) {
+          window.__secondEncodeHeld = true;
+          window.__releaseSecondEncode = () => encode.call(this, (blob) => { callback(blob); window.__secondEncodeDone = true; }, type, quality);
+          return;
+        }
+        return encode.call(this, callback, type, quality);
+      };
+    });
+    await page.goto("/");
+    const buffer = await makeHeavyPhoto(page);
+    const fixtureDir = mkdtempSync(path.join(tmpdir(), "cooks-assistant-cancel-"));
+    const files = [path.join(fixtureDir, "photo-1.jpg"), path.join(fixtureDir, "photo-2.jpg")];
+    for (const file of files) writeFileSync(file, buffer);
+    try {
+      await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(files);
+      let requests = 0;
+      await page.route("**/api/assistant/**", (route) => { requests += 1; return route.abort(); });
+      await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+      await page.waitForFunction(() => window.__secondEncodeHeld === true);
+      await page.locator(".assistant-import-progress").getByRole("button", { name: "Annuler" }).click();
+      await page.evaluate(() => window.__releaseSecondEncode());
+      await page.waitForFunction(() => window.__secondEncodeDone === true);
+      await expect(page.locator(".assistant-import-progress")).toHaveCount(0);
+      await expect(page.locator(".assistant-attachment")).toHaveCount(2);
+      await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toHaveCount(0);
+      expect(requests).toBe(0);
+    } finally { rmSync(fixtureDir, { recursive: true, force: true }); }
   });
 
   test("Assistant : une précision affiche le fil sans vignette et reprend tous les tours", async ({ page }) => {

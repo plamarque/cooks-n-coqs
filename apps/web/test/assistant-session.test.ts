@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AssistantSession, routeAssistantImport } from "../src/utils/assistant-session";
+import { AssistantSession, assistantImageErrorMessage, routeAssistantImport } from "../src/utils/assistant-session";
 import { AssistantImageRequestError } from "../src/services/assistant-service";
 
 const draft = { title: "Soupe", category: "SALE" as const, ingredients: [], steps: [], source: { type: "TEXT" as const, capturedAt: "2026-10-02" } };
+
+test("session Assistant : conversion et taille résiduelle ont des messages distincts", () => {
+  const conversion = assistantImageErrorMessage(new AssistantImageRequestError("preparation", "12345678-0000-0000-0000-000000000000", undefined, "conversion"));
+  const size = assistantImageErrorMessage(new AssistantImageRequestError("preparation", "12345678-0000-0000-0000-000000000000", 413, "size"));
+  assert.match(conversion, /pas pu préparer une photo/);
+  assert.match(size, /pas pu réduire une photo sous la limite de 4 Mio/);
+  assert.notEqual(conversion, size);
+  const second = assistantImageErrorMessage(new AssistantImageRequestError("preparation", "12345678-0000-0000-0000-000000000000", 413, "size", 2));
+  assert.match(second, /Photo concernée : n° 2/);
+});
 
 test("session Assistant : image puis URL puis texte", () => {
   assert.equal(routeAssistantImport("https://example.test", [{} as File]), "image");

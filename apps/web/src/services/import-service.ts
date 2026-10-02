@@ -106,44 +106,83 @@ function fallbackDraft(
 }
 
 /** Réduction locale éphémère, partagée par l'import et l'analyse Assistant. */
-export async function compressImageForTransfer(file: File, maxBytes?: number): Promise<File> {
-  if (!file.type.startsWith("image/")) {
-    return file;
+export class ImageTransferPreparationError extends Error {
+  constructor(readonly reason: "conversion" | "size", readonly originalBytes: number, readonly resultBytes?: number) {
+    super(`image_transfer:${reason}`);
   }
+}
 
+async function decodeTransferImage(file: File): Promise<{ source: CanvasImageSource; width: number; height: number; close: () => void }> {
   try {
     const bitmap = await createImageBitmap(file);
-    const maxSize = 1600;
-    const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return file;
+    return { source: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close() };
+  } catch {
+    // Safari and some image formats can fail createImageBitmap while an HTMLImageElement works.
+    const url = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      return { source: image, width: image.naturalWidth, height: image.naturalHeight, close: () => { image.src = ""; URL.revokeObjectURL(url); } };
+    } catch {
+      URL.revokeObjectURL(url);
+      throw new ImageTransferPreparationError("conversion", file.size);
     }
+  }
+}
 
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    let blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
-    if (maxBytes && blob && blob.size > maxBytes) {
-      for (const quality of [0.7, 0.58]) {
-        blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-        if (!blob || blob.size <= maxBytes) break;
+export async function compressImageForTransfer(file: File, maxBytes?: number): Promise<File> {
+  if (file.type && !file.type.startsWith("image/")) {
+    if (maxBytes) throw new ImageTransferPreparationError("conversion", file.size);
+    return file;
+  }
+  let decoded: Awaited<ReturnType<typeof decodeTransferImage>> | undefined;
+  let canvas: HTMLCanvasElement | undefined;
+  try {
+    decoded = await decodeTransferImage(file);
+    if (!decoded.width || !decoded.height) throw new ImageTransferPreparationError("conversion", file.size);
+    // JPEG/PNG/WebP are accepted by vision as-is. Other browser-decodable
+    // formats (notably HEIC) must become JPEG even when their file is small.
+    if (maxBytes && file.size <= maxBytes && ["image/jpeg", "image/png", "image/webp"].includes(file.type.toLowerCase())) return file;
+    canvas = document.createElement("canvas");
+    const longest = Math.max(decoded.width, decoded.height);
+    const scale = Math.min(1, 1600 / longest);
+    canvas.width = Math.max(1, Math.round(decoded.width * scale));
+    canvas.height = Math.max(1, Math.round(decoded.height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new ImageTransferPreparationError("conversion", file.size);
+    let lastSize: number | undefined;
+    let previousWidth = 0;
+    let previousHeight = 0;
+    // Nine encodes at most. Never shrink beyond a 1200 px longest edge (or
+    // the original size for smaller captures), so recipe text stays legible.
+    for (const maxDimension of [1600, 1400, 1200]) {
+      const dimensionScale = Math.min(1, maxDimension / longest);
+      const width = Math.max(1, Math.round(decoded.width * dimensionScale));
+      const height = Math.max(1, Math.round(decoded.height * dimensionScale));
+      if (width === previousWidth && height === previousHeight) continue;
+      previousWidth = width;
+      previousHeight = height;
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(decoded.source, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.82, 0.68, 0.55]) {
+        const blob = await new Promise<Blob | null>((resolve) => canvas!.toBlob(resolve, "image/jpeg", quality));
+        if (!blob) throw new ImageTransferPreparationError("conversion", file.size, lastSize);
+        lastSize = blob.size;
+        if (!maxBytes || blob.size <= maxBytes) {
+          if (blob.type !== "image/jpeg") throw new ImageTransferPreparationError("conversion", file.size, blob.size);
+          return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+        }
       }
     }
-    bitmap.close();
-    if (!blob) {
-      return file;
-    }
-
-    return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), {
-      type: "image/jpeg"
-    });
-  } catch (_error) {
+    throw new ImageTransferPreparationError("size", file.size, lastSize);
+  } catch (error) {
+    if (maxBytes) throw error instanceof ImageTransferPreparationError ? error : new ImageTransferPreparationError("conversion", file.size);
     return file;
+  } finally {
+    decoded?.close();
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
   }
 }
 
@@ -185,11 +224,11 @@ class BffImportService implements ImportService {
     }
   }
 
-  async importFromScreenshot(file: File, options?: { signal?: AbortSignal; contextText?: string }): Promise<ParsedRecipeDraft> {
+  async importFromScreenshot(file: File, options?: { signal?: AbortSignal; contextText?: string; assistantPrepared?: boolean }): Promise<ParsedRecipeDraft> {
     try {
-      const compressed = await compressImageForTransfer(file);
-      if (compressed.size > MAX_SCREENSHOT_BYTES) {
-        throw new Error("Image trop volumineuse (max 5 Mo).");
+      const compressed = options?.assistantPrepared ? file : await compressImageForTransfer(file);
+      if (compressed.size > (options?.assistantPrepared ? 4 * 1024 * 1024 : MAX_SCREENSHOT_BYTES)) {
+        throw new Error(options?.assistantPrepared ? "Image trop volumineuse (max 4 Mio)." : "Image trop volumineuse (max 5 Mo).");
       }
 
       const body = new FormData();
@@ -209,7 +248,7 @@ class BffImportService implements ImportService {
     }
   }
 
-  async importFromScreenshots(files: File[], options?: { signal?: AbortSignal; contextText?: string }): Promise<ParsedRecipeDraft> {
+  async importFromScreenshots(files: File[], options?: { signal?: AbortSignal; contextText?: string; assistantPrepared?: boolean }): Promise<ParsedRecipeDraft> {
     const drafts: ParsedRecipeDraft[] = [];
     for (const file of files) {
       const draft = await this.importFromScreenshot(file, options);
@@ -261,7 +300,7 @@ export const bffImportService = new BffImportService();
 
 /** Adaptateur Assistant : aucun appel Dexie ni hydratation média. */
 export const assistantImportAdapter = {
-  importImage: (file: File, contextText: string, signal: AbortSignal) => bffImportService.importFromScreenshot(file, { contextText, signal }),
+  importImage: (file: File, contextText: string, signal: AbortSignal) => bffImportService.importFromScreenshot(file, { contextText, signal, assistantPrepared: true }),
   importUrl: (url: string, signal: AbortSignal) => bffImportService.importFromUrl(url, { signal }),
   importText: (text: string, signal: AbortSignal) => bffImportService.importFromText(text, { signal })
 };
