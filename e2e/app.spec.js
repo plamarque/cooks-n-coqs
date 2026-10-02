@@ -71,8 +71,8 @@ test.describe("Cookies & Coquillettes v1", () => {
       await expect(page.locator(".assistant-header")).toBeVisible();
       await expect(page.locator(".assistant-composer")).toBeVisible();
       await expect(page.getByRole("button", { name: "Dicter" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Ajouter une image" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Importer la recette", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Ajouter des photos" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Envoyer la demande", exact: true })).toBeVisible();
       await expect(page.locator(".assistant-starter-list")).toHaveCSS("display", "flex");
       await expect(page.getByRole("button", { name: "Suggestion précédente" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Suggestion suivante" })).toBeVisible();
@@ -111,13 +111,14 @@ test.describe("Cookies & Coquillettes v1", () => {
 
   test("Compositeur : starter, demande vide et raccourci importent une prévisualisation", async ({ page }) => {
     await page.goto("/");
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "import" } }));
     const field = page.getByLabel("Votre demande");
     const quickStarter = page.getByRole("button", { name: /rapide ce soir/i });
     await expect(quickStarter).toHaveText("Rapide ce soir");
     await quickStarter.click();
     await expect(field).toHaveValue("J'ai envie de cuisiner quelque chose de rapide ce soir.");
     await field.fill("");
-    await page.getByRole("button", { name: "Importer la recette", exact: true }).click();
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("status")).toContainText(/Écrivez une intention/i);
     await field.fill("Quiche\n\nIngrédients:\n- 2 oeufs\n\nÉtapes:\n1. Mélanger.");
     await field.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
@@ -130,9 +131,9 @@ test.describe("Cookies & Coquillettes v1", () => {
     const imagePath = path.join(process.cwd(), "e2e", "fixtures", "test-image.png");
     const field = page.getByLabel("Votre demande");
 
-    await page.locator(".assistant-home input[type='file']").setInputFiles(imagePath);
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(imagePath);
     await expect(page.locator(".assistant-attachment span")).toHaveText("test-image.png");
-    await page.getByRole("button", { name: "Retirer l’image" }).click();
+    await page.getByRole("button", { name: "Retirer l’image test-image.png" }).click();
     await expect(page.locator(".assistant-attachment")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
@@ -143,14 +144,14 @@ test.describe("Cookies & Coquillettes v1", () => {
   test("Compositeur : un nom d’image long laisse le retrait accessible", async ({ page }) => {
     await page.goto("/");
     const longName = `${"recette-du-frigo-".repeat(20)}.png`;
-    await page.locator(".assistant-home input[type='file']").setInputFiles({
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles({
       name: longName,
       mimeType: "image/png",
       buffer: Buffer.from("image")
     });
 
     const attachment = page.locator(".assistant-attachment");
-    const remove = page.getByRole("button", { name: "Retirer l’image" });
+    const remove = page.getByRole("button", { name: `Retirer l’image ${longName}` });
     await expect(attachment).toContainText(longName);
     expect(await attachment.evaluate((element) => {
       const button = element.querySelector("button");
@@ -206,12 +207,99 @@ test.describe("Cookies & Coquillettes v1", () => {
       window.__assistantLocalProof = () => ({ fetchCalls, writes });
     });
     // Une image est prioritaire : l'import peut appeler le BFF, mais n'écrit jamais avant sauvegarde.
-    await expect(page.getByRole("button", { name: "Importer la recette", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Envoyer la demande", exact: true })).toBeVisible();
     expect(await page.evaluate(() => window.__assistantLocalProof().writes)).toBe(0);
+  });
+
+  test("Compositeur : un seul bouton photo propose caméra et galerie, ferme sans mutation et ajoute plusieurs images", async ({ page }) => {
+    await page.addInitScript(() => {
+      const revoke = URL.revokeObjectURL.bind(URL);
+      window.__assistantRevokedObjectUrls = [];
+      URL.revokeObjectURL = (url) => {
+        window.__assistantRevokedObjectUrls.push(url);
+        revoke(url);
+      };
+    });
+    await page.goto("/");
+    const photo = page.getByRole("button", { name: "Ajouter des photos" });
+    await expect(photo).toBeVisible();
+    await photo.click();
+    await expect(page.getByRole("menuitem", { name: "Prendre une photo" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Choisir des images" })).toBeVisible();
+    await expect(page.locator(".assistant-home input[capture='environment']")).toHaveAttribute("accept", "image/*");
+    await expect(page.locator(".assistant-home input[type='file'][multiple]")).not.toHaveAttribute("capture", /./);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menuitem", { name: "Choisir des images" })).toHaveCount(0);
+    await expect(photo).toBeFocused();
+    await photo.click();
+    await page.getByLabel("Votre demande").focus();
+    await expect(page.getByRole("menuitem", { name: "Choisir des images" })).toHaveCount(0);
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles([
+      { name: "une.png", mimeType: "image/png", buffer: Buffer.from("one") },
+      { name: "deux.jpg", mimeType: "image/jpeg", buffer: Buffer.from("two") }
+    ]);
+    await expect(page.locator(".assistant-attachment")).toHaveCount(2);
+    await expect(page.locator(".assistant-attachment-preview")).toHaveCount(2);
+    await expect(page.locator(".assistant-attachment-preview").first()).toHaveAttribute("src", /^blob:/);
+    await page.locator(".assistant-home input[capture='environment']").setInputFiles({
+      name: "prise-sur-place.jpg", mimeType: "image/jpeg", buffer: Buffer.from("camera")
+    });
+    await expect(page.locator(".assistant-attachment")).toHaveCount(3);
+    await page.getByRole("button", { name: "Retirer l’image une.png" }).click();
+    await expect(page.locator(".assistant-attachment")).toHaveCount(2);
+    expect(await page.evaluate(() => window.__assistantRevokedObjectUrls.some((url) => url.startsWith("blob:")))).toBe(true);
+  });
+
+  test("Compositeur : la sixième image est refusée et une image lourde reste visible avant compression", async ({ page }) => {
+    await page.goto("/");
+    const gallery = page.locator(".assistant-home input[type='file'][multiple]");
+    await gallery.setInputFiles(Array.from({ length: 6 }, (_, index) => ({ name: `${index}.png`, mimeType: "image/png", buffer: Buffer.from("image") })));
+    await expect(page.locator(".assistant-attachment")).toHaveCount(5);
+    await expect(page.getByRole("status")).toContainText("Seules les 5 premières images sont conservées");
+    await page.getByRole("button", { name: "Retirer l’image 0.png" }).click();
+    await gallery.setInputFiles({ name: "grande.png", mimeType: "image/png", buffer: Buffer.alloc(4 * 1024 * 1024 + 1) });
+    await expect(page.locator(".assistant-attachment")).toHaveCount(5);
+    await expect(page.getByRole("button", { name: "Retirer l’image grande.png" })).toBeVisible();
+  });
+
+  test("Compositeur mobile : le rail photo reste séparé des actions et l'attente est centrée, lisible et annulable", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto("/");
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles([
+      { name: "une.png", mimeType: "image/png", buffer: Buffer.from("one") },
+      { name: "deux.png", mimeType: "image/png", buffer: Buffer.from("two") },
+      { name: "trois.png", mimeType: "image/png", buffer: Buffer.from("three") }
+    ]);
+    const layout = await page.locator(".assistant-composer").evaluate((composer) => {
+      const rail = composer.querySelector(".assistant-attachments")?.getBoundingClientRect();
+      const actions = composer.querySelector(".assistant-composer-actions")?.getBoundingClientRect();
+      return { railBottom: rail?.bottom, actionsTop: actions?.top };
+    });
+    expect(layout.railBottom).toBeLessThanOrEqual(layout.actionsTop);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    await page.route("**/api/assistant/image-intent*", async (route) => { await gate; await route.fulfill({ json: { summaries: ["un"] } }); });
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    const overlay = page.locator(".assistant-import-progress");
+    await expect(overlay).toBeVisible();
+    await expect(overlay.locator(".assistant-import-progress-mark img")).toBeVisible();
+    await expect(overlay.getByRole("button", { name: "Annuler" })).toBeFocused();
+    const overlayLayout = await overlay.evaluate((element) => {
+      const mark = element.querySelector(".assistant-import-progress-mark")?.getBoundingClientRect();
+      const label = element.querySelector(".assistant-import-progress-label")?.getBoundingClientRect();
+      const cancel = element.querySelector("button")?.getBoundingClientRect();
+      return { mark, label, cancel };
+    });
+    expect(overlayLayout.mark.bottom).toBeLessThanOrEqual(overlayLayout.label.top);
+    expect(overlayLayout.label.bottom).toBeLessThanOrEqual(overlayLayout.cancel.top);
+    await overlay.getByRole("button", { name: "Annuler" }).click();
+    await expect(overlay).toHaveCount(0);
+    release();
   });
 
   test("Assistant : carte F2, détail, fermeture et aucune écriture IndexedDB", async ({ page }) => {
     await page.goto("/");
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "import" } }));
     const field = page.getByLabel("Votre demande");
     await field.fill("Soupe express\n\nIngrédients:\n- 1 oignon\n\nÉtapes:\n1. Mixer.");
     const countStores = () => page.evaluate(async () => {
@@ -234,36 +322,196 @@ test.describe("Cookies & Coquillettes v1", () => {
     // L'amorçage v1 est asynchrone : attendre son état stable avant la mesure.
     await expect.poll(countStores).toMatchObject({ recipes: 2 });
     const before = await countStores();
-    await page.getByRole("button", { name: "Importer la recette", exact: true }).click();
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     const card = page.getByRole("button", { name: /Prévisualisation prête/ });
     await expect(card).toBeVisible();
     await expect(card).toBeFocused();
     await card.press("Enter");
     await expect(page.getByRole("heading", { name: "Soupe express" })).toBeVisible();
+    await expect(page.locator(".assistant-preview-detail .ingredient-grid")).toContainText("oignon");
+    await expect(page.locator(".assistant-preview-detail .prep-steps-list")).toContainText("Mixer");
+    await expect(page.getByRole("button", { name: "Sauvegarder", exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toBeVisible();
     expect(await countStores()).toEqual(before);
     await page.getByRole("button", { name: "Fermer la prévisualisation" }).click();
+    await page.getByRole("button", { name: "Fermer", exact: true }).click();
     await expect(page.getByRole("heading", { name: "On mange quoi ?" })).toBeVisible();
     await expect(field).toBeFocused();
     expect(await countStores()).toEqual(before);
+  });
+
+  test("Assistant : noCandidate Jev produit une preview temporaire, puis sauvegarde une seule recette", async ({ page }) => {
+    await page.goto("/");
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Crumble pommes", category: "SUCRE", ingredients: [{ id: "pomme", label: "pommes", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Cuire 25 minutes." }]
+    } }));
+    await page.getByLabel("Votre demande").fill("un dessert fruité d'automne réconfortant");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    const card = page.getByRole("button", { name: /Prévisualisation prête/ });
+    await expect(card).toBeVisible();
+    await card.click();
+    await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
+    await page.getByRole("button", { name: "Sauvegarder", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toHaveCount(0);
+  });
+
+  test("Assistant : candidate Jev affiche la carte Cahier puis ouvre la recette sans copie ni écriture", async ({ page }) => {
+    await page.goto("/");
+    const existingTitle = await page.locator(".assistant-carousel-title").first().textContent();
+    expect(existingTitle).toBeTruthy();
+    const recipeCount = () => page.evaluate(async () => {
+      const database = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("cookies-et-coquilettes");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = database.transaction("recipes", "readonly");
+      return await new Promise((resolve, reject) => {
+        const request = transaction.objectStore("recipes").count();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    });
+    await expect.poll(recipeCount).toBe(2);
+    const before = await recipeCount();
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "candidate", candidateRef: "candidate-1", reasonCode: "RELEVANT" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.abort("failed"));
+    await page.getByLabel("Votre demande").fill("une recette du Cahier qui ressemble à celle-ci");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    const card = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
+    await expect(card).toBeVisible();
+    await card.click();
+    await expect(page.getByRole("heading", { name: existingTitle, exact: true })).toBeVisible();
+    expect(await recipeCount()).toBe(before);
   });
 
   test("Assistant : les entrées concurrentes sont gelées pendant l'import", async ({ page }) => {
     await page.goto("/");
     let release;
     const gate = new Promise((resolve) => { release = resolve; });
+    await page.route("**/api/assistant/image-intent*", (route) => route.fulfill({ json: { summaries: ["Un plat."] } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "import" } }));
     await page.route("**/api/import/screenshot", async (route) => {
       await gate;
       await route.fulfill({ json: { title: "Import", category: "SALE", ingredients: [], steps: [] } });
     });
     await page.getByLabel("Votre demande").fill("texte de contexte");
-    await page.locator(".assistant-home input[type='file']").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
-    await page.getByRole("button", { name: "Importer la recette", exact: true }).click();
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: "Annuler" })).toBeFocused();
-    await expect(page.getByRole("button", { name: "Retirer l’image" })).toBeDisabled();
+    await expect(page.getByLabel("Votre demande")).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Retirer l’image test-image.png" })).toBeDisabled();
     await expect(page.getByRole("button", { name: /J'ai envie de cuisiner quelque chose de rapide/i })).toBeDisabled();
     release();
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+  });
+
+  test("Assistant : une URL et une image sont sélectionnées avant leur parse", async ({ page }) => {
+    await page.goto("/");
+    const calls = [];
+    await page.route("**/api/assistant/select", (route) => { calls.push("select"); return route.fulfill({ json: { kind: "import" } }); });
+    await page.route("**/api/import/url", (route) => { calls.push("url"); return route.fulfill({ json: { title: "URL", category: "SALE", ingredients: [{ id: "i", label: "x", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire" }] } }); });
+    await page.getByLabel("Votre demande").fill("https://example.test/recette");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+    expect(calls).toEqual(["select", "url"]);
+  });
+
+  test("Assistant : une image suit image-intent, sélection puis screenshot, et ne parse pas sans choix import", async ({ page }) => {
+    await page.goto("/");
+    const calls = [];
+    await page.route("**/api/assistant/image-intent*", (route) => { calls.push("image-intent"); return route.fulfill({ json: { summaries: ["Un plat."] } }); });
+    await page.route("**/api/assistant/select", (route) => { calls.push("select"); return route.fulfill({ json: { kind: "import" } }); });
+    await page.route("**/api/import/screenshot", (route) => { calls.push("screenshot"); return route.fulfill({ json: { title: "Photo", category: "SALE", ingredients: [{ id: "i", label: "tomate", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire" }] } }); });
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles({ name: "plat.png", mimeType: "image/png", buffer: Buffer.from("image") });
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+    expect(calls).toEqual(["image-intent", "select", "screenshot"]);
+
+    await page.goto("/");
+    const blocked = [];
+    await page.route("**/api/assistant/image-intent*", (route) => { blocked.push("image-intent"); return route.fulfill({ json: { summaries: ["Un plat."] } }); });
+    await page.route("**/api/assistant/select", (route) => { blocked.push("select"); return route.fulfill({ json: { kind: "newRecipe" } }); });
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: { title: "Suggestion", category: "SALE", ingredients: [{ id: "i", label: "tomate", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire" }] } }));
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles({ name: "sans-import.png", mimeType: "image/png", buffer: Buffer.from("image") });
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+    expect(blocked).toEqual(["image-intent", "select"]);
+  });
+
+  test("Assistant : quatre photos échouées restent réessayables avec une référence unique", async ({ page }) => {
+    await page.goto("/");
+    const image = path.join(process.cwd(), "e2e", "fixtures", "test-image.png");
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles([image, image, image, image]);
+    await expect(page.locator(".assistant-attachment")).toHaveCount(4);
+    let requests = 0;
+    let attempt = "";
+    await page.route("**/api/assistant/image-intent*", (route) => {
+      requests += 1;
+      attempt = new URL(route.request().url()).searchParams.get("attempt") ?? "";
+      expect(attempt).toMatch(/^[0-9a-f-]{36}$/);
+      return route.fulfill({ status: 503, json: { error: "UPSTREAM_UNAVAILABLE" } });
+    });
+    const send = page.getByRole("button", { name: "Envoyer la demande", exact: true });
+    await send.click();
+    await expect(page.getByRole("alert")).toContainText(attempt.slice(0, 8));
+    await expect(page.locator(".assistant-conversation-turn--user")).toHaveCount(0);
+    await expect(page.locator(".assistant-attachment")).toHaveCount(4);
+    await send.click();
+    await expect.poll(() => requests).toBe(2);
+    await expect(page.locator(".assistant-conversation-turn--user")).toHaveCount(0);
+  });
+
+  test("Assistant : quatre photos sont analysées dans quatre requêtes courtes, puis produisent une recette", async ({ page }) => {
+    await page.goto("/");
+    const image = path.join(process.cwd(), "e2e", "fixtures", "test-image.png");
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles([image, image, image, image]);
+    const analysed = [];
+    await page.route("**/api/assistant/image-intent*", (route) => {
+      const form = route.request().postDataBuffer();
+      expect(form?.toString()).toContain('name="file"');
+      analysed.push(route.request().url());
+      return route.fulfill({ json: { summaries: [`Photo ${analysed.length} : ingrédients visibles.`] } });
+    });
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Salade aux quatre photos", category: "SALE", ingredients: [{ id: "riz", label: "riz", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Mélanger le riz." }]
+    } }));
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+    expect(analysed).toHaveLength(4);
+    expect(new Set(analysed.map((url) => new URL(url).searchParams.get("attempt"))).size).toBe(4);
+  });
+
+  test("Assistant : une précision affiche le fil sans vignette et reprend tous les tours", async ({ page }) => {
+    await page.goto("/");
+    const selectionBodies = [];
+    await page.route("**/api/assistant/select", async (route) => {
+      selectionBodies.push(route.request().postDataJSON());
+      await route.fulfill({ json: selectionBodies.length === 1
+        ? { kind: "clarify", question: "Pour combien de personnes ?" }
+        : { kind: "newRecipe" } });
+    });
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Soupe pour deux", category: "SALE", ingredients: [{ id: "i", label: "carotte", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire." }]
+    } }));
+    const field = page.getByLabel("Votre demande");
+    await field.fill("une soupe réconfortante");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByText("Pour combien de personnes ?")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toHaveCount(0);
+    await expect(field).toHaveValue("");
+    await field.fill("pour deux");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+    expect(selectionBodies).toHaveLength(2);
+    expect(selectionBodies[1].turns).toEqual([
+      { role: "user", text: "une soupe réconfortante" },
+      { role: "assistant", text: "Pour combien de personnes ?" },
+      { role: "user", text: "pour deux" }
+    ]);
   });
 
   test("Compositeur : flèches du carrousel déplacent le focus sans faire défiler la page", async ({ page }) => {

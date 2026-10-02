@@ -6,11 +6,12 @@ export const ASSISTANT_IMAGE_TYPE_MESSAGE = "Choisissez une image pour le Compos
 export interface AssistantAttachment {
   name: string;
   file: File;
+  previewUrl: string;
 }
 
 export interface AssistantComposerCommand {
   text: string;
-  attachment: AssistantAttachment | null;
+  attachments: AssistantAttachment[];
 }
 
 export type AssistantComposerValidation =
@@ -27,7 +28,7 @@ export const ASSISTANT_STARTERS = [
 export function validateAssistantComposer(
   command: AssistantComposerCommand
 ): AssistantComposerValidation {
-  return command.text.trim() || command.attachment ? { valid: true } : { valid: false, message: ASSISTANT_EMPTY_MESSAGE };
+  return command.text.trim() || command.attachments.length ? { valid: true } : { valid: false, message: ASSISTANT_EMPTY_MESSAGE };
 }
 
 export function isImageAttachment(file: Pick<File, "type">): boolean {

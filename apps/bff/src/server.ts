@@ -25,9 +25,19 @@ import {
   generateRecipeImage
 } from "./image-generator.js";
 import { detectStepTimerDurationSeconds } from "./step-timer-detector.js";
+import { chooseNotebookRecipe, generateAssistantRecipe, isAssistantRecipeInput, isAssistantSelectionInput, summarizeAssistantImage, validateAssistantRecipeDraft, writeAssistantClarification } from "./assistant-client.js";
+
+/** Point d’injection réservé aux tests HTTP : aucun fournisseur réel n’est appelé. */
+export const assistantDependencies = {
+  choose: chooseNotebookRecipe,
+  summarizeImage: summarizeAssistantImage,
+  clarify: writeAssistantClarification,
+  generate: generateAssistantRecipe
+};
 
 export const app = express();
 const upload = multer();
+const assistantImageUpload = multer({ limits: { files: 5, fileSize: 4 * 1024 * 1024, fields: 1, fieldSize: 1_200, parts: 6 } });
 const port = Number(process.env.PORT ?? 8787);
 const corsOrigin = process.env.CORS_ORIGIN ?? "*";
 const generatedImageAdminToken = process.env.GENERATED_IMAGE_ADMIN_TOKEN?.trim();
@@ -38,6 +48,50 @@ app.use(
   })
 );
 app.use(express.json({ limit: "4mb" }));
+
+type AssistantDiagnostic = {
+  stage: "vision" | "selection" | "generation";
+  provider: "jev" | "luna" | "openai" | "none";
+  errorClass: "none" | "invalid_input" | "upstream_unavailable" | "cancelled";
+  httpStatus?: number;
+  durationMs: number;
+  candidateCount: number;
+  requestId: string;
+  imageIndex?: number;
+  attempt?: number;
+  outcome?: "ok" | "truncated" | "empty" | "timeout" | "provider_error" | "network_error";
+  providerStatus?: number;
+};
+
+/** Diagnostic volontairement réduit : jamais de demande, recette, en-tête ni réponse fournisseur. */
+function traceAssistant(diagnostic: AssistantDiagnostic): void {
+  console.info("assistant_diagnostic", diagnostic);
+}
+
+function assistantRequestId(req?: express.Request): string {
+  const clientId = req?.query.attempt;
+  if (typeof clientId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) return clientId;
+  return crypto.randomUUID();
+}
+function assistantClarificationCount(turns: unknown): number {
+  return Array.isArray(turns) ? turns.filter((turn) => turn?.role === "assistant").length : 0;
+}
+function assistantError(res: express.Response, requestId: string, status: number, body: object): void {
+  res.setHeader("x-request-id", requestId);
+  res.status(status).json(body);
+}
+function assistantImageUploadHandler(field: string, many: boolean): express.RequestHandler {
+  const middleware = many ? assistantImageUpload.array(field, 5) : assistantImageUpload.single(field);
+  return (req, res, next) => middleware(req, res, (error) => {
+    if (!error) return next();
+    const status = error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    // Diagnostic sans contenu utilisateur : rend les erreurs multipart
+    // distinguables d'une indisponibilité du modèle vision.
+    const requestId = assistantRequestId(req);
+    traceAssistant({ stage: "vision", provider: "none", errorClass: "invalid_input", httpStatus: status, durationMs: 0, candidateCount: 0, requestId });
+    assistantError(res, requestId, status, { error: "INVALID_IMAGE" });
+  });
+}
 
 function isGeneratedImageAdminAuthorized(req: express.Request): boolean {
   if (!generatedImageAdminToken) {
@@ -62,6 +116,105 @@ app.post("/api/step-timer-duration", async (req, res) => {
 
   const durationSeconds = await detectStepTimerDurationSeconds(stepText);
   res.json({ durationSeconds: durationSeconds ?? null });
+});
+
+app.post("/api/assistant/select", async (req, res) => {
+  const requestId = assistantRequestId();
+  const startedAt = Date.now();
+  if (!isAssistantSelectionInput(req.body)) {
+    traceAssistant({ stage: "selection", provider: "none", errorClass: "invalid_input", httpStatus: 400, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+    assistantError(res, requestId, 400, { kind: "selectionUnavailable" }); return;
+  }
+  const controller = new AbortController();
+  req.once("aborted", () => controller.abort());
+  res.once("close", () => { if (!res.writableEnded) controller.abort(); });
+  let choice;
+  try {
+    choice = await assistantDependencies.choose({ request: req.body.request.trim(), candidates: req.body.candidates, turns: req.body.turns, clarificationCount: assistantClarificationCount(req.body.turns) }, controller.signal);
+  } catch {
+    if (!controller.signal.aborted) traceAssistant({ stage: "selection", provider: "none", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: req.body.candidates.length, requestId });
+    if (!controller.signal.aborted) assistantError(res, requestId, 503, { kind: "selectionUnavailable" });
+    return;
+  }
+  if (controller.signal.aborted) {
+    traceAssistant({ stage: "selection", provider: "jev", errorClass: "cancelled", durationMs: Date.now() - startedAt, candidateCount: req.body.candidates.length, requestId });
+    return;
+  }
+  if (choice?.kind === "clarify" && assistantClarificationCount(req.body.turns) >= 2) choice = { kind: "newRecipe" };
+  if (choice?.kind === "clarify") {
+    let question: string | null = null;
+    try { question = await assistantDependencies.clarify({ request: req.body.request.trim(), turns: req.body.turns }, controller.signal); } catch { question = null; }
+    if (!question || controller.signal.aborted) {
+      if (!controller.signal.aborted) traceAssistant({ stage: "selection", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: req.body.candidates.length, requestId });
+      if (!controller.signal.aborted) assistantError(res, requestId, 503, { kind: "selectionUnavailable" });
+      return;
+    }
+    choice = { kind: "clarify", question };
+  }
+  traceAssistant({ stage: "selection", provider: choice ? "jev" : "luna", errorClass: choice ? "none" : "upstream_unavailable", httpStatus: choice ? 200 : 503, durationMs: Date.now() - startedAt, candidateCount: req.body.candidates.length, requestId });
+  res.setHeader("x-request-id", requestId);
+  res.status(choice ? 200 : 503).json(choice ? choice.kind === "candidate" ? { kind: "candidate", candidateRef: choice.candidateRef, reasonCode: "RELEVANT" } : choice.kind === "import" ? { kind: "import" } : choice.kind === "clarify" ? { kind: "clarify", question: choice.question } : { kind: "newRecipe" } : { kind: "selectionUnavailable" });
+});
+
+async function summarizeAssistantImages(req: express.Request, res: express.Response): Promise<void> {
+  const requestId = assistantRequestId(req);
+  const startedAt = Date.now();
+  const files = (req.files as Express.Multer.File[] | undefined) ?? (req.file ? [req.file] : []);
+  if (!files.length || files.length > 5 || files.some((file) => !file.buffer || !file.mimetype.startsWith("image/") || file.size > 4 * 1024 * 1024)) {
+    traceAssistant({ stage: "vision", provider: "openai", errorClass: "invalid_input", httpStatus: 400, durationMs: Date.now() - startedAt, candidateCount: files.length, requestId });
+    assistantError(res, requestId, 400, { error: "INVALID_IMAGE" }); return;
+  }
+  const controller = new AbortController();
+  req.once("aborted", () => controller.abort());
+  res.once("close", () => { if (!res.writableEnded) controller.abort(); });
+  const summaries: Array<string | null> = [];
+  const contextText = typeof req.body?.contextText === "string" ? req.body.contextText : "";
+  try {
+    // Une analyse vision à la fois : cinq photos ne doivent pas provoquer une rafale
+    // vers le fournisseur ni faire échouer tout le lot par saturation temporaire.
+    for (const [imageIndex, file] of files.entries()) {
+      summaries.push(await assistantDependencies.summarizeImage(file.buffer, file.mimetype, contextText, controller.signal, (event) => {
+        traceAssistant({ stage: "vision", provider: "openai", errorClass: event.outcome === "ok" || event.outcome === "truncated" ? "none" : "upstream_unavailable", durationMs: event.durationMs, candidateCount: files.length, requestId, imageIndex: imageIndex + 1, attempt: event.attempt, outcome: event.outcome, providerStatus: event.providerStatus });
+      }));
+    }
+  } catch { summaries.length = 0; }
+  if (controller.signal.aborted) { traceAssistant({ stage: "vision", provider: "openai", errorClass: "cancelled", durationMs: Date.now() - startedAt, candidateCount: files.length, requestId }); return; }
+  if (summaries.length !== files.length || summaries.some((summary) => !summary)) {
+    traceAssistant({ stage: "vision", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: files.length, requestId });
+    assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); return;
+  }
+  res.setHeader("x-request-id", requestId);
+  traceAssistant({ stage: "vision", provider: "openai", errorClass: "none", httpStatus: 200, durationMs: Date.now() - startedAt, candidateCount: files.length, requestId });
+  res.json({ summaries });
+}
+
+/** Plusieurs photos sont résumées dans le même tour temporaire, sans écriture ni journal de contenu. */
+app.post("/api/assistant/image-intents", assistantImageUploadHandler("files", true), summarizeAssistantImages);
+// Compatibilité transitoire du client mono-image déjà déployé.
+app.post("/api/assistant/image-intent", assistantImageUploadHandler("file", false), summarizeAssistantImages);
+
+app.post("/api/assistant/recipe", async (req, res) => {
+  const requestId = assistantRequestId();
+  const startedAt = Date.now();
+  const request = typeof req.body?.request === "string" ? req.body.request.trim() : "";
+  if (!request) { traceAssistant({ stage: "generation", provider: "none", errorClass: "invalid_input", httpStatus: 400, durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); assistantError(res, requestId, 400, { error: "INVALID_INPUT" }); return; }
+  if (!isAssistantRecipeInput({ request, turns: req.body?.turns })) { traceAssistant({ stage: "generation", provider: "none", errorClass: "invalid_input", httpStatus: 413, durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); assistantError(res, requestId, 413, { error: "INPUT_TOO_LARGE" }); return; }
+  const controller = new AbortController();
+  req.once("aborted", () => controller.abort());
+  res.once("close", () => { if (!res.writableEnded) controller.abort(); });
+  let draft;
+  try {
+    draft = await assistantDependencies.generate(request, controller.signal, Array.isArray(req.body?.turns) ? req.body.turns : []);
+  } catch {
+    if (!controller.signal.aborted) traceAssistant({ stage: "generation", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+    if (!controller.signal.aborted) assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" });
+    return;
+  }
+  if (controller.signal.aborted) { traceAssistant({ stage: "generation", provider: "openai", errorClass: "cancelled", durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); return; }
+  if (!draft || !validateAssistantRecipeDraft(draft)) { traceAssistant({ stage: "generation", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); return; }
+  traceAssistant({ stage: "generation", provider: "openai", errorClass: "none", httpStatus: 200, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+  res.setHeader("x-request-id", requestId);
+  res.json(draft);
 });
 
 app.post("/api/import/url", async (req, res) => {

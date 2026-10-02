@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AssistantSession, routeAssistantImport } from "../src/utils/assistant-session";
+import { AssistantImageRequestError } from "../src/services/assistant-service";
 
 const draft = { title: "Soupe", category: "SALE" as const, ingredients: [], steps: [], source: { type: "TEXT" as const, capturedAt: "2026-10-02" } };
 
 test("session Assistant : image puis URL puis texte", () => {
-  assert.equal(routeAssistantImport("https://example.test", {} as File), "image");
-  assert.equal(routeAssistantImport("https://example.test", null), "url");
-  assert.equal(routeAssistantImport("Soupe", null), "text");
+  assert.equal(routeAssistantImport("https://example.test", [{} as File]), "image");
+  assert.equal(routeAssistantImport("https://example.test", []), "url");
+  assert.equal(routeAssistantImport("Soupe", []), "text");
 });
 
 test("session Assistant : dispatch réel image, URL puis texte", async () => {
@@ -60,6 +61,72 @@ test("session Assistant : fermeture détruit la preview", async () => {
   await session.import("Soupe", null, { importImage: async () => draft, importUrl: async () => draft, importText: async () => draft });
   session.closePreview();
   assert.equal(session.preview, null);
+});
+
+test("session Assistant : annulation interrompt sélection et génération texte", async () => {
+  let signal: AbortSignal | undefined;
+  const session = new AssistantSession();
+  const pending = session.resolveText("un dîner", {
+    resolve: async (_text, received) => {
+      signal = received;
+      return new Promise<never>(() => {});
+    }
+  });
+  await Promise.resolve();
+  session.cancel();
+  assert.equal(signal?.aborted, true);
+  void pending;
+});
+
+test("session Assistant : une demande libre progresse d'analyse à recherche puis création", async () => {
+  const session = new AssistantSession();
+  const phases: string[] = [];
+  const result = await session.resolveText("un dîner", {
+    resolve: async (_text, _signal, progress) => {
+      phases.push(session.phase);
+      progress("searching");
+      phases.push(session.phase);
+      progress("creating");
+      phases.push(session.phase);
+      return { kind: "draft", draft };
+    }
+  });
+  assert.equal(result?.kind, "draft");
+  assert.deepEqual(phases, ["analyzing", "searching", "creating"]);
+  assert.equal(session.phase, "ready");
+});
+
+test("session Assistant : fil volatile, deux précisions puis remise à zéro", () => {
+  const session = new AssistantSession();
+  session.beginConversation("salade d'automne");
+  session.showClarification("Pour combien de personnes ?");
+  session.beginConversation("pour deux");
+  session.showClarification("Vous préférez sucré ou salé ?");
+  assert.equal(session.clarificationCount, 2);
+  assert.equal(session.turns.length, 4);
+  session.cancel();
+  assert.deepEqual(session.turns, []);
+  assert.equal(session.question, null);
+});
+
+test("session Assistant : une erreur de proposition reste neutre et conserve la saisie appelante", async () => {
+  const command = "un dîner végétarien";
+  const session = new AssistantSession();
+  await session.resolveText(command, { resolve: async () => { throw new Error("upstream details"); } });
+  assert.equal(session.phase, "error");
+  assert.match(session.error ?? "", /Je n’ai pas pu finaliser cette proposition/);
+  assert.equal(command, "un dîner végétarien");
+});
+
+test("session Assistant : un échec vision se décrit sans dupliquer le tour lors d'un nouvel essai", async () => {
+  const session = new AssistantSession();
+  const adapter = { resolve: async () => { throw new AssistantImageRequestError("http", "12345678-1234-4234-8234-123456789abc", 503); } };
+  await session.resolveText("mes quatre photos", adapter);
+  assert.match(session.error ?? "", /momentanément indisponible/);
+  assert.match(session.error ?? "", /12345678/);
+  assert.equal(session.turns.length, 0);
+  await session.resolveText("mes quatre photos", adapter);
+  assert.equal(session.turns.length, 0);
 });
 
 test("session Assistant : fallback draft devient une prévisualisation ouvrable", async () => {

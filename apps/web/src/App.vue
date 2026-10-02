@@ -15,7 +15,8 @@ import type {
   RecipeCategory,
   RecipeFilters,
   ShareImportPayload,
-  InstructionStep
+  InstructionStep,
+  NotebookCandidateWireV1
 } from "@cookies-et-coquilettes/domain";
 import { isRecipeValidForSave } from "@cookies-et-coquilettes/domain";
 import RecipeImage from "./components/RecipeImage.vue";
@@ -24,6 +25,7 @@ import IngredientDetailModal from "./components/IngredientDetailModal.vue";
 import StepMentionedIngredientIcons from "./components/StepMentionedIngredientIcons.vue";
 import { seedIfEmpty } from "./seed/seed-if-empty";
 import { buildRecipeShareF2Text } from "./utils/recipe-share-f2";
+import { tryParseRecipeShareF2Text } from "./utils/recipe-share-f2";
 import { buildRecipeShareCardFile } from "./utils/recipe-share-card";
 import { resolveClipboardImport } from "./utils/clipboard-import";
 import {
@@ -67,11 +69,13 @@ import { db } from "./storage/db";
 import { browserCookingModeService } from "./services/cooking-mode-service";
 import {
   bffImportService,
+  compressImageForTransfer,
   assistantImportAdapter,
   generateCookingStepImage,
   generateRecipeImage
 } from "./services/import-service";
-import { AssistantSession, type AssistantPreview } from "./utils/assistant-session";
+import { AssistantSession, routeAssistantImport, type AssistantPreview } from "./utils/assistant-session";
+import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
   getCookingStepImageBlobUrl,
@@ -175,16 +179,30 @@ const categoryFilter = ref<"ALL" | RecipeCategory>("ALL");
 const favoriteOnly = ref(true);
 
 const assistantText = ref("");
-const assistantAttachment = ref<AssistantAttachment | null>(null);
+const assistantAttachments = ref<AssistantAttachment[]>([]);
+const assistantPreviewImageUrl = ref<string | null>(null);
+const assistantPreviewImageUnavailable = ref(false);
+const assistantPreviewSaving = ref(false);
 const assistantAnnouncement = ref("");
 const assistantTextareaRef = ref<HTMLTextAreaElement | null>(null);
-const assistantFileInputRef = ref<HTMLInputElement | null>(null);
+const assistantCameraInputRef = ref<HTMLInputElement | null>(null);
+const assistantGalleryInputRef = ref<HTMLInputElement | null>(null);
+const assistantPhotoMenuOpen = ref(false);
+const assistantPhotoButtonRef = ref<HTMLElement | null>(null);
 const assistantCarouselRef = ref<HTMLElement | null>(null);
 const assistantListening = ref(false);
 const assistantSession = new AssistantSession();
 const assistantPhase = ref(assistantSession.phase);
 const assistantPreview = ref<AssistantPreview | null>(null);
+const assistantCandidatePreview = ref<Recipe | null>(null);
 const assistantError = ref<string | null>(null);
+const assistantTurns = ref(assistantSession.turns);
+const assistantQuestion = ref<string | null>(null);
+// La préparation locale (notamment la compression des photos) commence avant
+// le premier appel réseau. Elle doit donc verrouiller le compositeur dès le clic.
+const assistantPreparing = ref(false);
+let assistantPreparationId = 0;
+const assistantBusy = computed(() => assistantPreparing.value || ["importing", "analyzing", "searching", "creating"].includes(assistantPhase.value));
 const ASSISTANT_STARTER_LABELS: Record<(typeof ASSISTANT_STARTERS)[number], string> = {
   "J'ai envie de cuisiner quelque chose de rapide ce soir.": "Rapide ce soir",
   "Voici une recette à préparer :": "Préparer une recette",
@@ -1028,11 +1046,36 @@ function useAssistantStarter(starter: string): void {
   focusAssistantComposer();
 }
 
-function clearAssistantAttachment(): void {
-  assistantAttachment.value = null;
-  if (assistantFileInputRef.value) assistantFileInputRef.value.value = "";
+function clearAssistantAttachment(index: number): void {
+  const removed = assistantAttachments.value[index];
+  if (!removed) return;
+  URL.revokeObjectURL(removed.previewUrl);
+  assistantAttachments.value.splice(index, 1);
   assistantAnnouncement.value = "Image retirée.";
   focusAssistantComposer();
+}
+
+function addAssistantAttachments(files: readonly File[]): void {
+  const available = 5 - assistantAttachments.value.length;
+  if (!available) { assistantAnnouncement.value = "Vous pouvez joindre jusqu’à 5 images."; return; }
+  const accepted: AssistantAttachment[] = [];
+  let nonImage = 0;
+  let ignored = 0;
+  for (const file of files) {
+    if (!isImageAttachment(file)) { nonImage += 1; continue; }
+    if (accepted.length >= available) { ignored += 1; continue; }
+    accepted.push({ file, name: file.name || "image locale", previewUrl: URL.createObjectURL(file) });
+  }
+  if (accepted.length) assistantAttachments.value.push(...accepted);
+  if (ignored) {
+    assistantAnnouncement.value = `${accepted.length} image${accepted.length > 1 ? "s" : ""} ajoutée${accepted.length > 1 ? "s" : ""}. Seules les 5 premières images sont conservées.`;
+  } else if (!accepted.length && nonImage) {
+    assistantAnnouncement.value = ASSISTANT_IMAGE_TYPE_MESSAGE;
+    focusAssistantComposer();
+    return;
+  } else if (accepted.length) {
+    assistantAnnouncement.value = accepted.length === 1 ? `Image ajoutée : ${accepted[0].name}.` : `${accepted.length} images ajoutées.`;
+  }
 }
 
 function setAssistantAttachment(file: File): void {
@@ -1041,18 +1084,33 @@ function setAssistantAttachment(file: File): void {
     focusAssistantComposer();
     return;
   }
-  assistantAttachment.value = { file, name: file.name || "image locale" };
-  assistantAnnouncement.value = `Image ajoutée : ${assistantAttachment.value.name}.`;
+  addAssistantAttachments([file]);
 }
 
 function onAssistantFileChange(event: Event): void {
   const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (file) setAssistantAttachment(file);
+  addAssistantAttachments(Array.from(input.files ?? []));
   input.value = "";
 }
 
+function toggleAssistantPhotoMenu(): void { assistantPhotoMenuOpen.value = !assistantPhotoMenuOpen.value; }
+function closeAssistantPhotoMenu(returnFocus = false): void {
+  if (!assistantPhotoMenuOpen.value) return;
+  assistantPhotoMenuOpen.value = false;
+  if (returnFocus) nextTick(() => assistantPhotoButtonRef.value?.focus());
+}
+function onAssistantPhotoMenuKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") { event.preventDefault(); closeAssistantPhotoMenu(true); }
+}
+function onAssistantPhotoMenuFocusout(event: FocusEvent): void {
+  const next = event.relatedTarget as Node | null;
+  if (!next || !(event.currentTarget as HTMLElement).contains(next)) closeAssistantPhotoMenu(false);
+}
+function chooseAssistantCamera(): void { closeAssistantPhotoMenu(false); assistantCameraInputRef.value?.click(); }
+function chooseAssistantGallery(): void { closeAssistantPhotoMenu(false); assistantGalleryInputRef.value?.click(); }
+
 function onAssistantPaste(event: ClipboardEvent): void {
+  if (assistantBusy.value) { event.preventDefault(); return; }
   const files = Array.from(event.clipboardData?.files ?? []);
   const file = files.find((candidate) =>
     isImageAttachment(candidate)
@@ -1066,57 +1124,227 @@ function onAssistantPaste(event: ClipboardEvent): void {
 }
 
 async function prepareAssistantRequest(): Promise<void> {
+  if (assistantBusy.value) return;
   const validation = validateAssistantComposer({
     text: assistantText.value,
-    attachment: assistantAttachment.value
+    attachments: assistantAttachments.value
   });
   if (!validation.valid) {
     assistantAnnouncement.value = validation.message;
     focusAssistantComposer();
     return;
   }
+  assistantPreparing.value = true;
+  const preparationId = ++assistantPreparationId;
+  // Rend le feedback avant la compression locale, qui peut être perceptible
+  // sur un téléphone avec plusieurs photos.
+  assistantPhase.value = "analyzing";
+  await nextTick();
   stopAssistantDictation(false);
-  const importPromise = assistantSession.import(
-    assistantText.value,
-    assistantAttachment.value?.file ?? null,
-    assistantImportAdapter
-  );
-  assistantPhase.value = assistantSession.phase;
-  assistantPreview.value = null;
-  assistantError.value = null;
-  nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-import-progress button")?.focus());
-  const preview = await importPromise;
-  assistantPhase.value = assistantSession.phase;
-  assistantPreview.value = assistantSession.preview;
-  assistantError.value = assistantSession.error;
-  if (preview) {
+  // Toute entrée passe d'abord par la sélection d'intention. L'image reste jointe
+  // localement et n'est jamais ajoutée au fil ; elle n'est parsée qu'après `import`.
+  // F2 est un contrat local historique : le reconnaître ne révèle aucun contenu au BFF.
+  try {
+    const importPromise = !assistantAttachments.value.length && Boolean(tryParseRecipeShareF2Text(assistantText.value, { sourceType: "TEXT" }))
+      ? assistantSession.import(assistantText.value, null, assistantImportAdapter)
+      : prepareAssistantTextRequest(preparationId);
+    // Compression may still be running: keep the overlay mounted and its
+    // cancellation button focusable until the session takes over.
+    assistantPhase.value = assistantSession.phase === "idle" ? "analyzing" : assistantSession.phase;
+    assistantPreview.value = null;
+    assistantCandidatePreview.value = null;
+    assistantError.value = null;
+    nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-import-progress button")?.focus());
+    const preview = await importPromise;
+    if (preparationId !== assistantPreparationId) return;
+    assistantPhase.value = assistantSession.phase;
+    assistantPreview.value = assistantSession.preview;
+    assistantError.value = assistantSession.error;
+    if (preview) {
+    assistantPreviewImageUrl.value = null;
+    assistantPreviewImageUnavailable.value = false;
+    const requestId = preview.requestId;
+    void generateRecipeImage(preview.draft).then((imageUrl) => {
+      if (imageUrl && assistantPreview.value?.requestId === requestId) assistantPreviewImageUrl.value = imageUrl;
+      else if (assistantPreview.value?.requestId === requestId) { assistantPreviewImageUnavailable.value = true; assistantAnnouncement.value = "Prévisualisation prête sans illustration."; }
+    }).catch(() => {
+      if (assistantPreview.value?.requestId === requestId) { assistantPreviewImageUnavailable.value = true; assistantAnnouncement.value = "Prévisualisation prête sans illustration."; }
+    });
     assistantAnnouncement.value = "Prévisualisation prête. Ouvrez la carte pour la consulter.";
     nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-preview-card")?.focus());
+    }
+    else if (assistantSession.phase === "error") assistantAnnouncement.value = assistantSession.error ?? "Import impossible.";
+  } catch {
+    if (preparationId === assistantPreparationId) {
+      assistantPhase.value = "error";
+      assistantError.value = "Je n’ai pas pu préparer votre demande. Vos images et votre texte sont conservés.";
+      assistantAnnouncement.value = assistantError.value;
+    }
+  } finally {
+    if (preparationId === assistantPreparationId) assistantPreparing.value = false;
   }
-  else if (assistantSession.phase === "error") assistantAnnouncement.value = assistantSession.error ?? "Import impossible.";
+}
+
+async function prepareAssistantTextRequest(preparationId: number): Promise<AssistantPreview | null> {
+  // Une réponse utilisateur ferme la question en attente sans effacer le fil affiché.
+  if (assistantSession.question) assistantSession.question = null;
+  const inputText = assistantText.value.trim();
+  const attachments = await Promise.all(assistantAttachments.value.map(({ file }) => compressImageForTransfer(file, 4 * 1024 * 1024)));
+  if (preparationId !== assistantPreparationId || !assistantPreparing.value) return null;
+  const route = routeAssistantImport(inputText, attachments);
+  const request = route === "image"
+    ? (inputText || (attachments.length > 1 ? "Images jointes à analyser" : "Image jointe à analyser"))
+    : inputText;
+  let generationRequest = request;
+  const candidateMap = new Map<string, Recipe>();
+  const result = await assistantSession.resolveText(request, {
+    resolve: async (text, signal, progress) => {
+      let stage = "cahier";
+      try {
+        const notebookSnapshot = await dexieRecipeService.listRecipes();
+        const candidates: NotebookCandidateWireV1[] = [...notebookSnapshot]
+          .sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+          .slice(0, 60).map((recipe, index) => {
+            const candidateRef = `candidate-${index + 1}`;
+            candidateMap.set(candidateRef, recipe);
+            const durationMin = [recipe.prepTimeMin, recipe.cookTimeMin, recipe.restTimeMin].reduce<number>((sum, value) => sum + (value ?? 0), 0) || undefined;
+            return { candidateRef, title: recipe.title.slice(0, 180), ingredientLabels: recipe.ingredients.map((ingredient) => ingredient.label.slice(0, 120)).filter(Boolean).slice(0, 40), durationMin };
+          });
+        stage = "analyse_des_photos";
+        if (route === "image") assistantPhase.value = "analyzing";
+        const visualSummaries = route === "image" ? await summarizeAssistantImages(attachments, inputText, signal) : [];
+        const selectionRequest = buildAssistantSelectionRequest(text, visualSummaries);
+        generationRequest = selectionRequest;
+        stage = "decision";
+        progress("searching");
+        assistantPhase.value = assistantSession.phase;
+        const choice = await selectNotebookRecipe(selectionRequest, candidates, signal, assistantSession.turns, assistantSession.clarificationCount);
+    if (choice.kind === "clarify") {
+      assistantSession.showClarification(choice.question);
+      assistantTurns.value = assistantSession.turns;
+      assistantQuestion.value = assistantSession.question;
+      return { kind: "clarify" as const } as never;
+    }
+    if (choice.kind === "candidate") {
+        return { kind: "candidate" as const, candidateRef: choice.candidateRef };
+    }
+    if (choice.kind === "import") {
+      progress("importing");
+      assistantPhase.value = assistantSession.phase;
+      stage = "lecture_des_photos";
+      const draft = route === "image"
+        ? attachments.length > 1
+          ? await bffImportService.importFromScreenshots(attachments, { contextText: inputText, signal })
+          : await assistantImportAdapter.importImage(attachments[0], inputText, signal)
+        : route === "url"
+          ? await assistantImportAdapter.importUrl(inputText, signal)
+          : await assistantImportAdapter.importText(text, signal);
+      return { kind: "draft" as const, draft };
+    }
+    if (choice.kind !== "newRecipe") throw new Error("selection unavailable");
+        progress("creating");
+        assistantPhase.value = assistantSession.phase;
+        stage = "generation";
+        const draft = await generateAssistantRecipe(generationRequest, signal, assistantSession.turns);
+        return { kind: "draft" as const, draft: { ...draft, source: { type: "TEXT", capturedAt: new Date().toISOString() } } };
+      } catch (error) {
+        if ((error as Error).name === "AbortError") throw error;
+        if (error instanceof AssistantImageRequestError) throw error;
+        if ((error as Error).message.startsWith("assistant_detail:")) throw error;
+        throw new Error(`assistant_stage:${stage}`);
+      }
+    }
+  });
+  if (assistantSession.question) {
+    assistantPhase.value = "idle";
+    // Le premier message est désormais dans le fil : le champ attend seulement la réponse.
+    assistantText.value = "";
+    assistantAnnouncement.value = "Une précision aiderait à mieux vous proposer une recette.";
+    nextTick(() => focusAssistantComposer());
+    return null;
+  }
+  if (result?.kind === "candidate") {
+    const recipe = candidateMap.get(result.candidateRef);
+    if (!recipe) {
+      assistantSession.error = "Cette recette n’est plus disponible. Réessayez votre demande.";
+      assistantSession.phase = "error";
+      return null;
+    }
+    assistantCandidatePreview.value = recipe;
+    // Une recette du Cahier peut ne pas avoir d'illustration. Dans ce cas, la
+    // carte se comporte comme une recette sur mesure : elle montre l'attente,
+    // puis reçoit une illustration sans modifier la recette enregistrée.
+    assistantPreviewImageUrl.value = null;
+    assistantPreviewImageUnavailable.value = false;
+    if (!recipe.imageId) {
+      const candidateId = recipe.id;
+      void generateRecipeImage(recipe).then((imageUrl) => {
+        if (assistantCandidatePreview.value?.id !== candidateId) return;
+        if (imageUrl) assistantPreviewImageUrl.value = imageUrl;
+        else assistantPreviewImageUnavailable.value = true;
+      }).catch(() => {
+        if (assistantCandidatePreview.value?.id === candidateId) assistantPreviewImageUnavailable.value = true;
+      });
+    }
+    assistantSession.phase = "ready";
+    assistantPhase.value = "ready";
+    assistantAnnouncement.value = "Recette du Cahier trouvée. Ouvrez la carte pour la consulter.";
+  }
+  return assistantSession.preview;
 }
 
 function cancelAssistantImport(): void {
+  assistantPreparationId += 1;
+  assistantPreparing.value = false;
   assistantSession.cancel();
   assistantPhase.value = assistantSession.phase;
   assistantError.value = null;
+  assistantTurns.value = assistantSession.turns;
+  assistantQuestion.value = null;
   assistantAnnouncement.value = "Import annulé. Votre saisie est conservée.";
   focusAssistantComposer();
 }
 
 function openAssistantPreview(): void {
+  if (assistantCandidatePreview.value) {
+    openDetail(assistantCandidatePreview.value, "ASSISTANT");
+    detailRecipeOverride.value = assistantCandidatePreview.value;
+    return;
+  }
   if (!assistantPreview.value) return;
   viewMode.value = "ASSISTANT_PREVIEW";
 }
 
-function closeAssistantPreview(): void {
+async function closeAssistantPreview(): Promise<void> {
+  const confirmed = await requestConfirmation({ header: "Fermer ce résultat ?", message: "Votre saisie restera dans le Compositeur.", acceptLabel: "Fermer", rejectLabel: "Garder", acceptSeverity: "danger" });
+  if (!confirmed) return;
   assistantSession.closePreview();
   assistantPreview.value = null;
+  assistantCandidatePreview.value = null;
+  assistantPreviewImageUrl.value = null;
+  assistantPreviewImageUnavailable.value = false;
   assistantPhase.value = assistantSession.phase;
   assistantError.value = null;
+  assistantTurns.value = assistantSession.turns;
+  assistantQuestion.value = null;
   viewMode.value = "ASSISTANT";
-  assistantAnnouncement.value = "Prévisualisation abandonnée. Votre saisie est conservée.";
+  assistantAnnouncement.value = "Résultat fermé. Votre saisie est conservée.";
   nextTick(() => focusAssistantComposer());
+}
+
+async function saveAssistantPreview(): Promise<void> {
+  const preview = assistantPreview.value;
+  if (!preview || assistantPreviewSaving.value) return;
+  assistantPreviewSaving.value = true;
+  const imageUrl = assistantPreviewImageUrl.value;
+  try {
+    await createRecipeFromDraft(imageUrl ? { ...preview.draft, imageUrl } : preview.draft, preview.sourceFiles);
+    assistantSession.closePreview();
+    assistantPreview.value = null;
+    assistantPreviewImageUrl.value = null;
+  } finally {
+    assistantPreviewSaving.value = false;
+  }
 }
 
 function onAssistantKeydown(event: KeyboardEvent): void {
@@ -1210,10 +1438,11 @@ function onAssistantCarouselKeydown(event: KeyboardEvent): void {
 function scrollAssistantCarousel(direction: -1 | 1): void {
   const carousel = assistantCarouselRef.value;
   if (!carousel) return;
-  carousel.scrollBy({
-    left: direction * Math.min(carousel.clientWidth * 0.8, 280),
-    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
-  });
+  // Une position finale synchrone évite que deux pressions rapprochées se battent
+  // avec l'animation et le scroll-snap (notamment sur petits écrans).
+  const distance = Math.min(carousel.clientWidth * 0.8, 280);
+  const target = Math.max(0, Math.min(carousel.scrollWidth - carousel.clientWidth, carousel.scrollLeft + direction * distance));
+  carousel.scrollTo({ left: target, behavior: "auto" });
 }
 
 function openAddChoice(): void {
@@ -2384,6 +2613,20 @@ function formatRecipeTime(recipe: Recipe): string {
   return min > 0 ? `${h}h${String(min).padStart(2, "0")}` : `${h}h`;
 }
 
+/** La preview ne passe jamais par IndexedDB, mais conserve les mêmes repères de temps que la fiche. */
+function formatAssistantPreviewTime(draft: ParsedRecipeDraft): string {
+  const total = (draft.prepTimeMin ?? 0) + (draft.cookTimeMin ?? 0) + (draft.restTimeMin ?? 0);
+  if (total <= 0) return "";
+  if (total < 60) return `${total}'`;
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  return minutes > 0 ? `${hours}h${String(minutes).padStart(2, "0")}` : `${hours}h`;
+}
+
+function assistantPreviewCategoryLabel(category: RecipeCategory): string {
+  return category === "SUCRE" ? "Sucré" : "Salé";
+}
+
 function formatElapsedCookingTime(elapsedMilliseconds: number): string {
   const totalSeconds = Math.max(1, Math.round(elapsedMilliseconds / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -2611,6 +2854,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  for (const attachment of assistantAttachments.value) URL.revokeObjectURL(attachment.previewUrl);
   assistantSpeechSession?.stop();
   assistantSpeechSession = null;
   if (typeof window !== "undefined") {
@@ -2748,7 +2992,12 @@ onUnmounted(() => {
       </div>
 
       <section class="assistant-composer-section">
-        <div class="assistant-composer">
+        <ol v-if="assistantTurns.length" class="assistant-conversation" aria-label="Échange avec l’Assistant">
+          <li v-for="(turn, index) in assistantTurns" :key="`${turn.role}-${index}-${turn.text}`" :class="`assistant-conversation-turn assistant-conversation-turn--${turn.role}`">
+            {{ turn.text }}
+          </li>
+        </ol>
+        <div class="assistant-composer" :class="{ 'assistant-composer--with-attachments': assistantAttachments.length > 0 }">
           <label class="sr-only" for="assistant-composer-text">Votre demande</label>
           <textarea
             id="assistant-composer-text"
@@ -2758,63 +3007,103 @@ onUnmounted(() => {
             rows="4"
             placeholder="Copiez un lien, une image, une recette ou demandez juste ce dont vous avez envie"
             aria-describedby="assistant-composer-status"
-            :disabled="assistantPhase === 'importing'"
+            :disabled="assistantBusy"
             @keydown="onAssistantKeydown"
             @paste="onAssistantPaste"
           />
-          <div v-if="assistantAttachment" class="assistant-attachment">
-            <i class="pi pi-image" aria-hidden="true" />
-            <span>{{ assistantAttachment.name }}</span>
-            <button type="button" class="assistant-attachment-remove" aria-label="Retirer l’image" :disabled="assistantPhase === 'importing'" @click="clearAssistantAttachment">
-              <i class="pi pi-times" aria-hidden="true" />
-            </button>
+          <div v-if="assistantAttachments.length" class="assistant-attachments" aria-label="Images jointes">
+            <span v-for="(attachment, index) in assistantAttachments" :key="`${attachment.name}-${index}`" class="assistant-attachment">
+              <img class="assistant-attachment-preview" :src="attachment.previewUrl" alt="" />
+              <span class="sr-only">{{ attachment.name }}</span>
+              <button type="button" class="assistant-attachment-remove" :aria-label="`Retirer l’image ${attachment.name}`" :disabled="assistantBusy" @click="clearAssistantAttachment(index)">
+                <i class="pi pi-times" aria-hidden="true" />
+              </button>
+            </span>
           </div>
           <div class="assistant-composer-actions" :class="{ 'is-listening': assistantListening }">
-            <Button
-              aria-label="Ajouter une image"
-              icon="pi pi-paperclip"
-              class="assistant-icon-action assistant-attach-action"
-              :disabled="assistantPhase === 'importing'"
-              @click="assistantFileInputRef?.click()"
-            />
+            <div class="assistant-photo-picker" @keydown="onAssistantPhotoMenuKeydown" @focusout="onAssistantPhotoMenuFocusout">
+              <Button
+                ref="assistantPhotoButtonRef"
+                aria-label="Ajouter des photos"
+                icon="pi pi-camera"
+                class="assistant-icon-action assistant-attach-action"
+                :aria-expanded="assistantPhotoMenuOpen"
+                aria-haspopup="menu"
+                :disabled="assistantBusy"
+                @click="toggleAssistantPhotoMenu"
+              />
+              <div v-if="assistantPhotoMenuOpen" class="assistant-photo-menu" role="menu" aria-label="Ajouter une photo">
+                <button type="button" role="menuitem" @click="chooseAssistantCamera"><i class="pi pi-camera" aria-hidden="true" />Prendre une photo</button>
+                <button type="button" role="menuitem" @click="chooseAssistantGallery"><i class="pi pi-images" aria-hidden="true" />Choisir des images</button>
+              </div>
+            </div>
             <Button
               :aria-label="assistantListening ? 'Arrêter la dictée' : 'Dicter'"
               :icon="assistantListening ? 'pi pi-stop-circle' : 'pi pi-microphone'"
               class="assistant-icon-action assistant-dictation-action"
               :aria-pressed="assistantListening"
-              :disabled="assistantPhase === 'importing'"
+              :disabled="assistantBusy"
               @click="toggleAssistantDictation"
             />
-            <Button aria-label="Importer la recette" icon="pi pi-arrow-up" class="assistant-icon-action assistant-submit" :disabled="assistantPhase === 'importing'" @click="prepareAssistantRequest" />
+            <Button :aria-label="assistantBusy ? 'Envoi en cours' : 'Envoyer la demande'" :icon="assistantBusy ? 'pi pi-spinner pi-spin' : 'pi pi-arrow-up'" class="assistant-icon-action assistant-submit" :class="{ 'is-submitting': assistantBusy }" :disabled="assistantBusy" @click="prepareAssistantRequest" />
           </div>
           <input
-            ref="assistantFileInputRef"
+            ref="assistantCameraInputRef"
             type="file"
             class="hidden-file-input"
             accept="image/*"
+            capture="environment"
             tabindex="-1"
+            :disabled="assistantBusy"
+            @change="onAssistantFileChange"
+          />
+          <input
+            ref="assistantGalleryInputRef"
+            type="file"
+            class="hidden-file-input"
+            accept="image/*"
+            multiple
+            tabindex="-1"
+            :disabled="assistantBusy"
             @change="onAssistantFileChange"
           />
           <p id="assistant-composer-status" class="assistant-live sr-only" role="status" aria-live="polite">
             {{ assistantAnnouncement }}
           </p>
-        </div>
-        <div v-if="assistantPhase === 'importing'" class="assistant-import-progress" role="status" aria-live="polite">
-          <span>Analyse de votre recette…</span>
-          <Button label="Annuler" severity="secondary" @click="cancelAssistantImport" />
+          <div v-if="assistantPreview || assistantCandidatePreview" class="assistant-preview-card-wrap">
+          <button type="button" class="assistant-preview-card" :aria-label="assistantCandidatePreview ? 'Recette du Cahier trouvée — ouvrir la recette' : 'Prévisualisation prête — ouvrir la recette'" @click="openAssistantPreview" @keydown.enter.prevent="openAssistantPreview" @keydown.space.prevent="openAssistantPreview">
+            <span class="assistant-preview-card-hero" :class="{ 'is-loading': (assistantPreview || assistantCandidatePreview) && !assistantPreviewImageUrl && !assistantPreviewImageUnavailable }">
+              <RecipeImage v-if="assistantCandidatePreview?.imageId" :image-id="assistantCandidatePreview.imageId" alt="" img-class="assistant-preview-card-image" />
+              <img v-else-if="assistantPreviewImageUrl" class="assistant-preview-card-image" :src="assistantPreviewImageUrl" alt="" />
+              <span v-else-if="(assistantPreview || assistantCandidatePreview) && !assistantPreviewImageUnavailable" class="assistant-preview-card-loading">
+                <span class="assistant-preview-card-loading-mark" aria-hidden="true"><ProgressSpinner /><img src="/favicon.svg" alt="" /></span>
+                <span>Je prépare l’illustration…</span>
+              </span>
+              <span v-else class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span>
+            </span>
+            <span class="assistant-preview-card-copy">
+              <span class="assistant-preview-card-status">{{ assistantCandidatePreview ? 'Dans votre Cahier' : 'Recette sur mesure' }}</span>
+              <span class="assistant-preview-card-title">{{ assistantCandidatePreview?.title ?? assistantPreview?.draft.title }}</span>
+              <span class="assistant-preview-card-meta">{{ assistantCandidatePreview ? assistantPreviewCategoryLabel(assistantCandidatePreview.category) + ' · ' + assistantCandidatePreview.ingredients.length + ' ingrédients' : assistantPreview ? assistantPreviewCategoryLabel(assistantPreview.draft.category) + ' · ' + assistantPreview.draft.ingredients.length + ' ingrédients' : '' }}</span>
+              <span class="assistant-preview-card-ingredients">
+                <span v-for="ingredient in (assistantCandidatePreview?.ingredients ?? assistantPreview?.draft.ingredients ?? []).slice(0, 3)" :key="ingredient.id">{{ ingredient.label }}</span>
+                <span v-if="(assistantCandidatePreview?.ingredients ?? assistantPreview?.draft.ingredients ?? []).length > 3" class="assistant-preview-card-ingredients-more">+ {{ (assistantCandidatePreview?.ingredients ?? assistantPreview?.draft.ingredients ?? []).length - 3 }} ingrédients</span>
+              </span>
+            </span>
+            <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
+          </button>
+          <button type="button" class="assistant-preview-close" aria-label="Fermer ce résultat" @click="closeAssistantPreview"><i class="pi pi-times" aria-hidden="true" /></button>
+          </div>
+          <div v-if="['importing', 'analyzing', 'searching', 'creating'].includes(assistantPhase)" class="assistant-import-progress" role="status" aria-live="polite">
+            <span class="assistant-import-progress-mark" aria-hidden="true">
+              <ProgressSpinner />
+              <img src="/favicon.svg" alt="" />
+            </span>
+            <span class="assistant-import-progress-label">{{ assistantPhase === 'searching' ? 'Je cherche dans votre Cahier' : assistantPhase === 'creating' ? 'Je crée votre recette' : assistantPhase === 'analyzing' ? (assistantAttachments.length ? 'J’analyse vos photos' : 'J’analyse votre demande') : (assistantAttachments.length ? 'Je lis vos photos pour reconstituer la recette' : 'J’analyse votre recette') }}</span>
+            <Button label="Annuler" severity="secondary" @click="cancelAssistantImport" />
+          </div>
         </div>
         <p v-if="assistantError" class="assistant-import-error" role="alert">{{ assistantError }}</p>
-        <button
-          v-if="assistantPreview"
-          type="button"
-          class="assistant-preview-card"
-          @click="openAssistantPreview"
-          @keydown.enter.prevent="openAssistantPreview"
-          @keydown.space.prevent="openAssistantPreview"
-        >
-          <span class="assistant-preview-card-title">{{ assistantPreview.draft.title }}</span>
-          <span>Prévisualisation prête — ouvrir</span>
-        </button>
       </section>
 
       <section class="assistant-starters" aria-label="Suggestions de demandes">
@@ -2825,7 +3114,7 @@ onUnmounted(() => {
             type="button"
             class="assistant-starter"
             :aria-label="starter"
-            :disabled="assistantPhase === 'importing'"
+            :disabled="['importing', 'analyzing', 'searching', 'creating'].includes(assistantPhase)"
             @click="useAssistantStarter(starter)"
           >
             {{ ASSISTANT_STARTER_LABELS[starter] }}
@@ -2876,14 +3165,31 @@ onUnmounted(() => {
       <noscript>Le Compositeur fonctionne en JavaScript. Vous pouvez utiliser le Cahier pour créer ou consulter vos recettes.</noscript>
     </section>
 
-    <section v-else-if="viewMode === 'ASSISTANT_PREVIEW'" class="assistant-preview-detail" aria-labelledby="assistant-preview-title">
-      <button type="button" class="assistant-preview-close" aria-label="Fermer la prévisualisation" @click="closeAssistantPreview"><i class="pi pi-times" aria-hidden="true" /></button>
-      <p class="assistant-preview-origin">Importé depuis {{ assistantPreview?.source?.type?.toLowerCase() ?? 'le Compositeur' }}</p>
-      <h1 id="assistant-preview-title">{{ assistantPreview?.draft.title }}</h1>
+    <section v-else-if="viewMode === 'ASSISTANT_PREVIEW' && assistantPreview" class="panel detail assistant-preview-detail" aria-labelledby="assistant-preview-title">
+      <div class="recipe-detail-header">
+        <img v-if="assistantPreviewImageUrl" class="recipe-detail-image" :src="assistantPreviewImageUrl" :alt="`Illustration de ${assistantPreview.draft.title}`" />
+        <div v-else class="recipe-detail-image-placeholder" :class="{ 'recipe-detail-image-placeholder--loading': !assistantPreviewImageUnavailable }"><ProgressSpinner v-if="!assistantPreviewImageUnavailable" aria-label="Illustration en préparation" /><i v-else class="pi pi-book" aria-hidden="true" /></div>
+        <div class="recipe-detail-header-actions">
+          <Button text icon="pi pi-arrow-left" class="recipe-detail-back" aria-label="Fermer la prévisualisation" @click="closeAssistantPreview" />
+          <Button label="Sauvegarder" icon="pi pi-save" class="assistant-preview-save" :loading="assistantPreviewSaving" :disabled="assistantPreviewSaving" @click="saveAssistantPreview" />
+        </div>
+      </div>
+      <div class="recipe-detail-meta">
+        <p class="assistant-preview-origin">Prévisualisation temporaire · Importé depuis {{ assistantPreview.source?.type?.toLowerCase() ?? 'le Compositeur' }}</p>
+        <h1 id="assistant-preview-title" class="recipe-detail-title">{{ assistantPreview.draft.title }}</h1>
+        <p class="assistant-preview-summary">{{ assistantPreviewCategoryLabel(assistantPreview.draft.category) }}<template v-if="formatAssistantPreviewTime(assistantPreview.draft)"> · {{ formatAssistantPreviewTime(assistantPreview.draft) }}</template><template v-if="assistantPreview.draft.servingsBase"> · {{ assistantPreview.draft.servingsBase }} portions</template> · {{ assistantPreview.draft.ingredients.length }} ingrédients</p>
+      </div>
       <h2>Ingrédients</h2>
-      <ul><li v-for="ingredient in assistantPreview?.draft.ingredients" :key="ingredient.id">{{ ingredient.rawText || ingredient.label }}</li></ul>
+      <div class="ingredient-grid assistant-preview-ingredients">
+        <div v-for="ingredient in assistantPreview.draft.ingredients" :key="ingredient.id" class="ingredient-card assistant-preview-ingredient-card">
+          <div class="ingredient-card-image-wrap"><i class="pi pi-shopping-basket" aria-hidden="true" /></div>
+          <span class="ingredient-card-name">{{ ingredient.label }}</span>
+          <span v-if="ingredient.quantity !== undefined || ingredient.rawText" class="ingredient-card-qty">{{ ingredient.rawText || `${ingredient.quantity ?? ''} ${ingredient.unit ?? ''}`.trim() }}</span>
+        </div>
+      </div>
       <h2>Préparation</h2>
-      <ol><li v-for="step in assistantPreview?.draft.steps" :key="step.id">{{ step.text }}</li></ol>
+      <div v-if="formatAssistantPreviewTime(assistantPreview.draft)" class="recipe-time-encart assistant-preview-time"><div class="recipe-time-content"><div class="recipe-time-total">Temps total : {{ formatAssistantPreviewTime(assistantPreview.draft) }}</div></div></div>
+      <ol class="prep-steps-list"><li v-for="(step, stepIndex) in assistantPreview.draft.steps" :key="step.id" class="prep-step"><div class="prep-step-row"><div class="prep-step-content"><strong class="prep-step-num">Étape {{ stepIndex + 1 }}</strong><span class="prep-step-text">{{ step.text }}</span></div></div></li></ol>
     </section>
 
     <section v-else-if="viewMode === 'LIST'" class="list-view">

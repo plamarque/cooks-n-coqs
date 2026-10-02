@@ -135,6 +135,37 @@ export interface ParsedRecipeDraft {
   source?: ImportSource;
 }
 
+/** Référence éphémère vers une recette du Cahier, valable pendant une session Assistant. */
+export interface NotebookCandidateWireV1 {
+  candidateRef: string;
+  title: string;
+  ingredientLabels: string[];
+  durationMin?: number;
+}
+
+export interface NotebookSelectionRequestV1 {
+  request: string;
+  candidates: NotebookCandidateWireV1[];
+  /** Fil volatile, borné au navigateur courant ; jamais un historique utilisateur. */
+  turns?: AssistantConversationTurnV1[];
+  clarificationCount?: number;
+}
+
+export interface AssistantConversationTurnV1 {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export type NotebookSelectionWireV1 =
+  | { kind: "import" }
+  | { kind: "candidate"; candidateRef: string; reasonCode: "RELEVANT" }
+  | { kind: "newRecipe" }
+  | { kind: "clarify"; question: string }
+  | { kind: "selectionUnavailable" };
+
+/** Wire de création Assistant : le client le valide avant d'en faire une preview. */
+export type AssistantDraftWireV1 = ParsedRecipeDraft;
+
 export interface ImportService {
   importFromUrl(url: string): Promise<ParsedRecipeDraft>;
   importFromShare(payload: ShareImportPayload): Promise<ParsedRecipeDraft>;

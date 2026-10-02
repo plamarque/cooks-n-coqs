@@ -10,16 +10,16 @@ import {
 } from "../src/utils/assistant-composer";
 
 test("Compositeur : une demande vide explique les formats", () => {
-  assert.deepEqual(validateAssistantComposer({ text: "  ", attachment: null }), {
+  assert.deepEqual(validateAssistantComposer({ text: "  ", attachments: [] }), {
     valid: false,
     message: ASSISTANT_EMPTY_MESSAGE
   });
 });
 
 test("Compositeur : texte ou image préparent une demande sans traitement", () => {
-  assert.deepEqual(validateAssistantComposer({ text: "une idée repas", attachment: null }), { valid: true });
+  assert.deepEqual(validateAssistantComposer({ text: "une idée repas", attachments: [] }), { valid: true });
   assert.deepEqual(
-    validateAssistantComposer({ text: "", attachment: { name: "plat.jpg", file: {} as File } }),
+    validateAssistantComposer({ text: "", attachments: [{ name: "plat.jpg", file: {} as File, previewUrl: "blob:preview" }] }),
     { valid: true }
   );
   assert.equal(ASSISTANT_STARTERS.length, 3);

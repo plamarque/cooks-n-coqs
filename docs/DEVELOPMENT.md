@@ -71,7 +71,7 @@ Le front écoute sur `http://127.0.0.1:5173` (et `0.0.0.0`). En mode **`--https`
 Copier `.env.example` vers `.env` pour le local puis adapter les valeurs.
 
 - Front : `VITE_BFF_URL`, `VITE_BASE_PATH`
-- BFF : `OPENAI_API_KEY` (parsing + génération d'images), `CORS_ORIGIN`, `GENERATED_IMAGE_CACHE_DIR`, `GENERATED_IMAGE_BASE_URL`, `GENERATED_IMAGE_ADMIN_TOKEN`, variables S3/R2 (stockage images), et variables **modèles IA** (voir ci-dessous)
+- BFF : `OPENAI_API_KEY` (parsing + génération d'images), `TYPESAFE_API_KEY` (sélecteur Jev serveur uniquement), `CORS_ORIGIN`, `GENERATED_IMAGE_CACHE_DIR`, `GENERATED_IMAGE_BASE_URL`, `GENERATED_IMAGE_ADMIN_TOKEN`, variables S3/R2 (stockage images), et variables **modèles IA** (voir ci-dessous)
 
 ### Modèles IA
 

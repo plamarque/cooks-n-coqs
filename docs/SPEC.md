@@ -135,8 +135,8 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 ## Évolution Assistant — fondations locales (story 1.1)
 
 L’accueil peut proposer un Compositeur Assistant distinct du Cahier v1. Il accepte localement du
-texte, une URL, une recette collée ou une image locale : le texte et l’image restent en mémoire de
-l’interface, sont modifiables et peuvent être retirés. Cette fondation ne route, n’importe, ne
+texte, une URL, une recette collée ou une ou plusieurs images locales : le texte et les images restent en mémoire de
+l’interface, sont modifiables et peuvent être retirés indépendamment. Cette fondation ne route, n’importe, ne
 sauvegarde ni n’envoie aucune donnée. Les starters ne font que préremplir puis focaliser le champ.
 
 La dictée, lorsqu’elle est fournie par le navigateur, insère seulement une transcription acceptée au
@@ -148,3 +148,15 @@ seront introduits par leurs stories dédiées sans modifier ces contrats v1.
 ## Import Assistant éphémère (story 1.2)
 
 Depuis le seul Compositeur Assistant, une image est prioritaire sur une URL HTTP(S), elle-même prioritaire sur le texte (dont F2). L'import réemploie le parseur existant mais produit une prévisualisation en mémoire, annulable : ni recette, ni fichier, ni état Assistant n'est écrit dans IndexedDB, l'URL ou `sessionStorage`. Annuler ou fermer détruit la prévisualisation et ignore les réponses tardives tout en conservant texte, curseur et image dans le Compositeur. La sauvegarde explicite est hors de cette story ; les flux v1 `parse → create → détail` restent inchangés.
+
+## Décision Assistant Jev (story 2.2)
+
+Pour une demande texte libre, le client envoie au BFF uniquement la demande et un instantané plafonné du Cahier (titre, libellés d’ingrédients, durée et référence temporaire). Le Compositeur affiche successivement l’analyse, la recherche dans le Cahier, puis — seulement si nécessaire — la création sur mesure. Jev choisit une référence valide ou `newRecipe`; une candidate sous le seuil est un absence de match et suit `newRecipe`, tandis qu’une indisponibilité reste une erreur actionnable et ne génère rien. Le résultat est toujours une vignette superposée, ouvrable et fermable avec confirmation sans perdre la saisie ; seul `newRecipe` lance un brouillon complet éphémère, sauvegardable via l’unique création transactionnelle existante. Les diagnostics serveurs ne journalisent que les métadonnées d’exploitation anonymes (stade, fournisseur, classe, statut, durée, cardinalité et identifiant opaque), jamais la demande ni le Cahier.
+
+## Précisions conversationnelles Assistant (story 2.3)
+
+Avant toute recherche, création ou parse, chaque entrée (texte, URL, une ou plusieurs images) passe par la sélection d’intention ; une URL ou une image n’est donc jamais un import automatique. Pour chaque image, le BFF produit un résumé visuel temporaire borné ; les résumés sont réunis et remis à Jev et à la génération finale, mais jamais au fil visible, au stockage ou aux diagnostics. Le Compositeur ne propose qu’une action photo, qui ouvre « Prendre une photo » ou « Choisir des images » ; la galerie autorise plusieurs fichiers, la capture est unitaire mais additive. La sélection peut répondre `clarify` avec une question courte et ciblée. Le fil (demande, question, réponse) reste visible et exclusivement en mémoire Vue : il est envoyé au BFF au tour suivant, sans IndexedDB, stockage web ni journalisation de contenu. Deux précisions consécutives au plus sont autorisées côté serveur ; ensuite l’Assistant cherche le Cahier puis propose avec ses hypothèses. Une question ne crée ni brouillon ni vignette. Annuler, fermer le résultat ou démarrer une nouvelle demande détruit ce fil et invalide les réponses tardives.
+
+Une image sélectionnée trop lourde est réduite localement et éphémèrement avant son envoi afin de respecter la limite BFF de 4 Mio ; si elle reste trop lourde après réduction, l’envoi est refusé explicitement et elle reste au Compositeur. Les résumés vision d’un lot sont demandés l’un après l’autre, dans une requête HTTP distincte par image, pour éviter à la fois une rafale fournisseur et une connexion ouverte pendant toute l’analyse du lot. Une indisponibilité ponctuelle du résumé vision est reprise une seule fois côté BFF, image par image, avec une attente courte annulable : les images déjà résumées ne sont jamais renvoyées. Une réponse textuelle du modèle dépassant 240 caractères est raccourcie et reste exploitable, au lieu d’être traitée comme une panne. Après épuisement, le lot échoue explicitement sans créer de recette ni écrire localement ; le texte et les photos restent au Compositeur. L’erreur affiche une référence technique courte qui correspond aux diagnostics anonymes du BFF, sans contenu des photos. Sur mobile, les miniatures forment un rail horizontal distinct au-dessus des actions. Pendant une opération, le calque opaque du Compositeur centre un anneau animé autour du mini-logo C&C, un libellé court et un bouton Annuler secondaire fixe dessous ; le mouvement réduit est respecté.
+
+Le payload de partage F2 déjà reconnu reste l’exception compatible : son parse est local exclusif, sans sélection ni BFF, conformément au contrat de partage natif.

@@ -30,7 +30,15 @@ export default defineConfig({
     host: true, // expose on 0.0.0.0 for local network access
     port: 5173,
     // Tailscale Serve (MagicDNS *.ts.net) — sinon Vite bloque l’Host header
-    allowedHosts: [".ts.net"]
+    allowedHosts: [".ts.net"],
+    // Le téléphone reste sur la même origine HTTPS Tailscale ; Vite relaie
+    // ensuite vers le BFF local. Cela évite le second port et son prévol CORS.
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true
+      }
+    }
   },
   plugins: [
     vue(),

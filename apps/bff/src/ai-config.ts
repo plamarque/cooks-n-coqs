@@ -4,7 +4,7 @@
  */
 
 export type ImageUseCase = "recipe" | "ingredient" | "cooking_step";
-export type ChatUseCase = "parse" | "step_timer" | "reorder" | "extract";
+export type ChatUseCase = "parse" | "step_timer" | "reorder" | "extract" | "assistant_recipe" | "assistant_clarify";
 
 const DEFAULTS = {
   image: {
@@ -16,7 +16,9 @@ const DEFAULTS = {
     parse: "gpt-5.6-terra",
     step_timer: "gpt-5.6-luna",
     reorder: "gpt-5.6-luna",
-    extract: "gpt-5.6-luna"
+    extract: "gpt-5.6-luna",
+    assistant_recipe: "gpt-5.6-terra",
+    assistant_clarify: "gpt-5.6-luna"
   } as Record<ChatUseCase, string>
 };
 
@@ -48,7 +50,9 @@ const CHAT_MODEL_KEYS: Record<ChatUseCase, string> = {
   parse: "AI_CHAT_MODEL_PARSE",
   step_timer: "AI_CHAT_MODEL_STEP_TIMER",
   reorder: "AI_CHAT_MODEL_REORDER",
-  extract: "AI_CHAT_MODEL_EXTRACT"
+  extract: "AI_CHAT_MODEL_EXTRACT",
+  assistant_recipe: "AI_CHAT_MODEL_ASSISTANT_RECIPE",
+  assistant_clarify: "AI_CHAT_MODEL_ASSISTANT_CLARIFY"
 };
 
 export function getChatModel(useCase: ChatUseCase): string {

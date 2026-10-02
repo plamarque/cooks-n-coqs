@@ -9,7 +9,16 @@ import { mergeDrafts } from "../utils/merge-recipe-drafts";
 import { tryParseRecipeShareF2Text } from "../utils/recipe-share-f2";
 import { reorderStepsRequestBody } from "../utils/reorder-steps-request";
 
-const API_BASE_URL = import.meta.env?.VITE_BFF_URL || "http://localhost:8787";
+function defaultBffUrl(): string {
+  // Même trajet HTTPS dédié que l'Assistant : les multipart photo ne passent
+  // pas par le proxy Vite intermédiaire.
+  if (typeof window !== "undefined" && window.location.hostname.endsWith(".ts.net")) {
+    return `https://${window.location.hostname}:8443`;
+  }
+  return "http://localhost:8787";
+}
+
+const API_BASE_URL = import.meta.env?.VITE_BFF_URL || defaultBffUrl();
 
 export async function extractImageFromUrl(url: string): Promise<string | undefined> {
   try {
@@ -96,7 +105,8 @@ function fallbackDraft(
   };
 }
 
-async function compressScreenshot(file: File): Promise<File> {
+/** Réduction locale éphémère, partagée par l'import et l'analyse Assistant. */
+export async function compressImageForTransfer(file: File, maxBytes?: number): Promise<File> {
   if (!file.type.startsWith("image/")) {
     return file;
   }
@@ -117,11 +127,14 @@ async function compressScreenshot(file: File): Promise<File> {
     }
 
     ctx.drawImage(bitmap, 0, 0, width, height);
+    let blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
+    if (maxBytes && blob && blob.size > maxBytes) {
+      for (const quality of [0.7, 0.58]) {
+        blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (!blob || blob.size <= maxBytes) break;
+      }
+    }
     bitmap.close();
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.82)
-    );
     if (!blob) {
       return file;
     }
@@ -174,7 +187,7 @@ class BffImportService implements ImportService {
 
   async importFromScreenshot(file: File, options?: { signal?: AbortSignal; contextText?: string }): Promise<ParsedRecipeDraft> {
     try {
-      const compressed = await compressScreenshot(file);
+      const compressed = await compressImageForTransfer(file);
       if (compressed.size > MAX_SCREENSHOT_BYTES) {
         throw new Error("Image trop volumineuse (max 5 Mo).");
       }
@@ -196,10 +209,10 @@ class BffImportService implements ImportService {
     }
   }
 
-  async importFromScreenshots(files: File[]): Promise<ParsedRecipeDraft> {
+  async importFromScreenshots(files: File[], options?: { signal?: AbortSignal; contextText?: string }): Promise<ParsedRecipeDraft> {
     const drafts: ParsedRecipeDraft[] = [];
     for (const file of files) {
-      const draft = await this.importFromScreenshot(file);
+      const draft = await this.importFromScreenshot(file, options);
       drafts.push(draft);
     }
     let merged = mergeDrafts(drafts);
@@ -208,13 +221,15 @@ class BffImportService implements ImportService {
         const res = await fetch(`${API_BASE_URL}/api/import/reorder-steps`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(reorderStepsRequestBody(merged.steps))
+          body: JSON.stringify(reorderStepsRequestBody(merged.steps)),
+          signal: options?.signal
         });
         if (res.ok) {
           const data = (await res.json()) as { steps: ParsedInstructionStep[] };
           merged = { ...merged, steps: data.steps };
         }
-      } catch {
+      } catch (error) {
+        rethrowAbort(error);
         // keep merged as-is on reorder failure
       }
     }

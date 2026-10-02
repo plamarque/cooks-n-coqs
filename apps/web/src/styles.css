@@ -88,12 +88,41 @@ body {
   margin: 28px 0 16px;
 }
 
-.assistant-import-progress,
-.assistant-preview-card,
 .assistant-preview-detail { margin-top: 12px; border-radius: 1rem; }
-.assistant-import-progress { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; background: #edf4ef; color: #1f4f46; font-weight: 700; }
+.assistant-import-progress { position: absolute; z-index: 4; inset: 0; display: grid; grid-template-rows: auto minmax(2.8em, auto) auto; justify-items: center; align-content: center; gap: 14px; padding: 28px; border-radius: 1.25rem; background: rgba(237, 244, 239, .985); color: #1f4f46; font-size: clamp(1.1rem, 4vw, 1.5rem); font-weight: 800; text-align: center; }
+.assistant-import-progress-mark { position: relative; display: block; width: 4.25rem; height: 4.25rem; }
+/* PrimeVue emploie p-progressspinner (sans second tiret) sur sa racine. */
+.assistant-import-progress-mark > .p-progressspinner { position: absolute; inset: 0; width: 4.25rem; height: 4.25rem; }
+.assistant-import-progress-mark > img { position: absolute; z-index: 1; top: 50%; left: 50%; width: 2.1rem; height: 2.1rem; padding: .2rem; border-radius: 50%; background: #fffdf9; transform: translate(-50%, -50%); }
+.assistant-import-progress-label { max-width: 21ch; line-height: 1.3; }
+.assistant-import-progress .p-button { position: static; min-width: 7rem; }
 .assistant-import-error { color: #a62c2b; font-weight: 700; }
-.assistant-preview-card { display: flex; width: 100%; min-height: 76px; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; border: 1px solid #b8d2c5; background: #fffdf9; color: #1d1f1c; cursor: pointer; text-align: left; }
+.assistant-preview-card-wrap { position: absolute; z-index: 5; inset: 0; overflow: hidden; border-radius: 1.25rem; animation: assistant-preview-arrive .42s cubic-bezier(.2,.85,.25,1); }
+.assistant-preview-card { position: relative; width: 100%; height: 100%; display: grid; grid-template-rows: 132px minmax(0, 1fr); overflow: hidden; padding: 0; border: 0; border-radius: 1.25rem; background: #fffdf9; color: #1d1f1c; cursor: pointer; text-align: left; }
+.assistant-preview-close { position: absolute; z-index: 2; top: 12px; right: 12px; display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 50%; background: rgba(255,253,250,.9); color: #1f4f46; cursor: pointer; }
+.assistant-preview-card-hero { position: relative; display: block; min-height: 0; overflow: hidden; background: radial-gradient(circle at 72% 29%,#f6d781 0 9%,transparent 10%),radial-gradient(circle at 38% 49%,#6b9f65 0 21%,transparent 22%),linear-gradient(135deg,#9c5e37,#e8bf75); }
+.assistant-preview-card-image { width: 100%; height: 100%; object-fit: cover; background: #edf4ef; }
+.assistant-preview-card-loading { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: .35rem; color: #1f4f46; font-size: .8rem; font-weight: 800; background: linear-gradient(120deg,#e7f1eb,#fbf5e9,#e7f1eb); background-size:220% 100%; animation: assistant-hero-shimmer 1.5s linear infinite; }
+.assistant-preview-card-loading-mark { position: relative; display: grid; width: 3.5rem; height: 3.5rem; place-items: center; }
+.assistant-preview-card-loading .p-progressspinner { position: absolute; inset: 0; width: 3.5rem; height: 3.5rem; }
+.assistant-preview-card-loading-mark img { position: relative; z-index: 1; width: 1.75rem; height: 1.75rem; padding: .16rem; border-radius: 50%; background: #fffdf9; }
+.assistant-preview-card-image--placeholder { display: grid; place-items: center; color: #1f4f46; font-size: 2rem; }
+.assistant-preview-card-copy { display: grid; min-height: 0; align-content: start; gap: 5px; min-width: 0; overflow: hidden; padding: 14px 17px 58px; }
+.assistant-preview-card-status, .assistant-preview-origin { color: #52665e; font-size: .82rem; }
+.assistant-preview-card-meta, .assistant-preview-summary { margin: 0; color: #52665e; font-size: .9rem; line-height: 1.35; }
+.assistant-preview-card-ingredients { display: grid; gap: 3px; margin-top: 5px; color: #38554c; font-size: .82rem; line-height: 1.25; }
+.assistant-preview-card-ingredients > span::before { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: #79a06b; content: ""; }
+.assistant-preview-card-ingredients-more { color: #5d7b72; font-weight: 800; }.assistant-preview-card-ingredients-more::before { background: #e0b34b !important; }
+.assistant-preview-card-open { position: absolute; right: 15px; bottom: 14px; display: inline-flex; min-height: 40px; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; background: #1f4f46; color: #fffdf9; font-size: .83rem; font-weight: 800; }
+@keyframes assistant-preview-arrive { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes assistant-hero-shimmer { to { background-position: -220% 0; } }
+.assistant-preview-detail .recipe-detail-header { margin-inline: -28px; margin-top: -28px; }
+.assistant-preview-detail .recipe-detail-image, .assistant-preview-detail .recipe-detail-image-placeholder { border-radius: 1rem 1rem 0 0; max-height: 320px; }
+.assistant-preview-save { min-height: 44px; }
+.assistant-preview-ingredient-card { cursor: default; }
+.assistant-preview-ingredient-card .ingredient-card-image-wrap { display: grid; place-items: center; color: rgba(31,79,70,.42); font-size: 1.5rem; }
+.assistant-preview-time { margin-inline: 0; }
+@media (prefers-reduced-motion: reduce) { .assistant-preview-card-image--loading *, .assistant-import-progress * { animation: none !important; } }
 .assistant-preview-card-title { color: #1f4f46; font-size: 1.1rem; font-weight: 800; }
 .assistant-preview-detail { position: relative; max-width: 720px; margin: 32px auto; padding: 28px; background: #fffdf9; }
 .assistant-preview-close { position: absolute; top: 12px; right: 12px; min-width: 44px; min-height: 44px; border: 0; border-radius: 50%; background: #edf4ef; color: #1f4f46; cursor: pointer; }
@@ -133,6 +162,19 @@ body {
   line-height: 1.4;
 }
 
+/* Avec des photos, chaque zone participe au flux : rien ne peut remonter hors du cadre. */
+.assistant-composer--with-attachments {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.assistant-composer--with-attachments .assistant-composer-text {
+  box-sizing: border-box;
+  min-height: 132px;
+  padding-bottom: 16px;
+}
+
 .assistant-composer-actions {
   position: absolute;
   right: 10px;
@@ -140,6 +182,14 @@ body {
   display: flex;
   gap: 8px;
   margin: 0;
+}
+
+.assistant-composer--with-attachments .assistant-composer-actions {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  align-self: flex-end;
+  margin: 0 10px 10px;
 }
 
 .assistant-composer-actions.is-listening::before {
@@ -186,6 +236,14 @@ body {
   color: #1d1f1c !important;
 }
 
+.assistant-submit.is-submitting.p-button,
+.assistant-submit.is-submitting.p-button:disabled {
+  opacity: 1;
+  background: #1f4f46 !important;
+  color: #fffdf9 !important;
+  box-shadow: 0 0 0 4px rgba(50, 204, 154, .22);
+}
+
 .assistant-dictation-action.p-button {
   color: #2a6258 !important;
   background: #e2f1ea !important;
@@ -196,14 +254,79 @@ body {
   background: #f0f5f1 !important;
 }
 
-.assistant-attachment {
+.assistant-photo-picker { position: relative; }
+
+.assistant-photo-menu {
   position: absolute;
-  bottom: 12px;
+  z-index: 8;
+  bottom: calc(100% + 8px);
+  right: 0;
+  left: auto;
+  display: grid;
+  width: max-content;
+  min-width: min(13rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  padding: .35rem;
+  border: 1px solid #b8d2c5;
+  border-radius: .75rem;
+  background: #fffdf9;
+  box-shadow: 0 8px 20px rgba(31,79,70,.18);
+}
+
+.assistant-photo-menu button {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: .65rem;
+  padding: .55rem .7rem;
+  border: 0;
+  border-radius: .5rem;
+  background: transparent;
+  color: #1f4f46;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assistant-photo-menu button:hover, .assistant-photo-menu button:focus-visible { background: #e8f3ed; outline: 2px solid #315c53; outline-offset: 1px; }
+
+.assistant-attachments {
+  position: absolute;
+  right: 13px;
+  bottom: 62px;
   left: 13px;
   display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  padding-bottom: 2px;
+  overflow: visible;
+}
+
+.assistant-composer--with-attachments .assistant-attachments {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  display: flex;
+  flex-wrap: nowrap;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 13px 8px;
+  gap: .6rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: none;
+}
+
+.assistant-composer--with-attachments .assistant-attachments::-webkit-scrollbar { display: none; }
+
+.assistant-attachment {
+  display: flex;
+  min-width: 0;
   align-items: center;
   gap: 0.4rem;
-  max-width: calc(100% - 170px);
+  max-width: 13rem;
   padding: 6px 9px;
   overflow: hidden;
   border-radius: 999px;
@@ -211,6 +334,45 @@ body {
   background: #e8f3ed;
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+.assistant-composer--with-attachments .assistant-attachment {
+  position: relative;
+  display: grid;
+  width: 2.8rem;
+  height: 2.8rem;
+  max-width: none;
+  padding: 0;
+  overflow: visible;
+  place-items: center;
+  border-radius: .65rem;
+}
+
+.assistant-composer--with-attachments .assistant-attachment-preview {
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: .65rem;
+}
+
+.assistant-composer--with-attachments .assistant-attachment-remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 1.2rem;
+  height: 1.2rem;
+  min-width: 1.2rem;
+  border: 1px solid #b8d2c5;
+  background: #fffdf9;
+  box-shadow: 0 2px 5px rgba(31, 79, 70, .18);
+}
+
+.assistant-attachment-preview {
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: none;
+  border-radius: .35rem;
+  object-fit: cover;
+  background: #fffdf9;
 }
 
 .assistant-attachment > span {
@@ -2563,4 +2725,32 @@ select {
 .source-input-row .source-input {
   flex: 1;
   min-width: 200px;
+}
+
+.assistant-conversation {
+  display: grid;
+  gap: .55rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant-conversation-turn {
+  max-width: min(34rem, 92%);
+  padding: .7rem .85rem;
+  border-radius: .9rem;
+  line-height: 1.35;
+}
+
+.assistant-conversation-turn--user {
+  justify-self: end;
+  background: #e7f0eb;
+  color: #173b32;
+}
+
+.assistant-conversation-turn--assistant {
+  justify-self: start;
+  background: #fff9ef;
+  border: 1px solid #eadfca;
+  color: #3f382d;
 }
