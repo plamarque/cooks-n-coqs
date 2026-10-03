@@ -32,3 +32,7 @@ Cookies & Coquillettes — PWA recettes (Vue 3 / Vite) + BFF Express + package d
 - Dans `packages/domain`, jumeaux `.ts` + `.js` : les tests importent le `.js` — les garder alignés quand tu modifies les règles.
 
 <!-- /bmad:context -->
+
+## Worktrees de story
+
+- Depuis un checkout d’intégration propre, utiliser `npm run story-worktree:start -- <story-key> <slug>` ; il prépare les dépendances, le `.env` local autorisé et les workflows BMAD. Ne pas recopier `.env` à la main.

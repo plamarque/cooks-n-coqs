@@ -18,7 +18,10 @@
     "test:unit": "node --test packages/domain/test/*.test.mjs && npm run test:unit -w @cookies-et-coquilettes/web && npm run test:unit -w @cookies-et-coquilettes/bff",
     "test:e2e": "bash scripts/run-e2e.sh",
     "test:e2e:ui": "npx playwright test --ui",
-    "screenshots": "node scripts/generate-screenshots.js"
+    "screenshots": "node scripts/generate-screenshots.js",
+    "story-worktree:verify": "bash scripts/story-worktree.sh verify",
+    "story-worktree:start": "bash scripts/story-worktree.sh start",
+    "story-worktree:stop": "bash scripts/story-worktree.sh stop"
   },
   "engines": {
     "node": "20.x"

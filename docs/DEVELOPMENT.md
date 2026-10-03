@@ -13,6 +13,20 @@ cd cookies-et-coquilettes
 npm install
 ```
 
+## Worktree de story
+
+Depuis un checkout d’intégration propre, créer et préparer un worktree de story avec
+Node 20 actif et un `.env` local déjà configuré :
+
+```bash
+npm run story-worktree:start -- 2-1 trouver-recette
+```
+
+La commande crée la branche/worktree, copie le `.env` **uniquement** dans ce
+worktree, exécute `npm ci` et vérifie les workflows BMAD. Elle n’affiche ni ne
+versionne de secret. `npm run story-worktree:verify` rejoue les prérequis dans
+le worktree courant. `story-worktree:stop` ne supprime ni branche ni worktree.
+
 ## Commandes
 
 ```bash
