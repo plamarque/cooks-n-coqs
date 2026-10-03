@@ -231,8 +231,11 @@ const pasteFieldRowRef = ref<HTMLElement | null>(null);
 const addChoiceSecondaryButtonsRef = ref<HTMLElement | null>(null);
 const pasteFieldContent = ref("");
 const importBusy = ref(false);
+const importAbortController = ref<AbortController | null>(null);
 const clipboardBusy = ref(false);
 const importSourceType = ref<ImportProgressType | null>(null);
+const photoImportProgress = ref<{ phase: "preparing" | "reading" | "reordering"; current: number; total: number } | null>(null);
+const assistantImageProgress = ref<{ phase: "preparing" | "reading"; current: number; total: number } | null>(null);
 const imageGenerating = ref(false);
 const imageReextracting = ref(false);
 const recipeIdWithPendingImage = ref<string | null>(null);
@@ -539,6 +542,12 @@ function sourceTypeLabel(source?: ImportSource): string {
 }
 
 function importBusyLabel(type: ImportProgressType | null): string {
+  if (type === "screenshot" && photoImportProgress.value) {
+    const { phase, current, total } = photoImportProgress.value;
+    if (phase === "preparing") return `Préparation de l’image ${current}/${total}…`;
+    if (phase === "reordering") return `Vérification de l’ordre des photos ${current}/${total}…`;
+    return `Lecture de l’image ${current}/${total}…`;
+  }
   switch (type) {
     case "share":
       return "Analyse du partage en cours…";
@@ -1200,7 +1209,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
   // Une réponse utilisateur ferme la question en attente sans effacer le fil affiché.
   if (assistantSession.question) assistantSession.question = null;
   const inputText = assistantText.value.trim();
-  const attachments = await prepareAssistantImages(assistantAttachments.value.map(({ file }) => file), () => preparationId === assistantPreparationId && assistantPreparing.value);
+  const attachments = await prepareAssistantImages(assistantAttachments.value.map(({ file }) => file), () => preparationId === assistantPreparationId && assistantPreparing.value, (progress) => { assistantImageProgress.value = progress; });
   if (!attachments || preparationId !== assistantPreparationId || !assistantPreparing.value) return null;
   const route = routeAssistantImport(inputText, attachments);
   const request = route === "image"
@@ -1220,7 +1229,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
         }
         stage = "analyse_des_photos";
         if (route === "image") assistantPhase.value = "analyzing";
-        const visualSummaries = route === "image" ? await summarizeAssistantImages(attachments, inputText, signal) : [];
+        const visualSummaries = route === "image" ? await summarizeAssistantImages(attachments, inputText, signal, (progress) => { assistantImageProgress.value = progress; }) : [];
         const selectionRequest = buildAssistantSelectionRequest(text, visualSummaries);
         stage = "decision";
         progress("searching");
@@ -1245,6 +1254,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
     nextTick(() => focusAssistantComposer());
     return null;
   }
+  assistantImageProgress.value = null;
   if (result?.kind === "candidates") {
     const currentRecipes = new Map((await dexieRecipeService.listRecipes()).map((recipe) => [recipe.id, recipe]));
     const revalidated = result.candidateRefs.map((candidateRef) => candidateMap.get(candidateRef))
@@ -1688,15 +1698,29 @@ async function runImportFromFiles(files: File[]): Promise<void> {
   clearMessages();
   importBusy.value = true;
   importSourceType.value = "screenshot";
+  const controller = new AbortController();
+  importAbortController.value = controller;
   try {
-    const draft = await bffImportService.importFromScreenshots(files);
+    const draft = await bffImportService.importFromScreenshots(files, { signal: controller.signal, onProgress: (progress) => { photoImportProgress.value = progress; } });
+    if (controller.signal.aborted) return;
     await createRecipeFromDraft(draft, files);
   } catch (error) {
-    setError(error);
+    if (!controller.signal.aborted) setError(error);
   } finally {
     importBusy.value = false;
     importSourceType.value = null;
+    photoImportProgress.value = null;
+    if (importAbortController.value === controller) importAbortController.value = null;
   }
+}
+
+function cancelPhotoImport(): void {
+  importAbortController.value?.abort();
+  importAbortController.value = null;
+  photoImportProgress.value = null;
+  importBusy.value = false;
+  importSourceType.value = null;
+  feedback.value = "Analyse des photos annulée. Aucune recette n’a été créée.";
 }
 
 async function runImportFromPasteFieldWithText(text: string): Promise<void> {
@@ -3179,7 +3203,7 @@ onUnmounted(() => {
               <ProgressSpinner />
               <img src="/favicon.svg" alt="" />
             </span>
-            <span class="assistant-import-progress-label">{{ assistantPhase === 'searching' ? 'Je cherche dans votre Cahier' : assistantPhase === 'creating' ? 'Je crée votre recette' : assistantPhase === 'analyzing' ? (assistantAttachments.length ? 'J’analyse vos photos' : 'J’analyse votre demande') : (assistantAttachments.length ? 'Je lis vos photos pour reconstituer la recette' : 'J’analyse votre recette') }}</span>
+            <span class="assistant-import-progress-label">{{ assistantPhase === 'searching' ? 'Je cherche dans votre Cahier' : assistantPhase === 'creating' ? 'Je crée votre recette' : assistantPhase === 'analyzing' ? (assistantImageProgress ? `${assistantImageProgress.phase === 'preparing' ? 'Préparation' : 'Lecture'} de la photo ${assistantImageProgress.current}/${assistantImageProgress.total}` : (assistantAttachments.length ? 'J’analyse vos photos' : 'J’analyse votre demande')) : (assistantAttachments.length ? 'Je lis vos photos pour reconstituer la recette' : 'J’analyse votre recette') }}</span>
             <Button label="Annuler" severity="secondary" @click="cancelAssistantImport" />
           </div>
         </div>
@@ -3430,6 +3454,7 @@ onUnmounted(() => {
         <template v-else>
           <ProgressBar mode="indeterminate" style="width: 100%; height: 0.65rem" />
           <p class="transfer-progress-stage">{{ importBusyLabel(importSourceType) }}</p>
+          <Button v-if="importSourceType === 'screenshot'" label="Annuler" severity="secondary" @click="cancelPhotoImport" />
         </template>
       </div>
 

@@ -74,3 +74,16 @@ test("analyse images : le statut et la référence d'un 503 sont conservés", as
     );
   } finally { globalThis.fetch = previous; }
 });
+
+test("analyse images : la progression expose lecture n/N sans contenu utilisateur", async () => {
+  const previous = globalThis.fetch;
+  const progress: Array<{ phase: string; current: number; total: number }> = [];
+  globalThis.fetch = async () => new Response(JSON.stringify({ summaries: ["Une soupe."] }), { status: 200 });
+  try {
+    await summarizeAssistantImages([new File(["a"], "a.png", { type: "image/png" }), new File(["b"], "b.png", { type: "image/png" })], "contexte privé", new AbortController().signal, (event) => progress.push(event));
+    assert.deepEqual(progress.map(({ phase, current, total }) => ({ phase, current, total })), [
+      { phase: "reading", current: 1, total: 2 }, { phase: "reading", current: 1, total: 2 },
+      { phase: "reading", current: 2, total: 2 }, { phase: "reading", current: 2, total: 2 }
+    ]);
+  } finally { globalThis.fetch = previous; }
+});

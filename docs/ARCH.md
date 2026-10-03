@@ -122,7 +122,7 @@ Aucune route HTTP ni store de drop. QR, deep link `/r` et Mode A/B sont hors pro
 
 Règles de contrat :
 - flux direct : `parse -> create -> détail` ; image en arrière-plan si absente (échec génération ≠ échec d’import),
-- l’UI expose un état de progression pendant l’import (analyse URL/texte, lecture image),
+- l’UI expose un état de progression pendant l’import (analyse URL/texte ; pour les photos : préparation, lecture `n/N`, puis vérification d’ordre) et peut aborter le flux photo v1 avant `createRecipe`,
 - F2 reconnu via `importFromText` / `importFromShare` : early-return local, **pas** d’appel BFF ni de re-fetch de `source.url`,
 - pour un payload `SHARE` **non-F2** contenant une URL, priorité à l’extraction depuis l’URL partagée,
 - la `source` d’import est persistée avec `type + capturedAt` même quand `url` est absente,

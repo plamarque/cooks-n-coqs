@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chooseNotebookRecipe, isAssistantSelectionInput, normalizeAssistantImageSummary, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
+import { chooseNotebookRecipe, isAssistantSelectionInput, isRetryableAssistantImageError, normalizeAssistantImageSummary, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
 
 test("vision : un résumé trop long reste utilisable pour la décision", () => {
   const summary = normalizeAssistantImageSummary(`Une salade avec des mangues, du riz et de la coriandre. ${"Préparation détaillée. ".repeat(30)}`);
@@ -28,6 +28,25 @@ test("vision : deux échecs bornent la reprise d'une image", async () => {
   });
   assert.equal(summary, null);
   assert.equal(calls, 2);
+});
+
+test("vision : un 4xx définitif ne repart pas, un 429 repart une fois", async () => {
+  let definitiveCalls = 0;
+  const definitive = await retryAssistantImageSummary(async () => {
+    definitiveCalls += 1;
+    throw Object.assign(new Error("bad request"), { status: 400 });
+  });
+  assert.equal(definitive, null);
+  assert.equal(definitiveCalls, 1);
+  assert.equal(isRetryableAssistantImageError(Object.assign(new Error(), { status: 401 })), false);
+  let transientCalls = 0;
+  const transient = await retryAssistantImageSummary(async () => {
+    transientCalls += 1;
+    if (transientCalls === 1) throw Object.assign(new Error("busy"), { status: 429 });
+    return "Une soupe.";
+  });
+  assert.equal(transient, "Une soupe.");
+  assert.equal(transientCalls, 2);
 });
 
 test("vision : l'annulation pendant l'attente empêche toute reprise", async () => {

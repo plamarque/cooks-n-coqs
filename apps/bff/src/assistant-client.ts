@@ -94,6 +94,7 @@ export async function retryAssistantImageSummary(run: () => Promise<string | nul
       if (summary) return summary;
     } catch (error) {
       if (signal?.aborted) throw error;
+      if (!isRetryableAssistantImageError(error)) return null;
     }
     if (attempt + 1 < ASSISTANT_IMAGE_ATTEMPTS) await waitForAssistantImageRetry(signal);
   }
@@ -121,6 +122,14 @@ function imageAttemptFailure(error: unknown): Pick<AssistantImageAttempt, "outco
   const providerStatus = typeof candidate?.status === "number" ? candidate.status : undefined;
   if (candidate?.name === "APIConnectionTimeoutError" || candidate?.name === "TimeoutError") return { outcome: "timeout", providerStatus };
   return providerStatus === undefined ? { outcome: "network_error" } : { outcome: "provider_error", providerStatus };
+}
+
+export function isRetryableAssistantImageError(error: unknown): boolean {
+  const candidate = error as { status?: unknown; name?: unknown; code?: unknown };
+  const status = typeof candidate?.status === "number" ? candidate.status : undefined;
+  return candidate?.name === "APIConnectionTimeoutError" || candidate?.name === "TimeoutError"
+    || candidate?.name === "APIConnectionError" || candidate?.code === "ECONNRESET"
+    || status === 429 || (status !== undefined && status >= 500 && status <= 599);
 }
 
 export function validateAssistantRecipeDraft(value: unknown): ParsedRecipeDraft | null {

@@ -74,6 +74,7 @@ export async function generateCookingStepImage(stepText: string): Promise<string
 }
 
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+export type PhotoImportProgress = { phase: "preparing" | "reading" | "reordering"; current: number; total: number; durationMs?: number };
 
 function rethrowAbort(error: unknown): void {
   if ((error as Error)?.name === "AbortError") throw error;
@@ -224,8 +225,12 @@ class BffImportService implements ImportService {
     }
   }
 
-  async importFromScreenshot(file: File, options?: { signal?: AbortSignal; contextText?: string; assistantPrepared?: boolean }): Promise<ParsedRecipeDraft> {
+  async importFromScreenshot(file: File, options?: { signal?: AbortSignal; contextText?: string; assistantPrepared?: boolean; onProgress?: (progress: PhotoImportProgress) => void; imageIndex?: number; imageTotal?: number }): Promise<ParsedRecipeDraft> {
     try {
+      const current = options?.imageIndex ?? 1;
+      const total = options?.imageTotal ?? 1;
+      const preparationStartedAt = Date.now();
+      options?.onProgress?.({ phase: "preparing", current, total });
       const compressed = options?.assistantPrepared ? file : await compressImageForTransfer(file);
       if (compressed.size > (options?.assistantPrepared ? 4 * 1024 * 1024 : MAX_SCREENSHOT_BYTES)) {
         throw new Error(options?.assistantPrepared ? "Image trop volumineuse (max 4 Mio)." : "Image trop volumineuse (max 5 Mo).");
@@ -235,6 +240,7 @@ class BffImportService implements ImportService {
       body.append("file", compressed);
       if (options?.contextText?.trim()) body.append("contextText", options.contextText.trim());
 
+      options?.onProgress?.({ phase: "reading", current, total, durationMs: Date.now() - preparationStartedAt });
       const response = await fetch(`${API_BASE_URL}/api/import/screenshot`, {
         method: "POST",
         body, signal: options?.signal
@@ -248,15 +254,17 @@ class BffImportService implements ImportService {
     }
   }
 
-  async importFromScreenshots(files: File[], options?: { signal?: AbortSignal; contextText?: string; assistantPrepared?: boolean }): Promise<ParsedRecipeDraft> {
+  async importFromScreenshots(files: File[], options?: { signal?: AbortSignal; contextText?: string; assistantPrepared?: boolean; onProgress?: (progress: PhotoImportProgress) => void }): Promise<ParsedRecipeDraft> {
     const drafts: ParsedRecipeDraft[] = [];
-    for (const file of files) {
-      const draft = await this.importFromScreenshot(file, options);
+    for (const [index, file] of files.entries()) {
+      const draft = await this.importFromScreenshot(file, { ...options, imageIndex: index + 1, imageTotal: files.length });
       drafts.push(draft);
     }
     let merged = mergeDrafts(drafts);
     if (merged.steps.length > 1) {
       try {
+        const startedAt = Date.now();
+        options?.onProgress?.({ phase: "reordering", current: files.length, total: files.length });
         const res = await fetch(`${API_BASE_URL}/api/import/reorder-steps`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -267,6 +275,9 @@ class BffImportService implements ImportService {
           const data = (await res.json()) as { steps: ParsedInstructionStep[] };
           merged = { ...merged, steps: data.steps };
         }
+        // Diagnostic de durée sans image, demande, réponse ni résumé IA.
+        // eslint-disable-next-line no-console
+        console.info("photo_import_diagnostic", { phase: "reordering", durationMs: Date.now() - startedAt, imageCount: files.length, status: res.status });
       } catch (error) {
         rethrowAbort(error);
         // keep merged as-is on reorder failure

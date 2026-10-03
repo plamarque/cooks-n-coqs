@@ -20,6 +20,7 @@ export class AssistantImageRequestError extends Error {
     super(`assistant_image:${category}`);
   }
 }
+export type AssistantImageProgress = { phase: "preparing" | "reading"; current: number; total: number; durationMs?: number };
 
 function traceImageRequest(category: AssistantImageRequestError["category"] | "ok", reference: string, imageIndex: number, originalBytes: number, resultBytes: number | undefined, durationMs: number, status?: number): void {
   // Aucune donnée de photo, demande ou réponse IA n'est journalisée.
@@ -27,11 +28,12 @@ function traceImageRequest(category: AssistantImageRequestError["category"] | "o
 }
 
 /** Prépare le lot dans son ordre initial, sans décodages simultanés. */
-export async function prepareAssistantImages(files: readonly File[], isCurrent: () => boolean): Promise<File[] | null> {
+export async function prepareAssistantImages(files: readonly File[], isCurrent: () => boolean, onProgress?: (progress: AssistantImageProgress) => void): Promise<File[] | null> {
   if (files.length > 5) throw new AssistantImageRequestError("preparation", crypto.randomUUID(), undefined, "count");
   const prepared: File[] = [];
   for (const [index, file] of files.entries()) {
     if (!isCurrent()) return null;
+    onProgress?.({ phase: "preparing", current: index + 1, total: files.length });
     const reference = crypto.randomUUID();
     const startedAt = Date.now();
     try {
@@ -94,12 +96,15 @@ export async function summarizeAssistantImage(file: File, contextText: string, s
 
 /** Une requête courte par image évite qu'un lot de photos garde une connexion
  * HTTP ouverte pendant toutes les reprises fournisseur. Rien n'est persisté. */
-export async function summarizeAssistantImages(files: readonly File[], contextText: string, signal: AbortSignal): Promise<string[]> {
+export async function summarizeAssistantImages(files: readonly File[], contextText: string, signal: AbortSignal, onProgress?: (progress: AssistantImageProgress) => void): Promise<string[]> {
   if (!files.length || files.length > 5) throw new AssistantImageRequestError("preparation", crypto.randomUUID(), undefined, "count");
   const summaries: string[] = [];
   for (const [index, file] of files.entries()) {
     if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+    onProgress?.({ phase: "reading", current: index + 1, total: files.length });
+    const startedAt = Date.now();
     summaries.push(await summarizeOneAssistantImage(file, contextText, signal, index + 1));
+    onProgress?.({ phase: "reading", current: index + 1, total: files.length, durationMs: Date.now() - startedAt });
   }
   return summaries;
 }

@@ -47,7 +47,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 3. Toute recette importée est créée immédiatement et affichée ; l'utilisateur peut l'éditer à tout moment si besoin.
 4. Lorsque la source structurée (ex. JSON-LD) fournit plusieurs images ou une vidéo par étape, l'application tente de les extraire et de les associer à l'étape correspondante (best effort) ; les images sont téléchargées en arrière-plan.
 5. Si le BFF est indisponible ou l’extraction échoue, l’application crée un draft minimal (titre + provenance) à compléter manuellement via l'édition.
-6. Pendant l’import (URL, texte ou image), l’interface affiche un état d’attente explicite indiquant l’analyse en cours.
+6. Pendant l’import (URL, texte ou image), l’interface affiche un état d’attente explicite indiquant l’analyse en cours. Pour plusieurs photos, elle indique préparation, lecture `n/N`, puis vérification d’ordre si applicable ; l’import photo v1 est annulable avant toute création de recette.
 7. La provenance (`source`) est conservée pour tout import, même sans URL (ex. image collée).
 8. Pour un import YouTube ou Instagram (post/reel), l'application extrait la recette depuis la description (caption), capture le poster (thumbnail) et affiche l'embed vidéo dans la vue détail et le formulaire d'édition ; le poster est réservé aux cartes de l'écran d'accueil. Le bouton overlay « Cuisiner » est masqué sur les embeds vidéo pour ne pas gêner la lecture.
 
