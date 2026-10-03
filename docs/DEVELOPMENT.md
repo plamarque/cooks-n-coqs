@@ -105,6 +105,8 @@ npm run benchmark:images -w @cookies-et-coquilettes/bff -- --current-model gpt-i
 
 Les artefacts restent locaux dans `apps/bff/benchmark-results/<horodatage>-<suffixe>/` (ignorés par Git) : images, `manifest.json` identifié par hash du corpus et `review.html` aux gabarits recette, ingrédient et étape. Le manifeste ne calcule jamais de coût : il enregistre seulement l'usage API reçu ou son indisponibilité. Ne transmettez ni résultats ni cache à Render/R2 ; l'évaluation humaine formelle relève de la story 3.2.
 
+Après l'exécution, suivre le [protocole de validation des modèles d'images](IMAGE_MODEL_VALIDATION.md) : renseigner le rapport versionné à partir du manifeste et de la revue locale, puis le faire valider par un humain. L'exécution, le remplissage du rapport, sa validation et toute éventuelle bascule des variables Render sont des opérations humaines distinctes ; le benchmark ne modifie aucune configuration de production.
+
 ## Prérequis E2E / screenshots
 
 ```bash
