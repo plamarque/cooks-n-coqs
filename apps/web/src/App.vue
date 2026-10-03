@@ -60,6 +60,7 @@ import {
   storeImageFromUrl,
   storeImageFromUrlWithResult
 } from "./services/recipe-service";
+import { saveAssistantPreview as persistAssistantPreview } from "./services/preview-save-service";
 import {
   exportRecipeBookZipBlob,
   importRecipeBookFromZipFile,
@@ -1359,24 +1360,37 @@ async function saveAssistantPreview(): Promise<void> {
   const preview = assistantPreview.value;
   if (!preview || assistantPreviewSaving.value) return;
   assistantPreviewSaving.value = true;
-  const imageUrl = assistantPreviewImageUrl.value;
   try {
-    let imageId: string | undefined;
-    let imagePersistenceFailed = false;
-    if (imageUrl) {
-      const stored = await storeImageFromUrlWithResult(imageUrl);
-      imageId = stored.imageId;
-      imagePersistenceFailed = !imageId;
-    }
-    try {
-      await createRecipeFromDraft(preview.draft, preview.sourceFiles, imageId, Boolean(imageUrl), imagePersistenceFailed);
-    } catch (error) {
-      if (imageId) await db.images.delete(imageId);
-      throw error;
-    }
+    const saved = await persistAssistantPreview(preview, assistantPreviewImageUrl.value);
+    // La preview ne se ferme qu'après la transaction. L'override garde DETAIL
+    // consultable même si les filtres l'excluent ou si refresh échoue.
+    detailRecipeOverride.value = saved.recipe;
+    selectedRecipeId.value = saved.recipe.id;
     assistantSession.closePreview();
     assistantPreview.value = null;
     assistantPreviewImageUrl.value = null;
+    try {
+      await refresh();
+    } catch {
+      // La recette est déjà persistée : l'override est suffisant pour DETAIL.
+    }
+    selectedRecipeId.value = saved.recipe.id;
+    servingsInput.value = servingsInputFromRecipe(saved.recipe);
+    viewMode.value = "DETAIL";
+    const saveMessage = saved.illustrationUnavailable
+      ? "Recette importée ; seule la conservation de son illustration a échoué."
+      : "La recette a été enregistrée dans votre cahier.";
+    // Le détail n'affiche qu'un retour : le badge, pas le feedback global restant.
+    feedback.value = "";
+    showSaveSuccessBadge(saveMessage);
+    // Les médias d'étape distants restent best-effort, comme les imports v1,
+    // et ne peuvent pas retarder ou défaire la création atomique.
+    void hydrateStepMediaFromDraft(saved.recipe.id, saved.recipe.steps, preview.draft.steps)
+      .then(() => refresh())
+      .catch(() => {});
+  } catch (error) {
+    // La transaction a annulé ses écritures ; la preview et ses File restent en mémoire.
+    setError(error);
   } finally {
     assistantPreviewSaving.value = false;
   }
@@ -3254,7 +3268,7 @@ onUnmounted(() => {
         <div v-else class="recipe-detail-image-placeholder" :class="{ 'recipe-detail-image-placeholder--loading': !assistantPreviewImageUnavailable }"><ProgressSpinner v-if="!assistantPreviewImageUnavailable" aria-label="Illustration en préparation" /><i v-else class="pi pi-book" aria-hidden="true" /></div>
         <div class="recipe-detail-header-actions">
           <Button text icon="pi pi-arrow-left" class="recipe-detail-back" aria-label="Fermer la prévisualisation" @click="closeAssistantPreview" />
-          <Button label="Sauvegarder" icon="pi pi-save" class="assistant-preview-save" :loading="assistantPreviewSaving" :disabled="assistantPreviewSaving" @click="saveAssistantPreview" />
+          <Button icon="pi pi-save" aria-label="Sauvegarder" class="assistant-preview-save" :loading="assistantPreviewSaving" :disabled="assistantPreviewSaving" @click="saveAssistantPreview" />
         </div>
       </div>
       <div class="recipe-detail-meta">

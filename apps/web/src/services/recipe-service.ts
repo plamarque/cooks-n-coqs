@@ -11,11 +11,15 @@ import {
 import { db } from "../storage/db";
 import { deleteCookingStepImagesForRecipe } from "./cooking-step-image-service";
 
-const BFF_URL = import.meta.env.VITE_BFF_URL || "http://localhost:8787";
+const BFF_URL = import.meta.env?.VITE_BFF_URL || "http://localhost:8787";
 
 export type ImageStorageResult =
   | { imageId: string }
   | { imageId: undefined; issue: "fetch" | "invalid-image" | "storage" };
+
+export type PreparedImageResult =
+  | { blob: Blob }
+  | { blob: undefined; issue: "fetch" | "invalid-image" };
 
 function isGeneratedImageFromConfiguredBff(url: string): boolean {
   try {
@@ -27,8 +31,8 @@ function isGeneratedImageFromConfiguredBff(url: string): boolean {
   }
 }
 
-/** Télécharge puis écrit l'illustration dans IndexedDB sans exposer l'URL source. */
-export async function storeImageFromUrlWithResult(url: string): Promise<ImageStorageResult> {
+/** Télécharge une illustration sans encore modifier IndexedDB. */
+export async function prepareImageFromUrl(url: string): Promise<PreparedImageResult> {
   try {
     const isExternal = url.startsWith("http://") || url.startsWith("https://");
     const isBffGeneratedImage = isGeneratedImageFromConfiguredBff(url);
@@ -44,19 +48,34 @@ export async function storeImageFromUrlWithResult(url: string): Promise<ImageSto
         }
       : { mode: "cors", signal: AbortSignal.timeout(10000) };
     const res = await fetch(fetchUrl, fetchOpts);
-    if (!res.ok) return { imageId: undefined, issue: "fetch" };
+    if (!res.ok) return { blob: undefined, issue: "fetch" };
     const blob = await res.blob();
-    if (!blob.type.startsWith("image/")) return { imageId: undefined, issue: "invalid-image" };
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-    await db.images.add({
-      id,
-      mimeType: blob.type,
-      sizeBytes: blob.size,
-      createdAt: now,
-      blob
-    });
-    return { imageId: id };
+    if (!blob.type.startsWith("image/")) return { blob: undefined, issue: "invalid-image" };
+    return { blob };
+  } catch {
+    return { blob: undefined, issue: "fetch" };
+  }
+}
+
+/** Ligne image prête à être ajoutée dans la transaction appelante. */
+export function createRecipeImageRow(blob: Blob, id: string = crypto.randomUUID()) {
+  return {
+    id,
+    mimeType: blob.type,
+    sizeBytes: blob.size,
+    createdAt: new Date().toISOString(),
+    blob
+  };
+}
+
+/** Télécharge puis écrit l'illustration dans IndexedDB sans exposer l'URL source. */
+export async function storeImageFromUrlWithResult(url: string): Promise<ImageStorageResult> {
+  const prepared = await prepareImageFromUrl(url);
+  if (!prepared.blob) return { imageId: undefined, issue: prepared.issue };
+  try {
+    const row = createRecipeImageRow(prepared.blob);
+    await db.images.add(row);
+    return { imageId: row.id };
   } catch {
     return { imageId: undefined, issue: "storage" };
   }
