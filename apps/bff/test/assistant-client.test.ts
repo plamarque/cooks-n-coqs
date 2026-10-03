@@ -42,19 +42,18 @@ test("vision : l'annulation pendant l'attente empêche toute reprise", async () 
   assert.equal(calls, 1);
 });
 
-test("Jev TypeSafe : Choice bornée IMPORT/candidate/NOUVELLE_RECETTE", async () => {
+test("Jev TypeSafe : Choice bornée candidate/noCandidate", async () => {
   const key = process.env.TYPESAFE_API_KEY, fetch = globalThis.fetch;
   let payload: Record<string, unknown> | undefined;
   process.env.TYPESAFE_API_KEY = "test";
   globalThis.fetch = async (_url, init) => { payload = JSON.parse(String(init?.body)); return new Response(JSON.stringify({ answers: { route: { type: "choice", choice: "candidate-1", probabilities: { "candidate-1": 0.8 } } } }), { status: 200 }); };
   try {
-    assert.deepEqual(await chooseNotebookRecipe({ request: "dessert", candidates: [{ candidateRef: "candidate-1", title: "Tarte", ingredientLabels: [] }] }), { kind: "candidate", candidateRef: "candidate-1" });
-    assert.ok((payload?.questions as { route: { criteria: Record<string, string> } }).route.criteria.IMPORT);
-    assert.ok((payload?.questions as { route: { criteria: Record<string, string> } }).route.criteria.NOUVELLE_RECETTE);
+    assert.deepEqual(await chooseNotebookRecipe({ request: "dessert", candidates: [{ candidateRef: "candidate-1", title: "Tarte", ingredientLabels: [] }] }), { kind: "candidates", candidateRefs: ["candidate-1"], provider: "jev" });
+    assert.ok((payload?.questions as { route: { criteria: Record<string, string> } }).route.criteria.NO_CANDIDATE);
   } finally { globalThis.fetch = fetch; if (key === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = key; }
 });
 
-test("Jev : NOUVELLE_RECETTE est une décision valide, sans secours Luna", async () => {
+test("Jev : noCandidate valide ne déclenche pas Luna", async () => {
   const typesafeKey = process.env.TYPESAFE_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
   const originalFetch = globalThis.fetch;
@@ -64,14 +63,14 @@ test("Jev : NOUVELLE_RECETTE est une décision valide, sans secours Luna", async
   globalThis.fetch = async (url) => {
     requestedUrls.push(String(url));
     return new Response(JSON.stringify({
-      answers: { route: { type: "choice", choice: "NOUVELLE_RECETTE", probabilities: { NOUVELLE_RECETTE: 0.91 } } }
+      answers: { route: { type: "choice", choice: "NO_CANDIDATE", probabilities: { NO_CANDIDATE: 0.91 } } }
     }), { status: 200 });
   };
   try {
     assert.deepEqual(await chooseNotebookRecipe({
       request: "un dessert inédit",
       candidates: [{ candidateRef: "candidate-1", title: "Tarte connue", ingredientLabels: [] }]
-    }), { kind: "newRecipe" });
+    }), { kind: "noCandidate", provider: "jev" });
     assert.deepEqual(requestedUrls, ["https://api.typesafe.ai/v1/systemone"]);
   } finally {
     globalThis.fetch = originalFetch;
@@ -80,29 +79,48 @@ test("Jev : NOUVELLE_RECETTE est une décision valide, sans secours Luna", async
   }
 });
 
-test("Jev : CLARIFY est proposé seulement avant deux précisions", async () => {
+test("Jev : un 4xx devient indisponible sans secours Luna", async () => {
+  const typesafeKey = process.env.TYPESAFE_API_KEY, openaiKey = process.env.OPENAI_API_KEY, originalFetch = globalThis.fetch;
+  const urls: string[] = [];
+  process.env.TYPESAFE_API_KEY = "test"; process.env.OPENAI_API_KEY = "test";
+  globalThis.fetch = async (url) => { urls.push(String(url)); return new Response("bad request", { status: 400 }); };
+  try {
+    assert.equal(await chooseNotebookRecipe({ request: "dîner", candidates: [] }), null);
+    assert.deepEqual(urls, ["https://api.typesafe.ai/v1/systemone"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (typesafeKey === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = typesafeKey;
+    if (openaiKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = openaiKey;
+  }
+});
+
+test("Jev : conserve deux puis trois candidates ordonnées et dédupliquées", async () => {
   const key = process.env.TYPESAFE_API_KEY, originalFetch = globalThis.fetch;
   process.env.TYPESAFE_API_KEY = "test";
-  globalThis.fetch = async () => new Response(JSON.stringify({ answers: { route: { type: "choice", choice: "CLARIFY", probabilities: { CLARIFY: .9 } } } }), { status: 200 });
+  globalThis.fetch = async () => new Response(JSON.stringify({ answers: { route: { type: "choice", choices: [
+    { choice: "candidate-2", probability: .9 }, { choice: "candidate-1", probability: .8 }, { choice: "candidate-2", probability: .7 }, { choice: "candidate-3", probability: .6 }
+  ] } } }), { status: 200 });
   try {
-    assert.deepEqual(await chooseNotebookRecipe({ request: "un dîner", candidates: [], clarificationCount: 0 }), { kind: "clarify", question: "" });
-    assert.deepEqual(await chooseNotebookRecipe({ request: "un dîner", candidates: [], clarificationCount: 2 }), { kind: "newRecipe" });
+    const candidates = ["1", "2", "3"].map((n) => ({ candidateRef: `candidate-${n}`, title: n, ingredientLabels: [] }));
+    assert.deepEqual(await chooseNotebookRecipe({ request: "dîner", candidates }), { kind: "candidates", candidateRefs: ["candidate-2", "candidate-1", "candidate-3"], provider: "jev" });
   } finally { globalThis.fetch = originalFetch; if (key === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = key; }
 });
 
-test("Jev : un candidat sous le seuil devient une nouvelle recette, sans secours Luna", async () => {
+test("Jev : un candidat sous le seuil devient noCandidate, sans secours Luna", async () => {
   const key = process.env.TYPESAFE_API_KEY;
   const originalFetch = globalThis.fetch;
   process.env.TYPESAFE_API_KEY = "test";
   globalThis.fetch = async () => new Response(JSON.stringify({ answers: { route: { type: "choice", choice: "candidate-1", probabilities: { "candidate-1": 0.49 } } } }), { status: 200 });
   try {
-    assert.deepEqual(await chooseNotebookRecipe({ request: "un dîner", candidates: [{ candidateRef: "candidate-1", title: "Tarte", ingredientLabels: [] }] }), { kind: "newRecipe" });
+    assert.deepEqual(await chooseNotebookRecipe({ request: "un dîner", candidates: [{ candidateRef: "candidate-1", title: "Tarte", ingredientLabels: [] }] }), { kind: "noCandidate", provider: "jev" });
   } finally { globalThis.fetch = originalFetch; if (key === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = key; }
 });
 
 test("sélection BFF : rejette des candidats arbitraires", () => {
   assert.equal(isAssistantSelectionInput({ request: "x", candidates: [{ candidateRef: "evil", title: "x", ingredientLabels: [] }] }), false);
   assert.equal(isAssistantSelectionInput({ request: "x", candidates: [{ candidateRef: "candidate-1", title: "x", ingredientLabels: [] }, { candidateRef: "candidate-1", title: "y", ingredientLabels: [] }] }), false);
+  assert.equal(isAssistantSelectionInput({ request: "x", candidates: [{ candidateRef: "candidate-1", title: "x", ingredientLabels: [], durationMin: -1 }] }), false);
+  assert.equal(isAssistantSelectionInput({ request: "x", candidates: [{ candidateRef: "candidate-1", title: "x", ingredientLabels: [], durationMin: 1.5 }] }), false);
 });
 
 test("draft Assistant : rejette vide ou malformé et nettoie les identifiants", () => {

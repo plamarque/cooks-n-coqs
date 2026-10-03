@@ -19,11 +19,11 @@ test("Jev envoie uniquement la demande et le snapshot minimisé au BFF", async (
   let body = "";
   globalThis.fetch = async (_url, init) => {
     body = String(init?.body);
-    return new Response(JSON.stringify({ kind: "newRecipe" }), { status: 200 });
+    return new Response(JSON.stringify({ kind: "noCandidate" }), { status: 200 });
   };
   try {
     const result = await selectNotebookRecipe("dessert fruité", [{ candidateRef: "c-1", title: "Tarte", ingredientLabels: ["pomme"], durationMin: 40 }], new AbortController().signal);
-    assert.equal(result.kind, "newRecipe");
+    assert.equal(result.kind, "noCandidate");
     assert.match(body, /dessert fruité/);
     assert.doesNotMatch(body, /steps|imageUrl|source/);
   } finally { globalThis.fetch = previous; }

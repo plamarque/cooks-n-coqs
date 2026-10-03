@@ -146,9 +146,6 @@ export interface NotebookCandidateWireV1 {
 export interface NotebookSelectionRequestV1 {
   request: string;
   candidates: NotebookCandidateWireV1[];
-  /** Fil volatile, borné au navigateur courant ; jamais un historique utilisateur. */
-  turns?: AssistantConversationTurnV1[];
-  clarificationCount?: number;
 }
 
 export interface AssistantConversationTurnV1 {
@@ -157,11 +154,21 @@ export interface AssistantConversationTurnV1 {
 }
 
 export type NotebookSelectionWireV1 =
-  | { kind: "import" }
-  | { kind: "candidate"; candidateRef: string; reasonCode: "RELEVANT" }
-  | { kind: "newRecipe" }
-  | { kind: "clarify"; question: string }
+  | { kind: "candidates"; candidates: Array<{ candidateRef: string; reasonCode: "RELEVANT" }> }
+  | { kind: "noCandidate" }
   | { kind: "selectionUnavailable" };
+
+/** Décode un wire fermé avant tout usage par le navigateur ou le BFF. */
+export function isNotebookSelectionWireV1(value: unknown): value is NotebookSelectionWireV1 {
+  if (!value || typeof value !== "object") return false;
+  const wire = value as Record<string, unknown>;
+  if (wire.kind === "noCandidate" || wire.kind === "selectionUnavailable") return Object.keys(wire).length === 1;
+  if (wire.kind !== "candidates" || !Array.isArray(wire.candidates) || wire.candidates.length < 1 || wire.candidates.length > 3) return false;
+  return Object.keys(wire).length === 2 && new Set(wire.candidates.map((candidate) => (candidate as { candidateRef?: unknown })?.candidateRef)).size === wire.candidates.length && wire.candidates.every((candidate) => {
+    const entry = candidate as Record<string, unknown>;
+    return !!entry && Object.keys(entry).length === 2 && typeof entry.candidateRef === "string" && /^candidate-[1-9]\d?$/.test(entry.candidateRef) && entry.reasonCode === "RELEVANT";
+  });
+}
 
 /** Wire de création Assistant : le client le valide avant d'en faire une preview. */
 export type AssistantDraftWireV1 = ParsedRecipeDraft;
