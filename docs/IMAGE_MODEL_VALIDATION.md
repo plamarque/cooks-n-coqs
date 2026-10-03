@@ -9,7 +9,7 @@ dans le dossier local de benchmark, ignoré par Git. Une recommandation ne peut
 
 - Comparer par usage, jamais sur le seul prix ou tarif.
 - Distinguer les **mesures API relevées** des **appréciations humaines**.
-- Distinguer tokens API, estimation standard et facture réelle : l'estimation suit la table datée et la formule du manifeste, est explicitement non facturée. Sans tokens requis, noter `indisponible`, jamais zéro.
+- Distinguer tokens API, estimation OpenAI et coût fournisseur Replicate : ces valeurs suivent la table datée du manifeste, sont explicitement non facturées et ne sont jamais une facture. Sans tokens requis, noter `indisponible`, jamais zéro.
 - Conserver les échecs (`status: failed`) et leur erreur ; ils ne deviennent ni
   un succès implicite ni une donnée de coût.
 - Cette validation ne modifie ni `.env`, ni `ai-config.ts`, ni les modèles par
@@ -29,8 +29,7 @@ dans le dossier local de benchmark, ignoré par Git. Une recommandation ne peut
 | Chemin de `review.html` | À compléter |
 | Date et heure de début / fin (`startedAt` / `finishedAt`) | À compléter |
 | Hash SHA-256 du corpus (`corpusSha256`) | À compléter |
-| Modèle courant déclaré (`--current-model`) | À compléter |
-| Modèles comparés (`--models`) | À compléter |
+| Modèles comparés | `gpt-image-1-mini`, `gpt-image-2.5-flare`, `black-forest-labs/flux-schnell` |
 | Commande exacte exécutée | À compléter |
 | Opérateur | À compléter |
 | Réviseur humain et date | À compléter |
@@ -45,31 +44,31 @@ Recopier ces données depuis `manifest.json`, sans les compléter par
 interprétation. Créer une ligne par couple cas-modèle, y compris un échec.
 
 Avant toute validation, vérifier que le manifeste contient exactement
-**21 tentatives** : 18 couples production (neuf cas × Mini/Flare) et trois ingrédients Flare `ingredient-816`. Documenter toute absence de couple
+**30 tentatives** : 27 couples production (neuf cas × Mini/Flare/FLUX Schnell) et trois ingrédients Flare `ingredient-816`. Documenter toute absence de couple
 attendu dans la colonne erreur et rechercher sa cause. Une tentative `failed`
 est bien une tentative à conserver, avec son erreur ; en revanche, si un
 couple cas-modèle manque du manifeste, aucune décision par usage ne peut être
 validée tant que cette absence n'est pas documentée et résolue par une
 exécution identifiée.
 
-| Cas | Usage | Modèle / profil | Statut | Qualité demandée | Dimensions demandées / reçues | Latence (ms) | Tokens API normalisés | Disponibilité usage API | Coût standard estimé non facturé | Erreur |
+| Cas | Usage | Modèle / profil | Statut | Qualité demandée | Dimensions demandées / reçues | Latence (ms) | Tokens API normalisés | Disponibilité usage API | Coût estimé non facturé | Erreur |
 | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- |
 | À compléter | À compléter | À compléter | À compléter | À compléter | À compléter | À compléter | À compléter | `available` / `unavailable` | À compléter ou `indisponible` | À compléter |
 
 Si `apiUsageAvailability` est `unavailable`, inscrire `indisponible` dans les
-colonnes usage et coût, sans calcul ni approximation. Si une tentative échoue,
+colonnes usage OpenAI, sans calcul ni approximation. Pour un succès FLUX Schnell, les tokens restent `unavailable` et le coût fournisseur Replicate est `$0.003` par image réussie ; il n'est jamais présenté comme un coût tokenisé ni une facture. Si une tentative échoue,
 conserver `failed`, `latencyMs` et `error`; les autres tentatives peuvent tout
 de même être évaluées.
 
 ## Grille d'appréciation humaine par cas
 
-Ouvrir le `review.html` local et renseigner **une ligne par tentative**. Répéter les neuf lignes ci-dessous pour Mini et Flare, puis les trois ingrédients Flare `ingredient-816`,
+Ouvrir le `review.html` local et renseigner **une ligne par tentative**. Inscrire explicitement le modèle et le profil (`production` ou `ingredient-816`) sur chaque ligne. Répéter les neuf lignes ci-dessous pour Mini, Flare et FLUX Schnell, puis les trois ingrédients Flare `ingredient-816`,
 (et ajouter les répétitions nécessaires) : un même cas doit donc apparaître
 une fois pour chacun de ces modèles. Ces colonnes expriment un jugement visuel
 et ne sont pas des mesures API ; elles ne doivent pas être recopiées dans le
 manifeste.
 
-| Cas corpus | Usage et gabarit réel | Modèle | Qualité visuelle et adéquation culinaire | Lisibilité au gabarit | Artefacts / défauts visibles | Verdict humain et notes |
+| Cas corpus | Usage et gabarit réel | Modèle / profil | Qualité visuelle et adéquation culinaire | Lisibilité au gabarit | Artefacts / défauts visibles | Verdict humain et notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | `tarte-tomates` | `recipe` — carte recette 320 × 320 | À compléter | À compléter | À compléter | À compléter | À compléter |
 | `curry-pois-chiches` | `recipe` — carte recette 320 × 320 | À compléter | À compléter | À compléter | À compléter | À compléter |
@@ -102,7 +101,7 @@ rapport et décidé une bascule distincte.
 ## Validation humaine finale
 
 - [ ] Le manifeste identifié est complet et son hash de corpus est consigné.
-- [ ] Le manifeste contient exactement `21`
+- [ ] Le manifeste contient exactement `30`
       tentatives ; tout couple absent est documenté et bloque la décision.
 - [ ] Chaque couple cas-modèle a ses mesures API ou son indisponibilité/erreur.
 - [ ] Les neuf cas ont une appréciation humaine au gabarit de revue réel.
@@ -117,7 +116,7 @@ rapport et décidé une bascule distincte.
 
 ## Passage opérateur après validation
 
-1. Exécuter le benchmark local Mini ↔ Flare avec une clé API fournie par l'opérateur ; ne pas modifier les modèles, tailles ou variables de production.
+1. Après accord explicite pour un run facturable, exécuter `npm --prefix apps/bff run benchmark:images` avec `OPENAI_API_KEY` et `REPLICATE_API_TOKEN` fournis côté BFF ; le protocole fixe compare Mini, Flare et FLUX Schnell sans modifier les modèles, tailles ou variables de production.
 2. Consigner l'identité du manifeste et revoir `review.html` localement.
 3. Compléter les mesures puis la grille humaine et valider les décisions par
    usage dans ce document.
