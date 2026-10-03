@@ -3,6 +3,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { assertBenchmarkOutputOutsideCache, buildBenchmarkRequest, corpusSha256, imageResult, renderReviewPage, requireBenchmarkApiKey, runImageBenchmark, validateCorpus, validateManifest, validateModels } from "../src/image-benchmark.js";
 
 const corpus = validateCorpus({ version: 1, cases: [
@@ -54,4 +55,26 @@ test("continue après un échec fournisseur et une erreur de préparation", asyn
   const manifest = await runImageBenchmark(malformed, corpusSha256("malformed corpus"), ["current"], await mkdtemp(path.join(os.tmpdir(), "image-benchmark-")), client);
   assert.equal(manifest.attempts.length, 10); assert.equal(manifest.attempts[1].status, "failed"); assert.match(manifest.attempts[1].error ?? "", /provider failure/);
   assert.match(manifest.attempts[9].error ?? "", /Préparation impossible/); assert.equal(manifest.attempts[9].request, null);
+});
+
+test("le rapport versionné couvre la grille, les indisponibilités et attend l'opérateur", async () => {
+  const report = await readFile(fileURLToPath(new URL("../../../docs/IMAGE_MODEL_VALIDATION.md", import.meta.url)), "utf8");
+
+  assert.match(report, /## Identité obligatoire de l'exécution/);
+  assert.match(report, /`manifest\.json`/); assert.match(report, /`review\.html`/);
+  assert.match(report, /## Consolidation des mesures API relevées/);
+  assert.match(report, /9 × nombre de modèles comparés/);
+  assert.match(report, /aucune décision par usage ne peut être\s+validée tant que cette absence n'est pas documentée et résolue/);
+  assert.match(report, /## Grille d'appréciation humaine par cas/);
+  assert.match(report, /une ligne par couple\s+cas-modèle/);
+  assert.match(report, /Répéter les neuf lignes ci-dessous pour chaque modèle comparé/);
+  for (const caseId of ["tarte-tomates", "curry-pois-chiches", "crumble-pommes", "pois-chiche", "basilic", "citron", "saisir-saumon", "fouetter-creme", "raper-legumes"]) assert.match(report, new RegExp("`" + caseId + "`"));
+
+  assert.match(report, /apiUsageAvailability/); assert.match(report, /`unavailable`/);
+  assert.match(report, /sans calcul ni approximation/); assert.match(report, /`failed`/); assert.match(report, /`error`/);
+
+  assert.match(report, /## Décision par usage/);
+  for (const useCase of ["recipe", "ingredient", "cooking_step"]) assert.match(report, new RegExp("\\| `" + useCase + "` \\|[^\\n]*\\| `awaiting-operator` \\|"));
+  assert.match(report, /\*\*Décision finale :\*\* `awaiting-operator`/);
+  assert.match(report, /Aucune configuration de production n'a été modifiée/);
 });

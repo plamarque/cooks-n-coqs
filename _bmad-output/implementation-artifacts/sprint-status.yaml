@@ -48,6 +48,6 @@ development_status:
 
   epic-3: backlog
   3-1-produire-un-benchmark-représentatif-des-visuels: awaiting-operator
-  3-2-valider-le-modèle-retenu-par-usage: backlog
+  3-2-valider-le-modèle-retenu-par-usage: awaiting-operator
   3-3-migrer-les-modèles-image-avec-repli-contrôlé: backlog
   epic-3-retrospective: optional

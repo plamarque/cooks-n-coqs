@@ -1,0 +1,11 @@
+{
+  "actions": [
+    "Ex\u00e9cuter le benchmark local avec une cl\u00e9 API autoris\u00e9e et les mod\u00e8les explicites incluant le mod\u00e8le courant.",
+    "Renseigner le rapport avec le manifeste identifi\u00e9, toutes les tentatives et la revue humaine des couples cas-mod\u00e8le.",
+    "Valider ou rejeter chaque configuration cible et son repli par usage avant toute op\u00e9ration Render distincte."
+  ],
+  "parked_at": "2026-10-03",
+  "run_id": "20261003-102508-1933",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-3-2-valider-le-modele-retenu-par-usage.md",
+  "story_key": "3-2-valider-le-mod\u00e8le-retenu-par-usage"
+}
