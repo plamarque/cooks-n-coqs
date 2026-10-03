@@ -5,6 +5,8 @@
 #
 [core]
 communication_language = "French"
+
+[modules.bmm]
 user_skill_level = "intermediate"
 
 # [agents.bmad-agent-pm]
