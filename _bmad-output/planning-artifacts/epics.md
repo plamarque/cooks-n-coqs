@@ -4,6 +4,7 @@ stepsCompleted:
   - step-02-design-epics
   - step-03-create-stories
   - step-04-final-validation
+updated: '2026-10-03'
 inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-cooks-n-coqs-2026-10-01/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-cooks-n-coqs-2026-10-01/ARCHITECTURE-SPINE.md
@@ -35,6 +36,16 @@ FR-6: Garantir des actions nommées et utilisables au clavier, une alternative t
 
 FR-7: Préserver, par des actions explicites adaptées, les parcours v1 de création manuelle, import `.zip`, édition de recette et partage système, sans les faire absorber par le routage Assistant.
 
+FR-M1: Constituer un corpus représentatif de recettes, ingrédients et étapes, avec prompts et réglages identiques, afin de comparer le modèle actuel et les candidats.
+
+FR-M2: Exécuter l'évaluation de manière reproductible et conserver, pour chaque rendu, modèle, usage, qualité, dimensions, durée, coût API et résultat de contrôle visuel.
+
+FR-M3: Définir des critères de décision explicites par usage : fidélité au prompt, lisibilité à la taille affichée, absence d'artefacts, taux de régénération, latence et coût.
+
+FR-M4: Migrer avant le 1er décembre 2026 la configuration qui utilise `gpt-image-1-mini`, sans modifier rétrospectivement les images déjà mises en cache.
+
+FR-M5: Pouvoir activer le modèle retenu par usage (`recipe`, `ingredient`, `cooking_step`) et revenir à la configuration précédente pendant la validation.
+
 ### NonFunctional Requirements
 
 NFR-1: Ne stocker ni n'envoyer d'audio brut, conserver les recettes local-first et préserver la provenance des imports selon `ImportSource`.
@@ -42,6 +53,12 @@ NFR-1: Ne stocker ni n'envoyer d'audio brut, conserver les recettes local-first 
 NFR-2: Dégrader progressivement : sans BFF ou analyse distante, conserver les drafts d'import minimaux éditables ; sans microphone/reconnaissance vocale, informer sans bloquer le Compositeur texte ; ne pas dépendre d'une animation pour l'accueil ou les actions locales essentielles.
 
 NFR-3: Limiter les diagnostics au type de voie et à l'issue générale ; ne pas journaliser audio, contenu complet, chaîne de pensée, prompt ni score sans décision de confidentialité distincte.
+
+NFR-M1: Les clés restent exclusivement dans le BFF ; le corpus ne contient aucune donnée utilisateur ni secret.
+
+NFR-M2: L'évaluation ne remplace pas la génération de production tant qu'une décision humaine n'a pas validé les résultats.
+
+NFR-M3: La bascule documente la configuration Render, les contrôles post-déploiement et le plan de repli.
 
 ### Additional Requirements
 
@@ -65,6 +82,8 @@ NFR-3: Limiter les diagnostics au type de voie et à l'issue générale ; ne pas
 - Préserver navigation et accessibilité : les parcours v1 restent hors session Assistant ; `Esc` ferme le détail ou annule l'écoute sans effacer de saisie ; le retour restaure le déclencheur approprié.
 - Conserver les contrats de déploiement existants : PWA GitHub Pages, BFF Render Node 20, `VITE_BFF_URL` et `CORS_ORIGIN`.
 - Couvrir par tests Node/tsx les règles de routage, la machine d'état, annulation/fallback, la sélection Jev→Luna→indisponible, seuil/ordre/cap/longueur/références/contraintes, partage F2, la sauvegarde transactionnelle et le détail hors filtre ; couvrir côté BFF wires, limites, codes et redaction.
+- L'évaluation et la migration image respectent la centralisation actuelle de la sélection par `AI_IMAGE_MODEL_RECIPE`, `AI_IMAGE_MODEL_INGREDIENT` et `AI_IMAGE_MODEL_COOKING_STEP` dans le BFF ; aucune clé ne va dans le front.
+- `gpt-image-1-mini` est annoncé en retrait d'API le 1er décembre 2026 ; la migration doit être validée avant cette date sans écraser les objets de cache existants.
 
 ### UX Design Requirements
 
@@ -117,6 +136,11 @@ UX-DR20: Conserver le même ordre de lecture et les mêmes actions du téléphon
 - FR-5 : Epic 1 — Cartes, prévisualisation et sauvegarde.
 - FR-6 : Epic 1 — Accessibilité et responsive.
 - FR-7 : Epic 1 — Préservation des parcours v1.
+- FR-M1 : Epic 3 — Corpus d'évaluation représentatif des usages image.
+- FR-M2 : Epic 3 — Exécution reproductible et conservation des mesures.
+- FR-M3 : Epic 3 — Décision fondée sur qualité, latence, coût et régénérations.
+- FR-M4 : Epic 3 — Migration avant le retrait de `gpt-image-1-mini`.
+- FR-M5 : Epic 3 — Configuration par usage et repli contrôlé.
 
 ## Epic List
 
@@ -131,6 +155,12 @@ L'utilisateur peut démarrer depuis un accueil assistant-first, apporter une rec
 L'utilisateur peut formuler une envie libre ; l'Assistant consulte d'abord son Cahier, propose des recettes existantes pertinentes ou, seulement si aucune ne convient, prépare une recette sur mesure à sauvegarder explicitement.
 
 **FRs covered:** FR-3.
+
+### Epic 3: Conserver des visuels de recette fiables et pérennes
+
+Les personnes utilisant Cooks-n-Coqs continuent à recevoir des photos de recettes, d'ingrédients et d'étapes de qualité cohérente après le retrait de `gpt-image-1-mini`, avec une décision de modèle fondée sur des résultats mesurés plutôt que sur une estimation.
+
+**FRs covered:** FR-M1, FR-M2, FR-M3, FR-M4, FR-M5.
 
 ## Epic 1: Importer et préparer une recette depuis l'Assistant
 
@@ -309,3 +339,76 @@ So that je peux élargir mes idées sans créer de recette automatiquement.
 **When** les tests BFF et web sont exécutés,
 **Then** ils couvrent wire V1, limites, codes, absence de persistance, redaction, progression/annulation et l'interdiction de créer après une indisponibilité de sélection,
 **And** la recette sur mesure sauvegardée rejoint ensuite le Cahier comme recette v1 normale.
+
+## Epic 3: Conserver des visuels de recette fiables et pérennes
+
+Les personnes utilisant Cooks-n-Coqs continuent à recevoir des photos de recettes, d'ingrédients et d'étapes de qualité cohérente après le retrait de `gpt-image-1-mini`, avec une décision de modèle fondée sur des résultats mesurés plutôt que sur une estimation.
+
+### Story 3.1: Produire un benchmark représentatif des visuels
+
+As a mainteneur de Cooks-n-Coqs,
+I want générer de façon reproductible des visuels comparables pour les recettes, ingrédients et étapes,
+So that je décide sur des exemples réels plutôt que sur les caractéristiques théoriques des modèles.
+
+**Acceptance Criteria:**
+
+**Given** un corpus versionné, non sensible, couvrant recettes, ingrédients isolés et étapes de cuisine,
+**When** le benchmark est exécuté avec un même prompt, taille et qualité par cas,
+**Then** il génère et conserve les rendus du modèle actuel et des candidats identifiés, avec leur usage et leurs paramètres,
+**And** le corpus ne contient ni données utilisateur ni clé API.
+
+**Given** une exécution du benchmark,
+**When** chaque requête image se termine,
+**Then** le relevé associe à chaque rendu le modèle, la qualité, les dimensions, la latence, les données de coût/usage disponibles et le statut d'erreur ou de succès,
+**And** une erreur individuelle n'empêche pas la collecte des autres cas.
+
+**Given** les images de benchmark,
+**When** elles sont examinées dans leur contexte d'usage,
+**Then** les sorties permettent d'évaluer la fidélité au prompt, l'absence d'artefacts et la lisibilité à la taille réellement affichée dans l'application,
+**And** le benchmark ne change ni les variables Render ni les objets déjà présents dans le cache de production.
+
+### Story 3.2: Valider le modèle retenu par usage
+
+As a mainteneur de Cooks-n-Coqs,
+I want comparer et valider les résultats du benchmark selon des critères définis,
+So that je retiens un modèle adapté pour chaque type de visuel sans dégrader l'expérience ni les coûts.
+
+**Acceptance Criteria:**
+
+**Given** un benchmark terminé pour le modèle actuel et les candidats,
+**When** les résultats sont consolidés,
+**Then** un rapport compare par usage `recipe`, `ingredient` et `cooking_step` la qualité observée, la lisibilité, les artefacts, la latence, les erreurs et le coût,
+**And** il distingue les mesures API des appréciations visuelles humaines.
+
+**Given** les critères de décision convenus,
+**When** un modèle est retenu ou rejeté pour un usage,
+**Then** le rapport explicite la décision et les cas de corpus qui la justifient,
+**And** il ne conclut pas qu'un modèle est meilleur à partir du seul tarif par token.
+
+**Given** une recommandation de migration,
+**When** elle est préparée pour l'implémentation,
+**Then** elle nomme une configuration cible par usage et une configuration de repli,
+**And** elle ne modifie aucune variable de production sans validation humaine explicite.
+
+### Story 3.3: Migrer les modèles image avec repli contrôlé
+
+As a personne utilisant Cooks-n-Coqs,
+I want que les visuels continuent d'être générés après le retrait de `gpt-image-1-mini`,
+So that je ne perds pas les illustrations de recettes, d'ingrédients ou d'étapes.
+
+**Acceptance Criteria:**
+
+**Given** une recommandation de modèle validée pour chaque usage,
+**When** la configuration BFF est mise à jour avant le 1er décembre 2026,
+**Then** `recipe`, `ingredient` et `cooking_step` résolvent les modèles explicitement retenus,
+**And** la configuration est documentée pour Render sans exposer de secret au navigateur.
+
+**Given** le déploiement de cette configuration,
+**When** une photo de recette, un ingrédient et une étape sont générés en production,
+**Then** chaque usage produit une image lisible et accessible via le cache existant,
+**And** les images mises en cache avant la bascule restent lisibles et ne sont ni purgées ni régénérées par celle-ci.
+
+**Given** une régression identifiée après déploiement,
+**When** le mainteneur applique le repli documenté,
+**Then** il peut restaurer la configuration précédente par usage sans changement de code ni purge du cache,
+**And** le contrôle post-déploiement et son résultat sont consignés.
