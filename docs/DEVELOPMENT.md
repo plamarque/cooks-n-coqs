@@ -33,9 +33,9 @@ courant. `story-worktree:stop` ne supprime ni branche ni worktree.
 
 La création de worktree initialise automatiquement BMAD Loop avec le profil Codex,
 l’isolation Git par worktree et `worktree_seed = [".env"]`. Les worktrees créés par
-le Loop reçoivent ainsi le même `.env` local que ceux créés manuellement. Le profil
-ne demande pas une approbation de hook par worktree : il n’autorise que le relay
-généré localement par `bmad-loop init`.
+le Loop reçoivent ainsi le même `.env` local que ceux créés manuellement. Codex doit
+encore approuver les hooks dans chaque worktree isolé ; c’est une contrainte du profil
+Codex actuel de BMAD Loop.
 
 ## Commandes
 

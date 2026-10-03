@@ -3,12 +3,6 @@
 
 [adapter]
 name = "codex"
-# BMAD Loop only registers its locally generated relay hook. Keep the Loop's
-# existing unattended execution mode and avoid a per-worktree hook approval.
-extra_args = [
-  "--dangerously-bypass-approvals-and-sandbox",
-  "--dangerously-bypass-hook-trust",
-]
 
 [scm]
 isolation = "worktree"
