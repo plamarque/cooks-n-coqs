@@ -81,6 +81,44 @@ function multipartFileSize(request) {
   return multipartFileBuffer(request).length;
 }
 
+async function expectAssistantPreviewGeometry(card) {
+  const renderingTolerance = 2;
+  await card.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)));
+  const layout = await card.evaluate((element) => {
+    const box = (node) => {
+      const rect = node?.getBoundingClientRect();
+      return rect && { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+    };
+    return {
+      card: box(element),
+      composer: box(element.closest(".assistant-composer")),
+      suggestions: box(document.querySelector(".assistant-starters")),
+      children: [
+        ".assistant-preview-card-status",
+        ".assistant-preview-card-title",
+        ".assistant-preview-card-meta",
+        ".assistant-preview-card-ingredients",
+        ".assistant-preview-card-open"
+      ].map((selector) => box(element.querySelector(selector)))
+    };
+  });
+  expect(layout.card).toBeTruthy();
+  expect(layout.composer).toBeTruthy();
+  expect(layout.suggestions).toBeTruthy();
+  expect(layout.card.top).toBeGreaterThanOrEqual(layout.composer.top - renderingTolerance);
+  expect(layout.card.bottom).toBeLessThanOrEqual(layout.composer.bottom + renderingTolerance);
+  expect(layout.card.left).toBeGreaterThanOrEqual(layout.composer.left - renderingTolerance);
+  expect(layout.card.right).toBeLessThanOrEqual(layout.composer.right + renderingTolerance);
+  expect(layout.suggestions.top).toBeGreaterThanOrEqual(layout.card.bottom - renderingTolerance);
+  for (const child of layout.children) {
+    expect(child).toBeTruthy();
+    expect(child.top).toBeGreaterThanOrEqual(layout.card.top - renderingTolerance);
+    expect(child.bottom).toBeLessThanOrEqual(layout.card.bottom + renderingTolerance);
+    expect(child.left).toBeGreaterThanOrEqual(layout.card.left - renderingTolerance);
+    expect(child.right).toBeLessThanOrEqual(layout.card.right + renderingTolerance);
+  }
+}
+
 async function imageMarkerColors(page, buffers) {
   return page.evaluate(async (data) => Promise.all(data.map(async (base64) => {
     const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
@@ -348,6 +386,7 @@ test.describe("Cookies & Coquillettes v1", () => {
   });
 
   test("Assistant : carte F2, détail, fermeture et aucune écriture IndexedDB", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 844 });
     await page.goto("/");
     await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "import" } }));
     const field = page.getByLabel("Votre demande");
@@ -376,6 +415,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     const card = page.getByRole("button", { name: /Prévisualisation prête/ });
     await expect(card).toBeVisible();
     await expect(card).toBeFocused();
+    await expectAssistantPreviewGeometry(card);
     await card.press("Enter");
     await expect(page.getByRole("heading", { name: "Soupe express" })).toBeVisible();
     await expect(page.locator(".assistant-preview-detail .ingredient-grid")).toContainText("oignon");
@@ -386,6 +426,14 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByRole("button", { name: "Fermer la prévisualisation" }).click();
     await page.getByRole("button", { name: "Fermer", exact: true }).click();
     await expect(page.getByRole("heading", { name: "On mange quoi ?" })).toBeVisible();
+    const composer = page.locator(".assistant-composer");
+    await expect(composer).not.toHaveClass(/assistant-composer--with-preview/);
+    const returnedLayout = await page.locator(".assistant-composer-section").evaluate((section) => {
+      const composer = section.querySelector(".assistant-composer")?.getBoundingClientRect();
+      const suggestions = document.querySelector(".assistant-starters")?.getBoundingClientRect();
+      return { composerBottom: composer?.bottom, suggestionsTop: suggestions?.top };
+    });
+    expect(returnedLayout.suggestionsTop).toBeGreaterThanOrEqual(returnedLayout.composerBottom);
     await expect(field).toBeFocused();
     expect(await countStores()).toEqual(before);
   });
@@ -419,6 +467,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     const card = page.getByRole("button", { name: /Prévisualisation prête/ });
     await expect(card).toBeVisible();
     await expect(card.locator("img")).toBeVisible();
+    await expectAssistantPreviewGeometry(card);
     await card.click();
     await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
     const imageBox = await page.locator(".assistant-preview-detail .recipe-detail-image").boundingBox();
@@ -434,7 +483,39 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toHaveCount(0);
   });
 
+  test("Assistant : une preview mobile avec photo jointe conserve toute la carte dans le Compositeur", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.goto("/");
+    await page.route("**/api/assistant/image-intent*", (route) => route.fulfill({ json: { summaries: ["Des légumes frais."] } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Gratin de légumes fondants aux herbes du jardin", category: "SALE", ingredients: [
+        { id: "courgette", label: "courgettes longuement émincées", isScalable: true },
+        { id: "tomate", label: "tomates bien mûres en tranches", isScalable: true },
+        { id: "oignon", label: "oignons doux caramélisés", isScalable: true },
+        { id: "basilic", label: "basilic fraîchement ciselé", isScalable: false },
+        { id: "ail", label: "gousses d’ail écrasées", isScalable: false }
+      ], steps: [{ id: "s1", order: 1, text: "Cuire au four." }]
+    } }));
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    const composer = page.locator(".assistant-composer");
+    const card = page.getByRole("button", { name: /Prévisualisation prête/ });
+    await expect(card).toBeVisible();
+    await expect(composer).toHaveClass(/assistant-composer--with-attachments/);
+    await expect(composer).toHaveClass(/assistant-composer--with-preview/);
+    await expectAssistantPreviewGeometry(card);
+    const previewHeight = await composer.evaluate((element) => element.getBoundingClientRect().height);
+    await page.getByRole("button", { name: "Fermer ce résultat" }).click();
+    await page.getByRole("button", { name: "Fermer", exact: true }).click();
+    await expect(composer).not.toHaveClass(/assistant-composer--with-preview/);
+    await expect(composer).toHaveClass(/assistant-composer--with-attachments/);
+    await expect(page.locator(".assistant-attachment")).toHaveCount(1);
+    expect(await composer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(previewHeight);
+  });
+
   test("Assistant : candidate Jev sans image conserve l’illustration affichée au premier clic", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     const notebookState = () => page.evaluate(async () => {
       const database = await new Promise((resolve, reject) => {
@@ -468,6 +549,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     const card = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
     await expect(card).toBeVisible();
     await expect(card.locator("img")).toBeVisible();
+    await expectAssistantPreviewGeometry(card);
     await card.click();
     await expect(page.getByRole("heading", { name: before.title, exact: true })).toBeVisible();
     await expect(page.locator(".recipe-detail-image")).toBeVisible();

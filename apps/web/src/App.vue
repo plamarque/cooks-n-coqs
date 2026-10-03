@@ -3074,7 +3074,13 @@ onUnmounted(() => {
             {{ turn.text }}
           </li>
         </ol>
-        <div class="assistant-composer" :class="{ 'assistant-composer--with-attachments': assistantAttachments.length > 0 }">
+        <div
+          class="assistant-composer"
+          :class="{
+            'assistant-composer--with-attachments': assistantAttachments.length > 0,
+            'assistant-composer--with-preview': assistantPreview || assistantCandidatePreview
+          }"
+        >
           <label class="sr-only" for="assistant-composer-text">Votre demande</label>
           <textarea
             id="assistant-composer-text"
@@ -3169,7 +3175,7 @@ onUnmounted(() => {
             </span>
             <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
           </button>
-          <button type="button" class="assistant-preview-close" aria-label="Fermer ce résultat" @click="closeAssistantPreview"><i class="pi pi-times" aria-hidden="true" /></button>
+          <button type="button" class="assistant-preview-close" aria-label="Fermer ce résultat" @click.stop="closeAssistantPreview"><i class="pi pi-times" aria-hidden="true" /></button>
           </div>
           <div v-if="['importing', 'analyzing', 'searching', 'creating'].includes(assistantPhase)" class="assistant-import-progress" role="status" aria-live="polite">
             <span class="assistant-import-progress-mark" aria-hidden="true">

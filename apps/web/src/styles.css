@@ -145,6 +145,11 @@ body {
   box-shadow: 0 13px 25px rgba(31, 79, 70, 0.08);
 }
 
+/* La carte reste un overlay clipsé ; cette réserve temporaire laisse sa copie et son CTA dans le Compositeur. */
+.assistant-composer--with-preview {
+  min-height: clamp(420px, 100vw, 460px);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -173,7 +178,6 @@ body {
 /* Avec des photos, chaque zone participe au flux : rien ne peut remonter hors du cadre. */
 .assistant-composer--with-attachments {
   display: flex;
-  min-height: 0;
   flex-direction: column;
 }
 
