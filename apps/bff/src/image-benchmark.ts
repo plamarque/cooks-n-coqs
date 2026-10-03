@@ -153,10 +153,27 @@ export async function replicateImageResult(response: unknown, fetchFn: typeof fe
   return { bytes, format: "webp", receivedDimensions: `${width}x${height}` };
 }
 async function replicateFetch(fetchFn: typeof fetch, url: string, init: RequestInit): Promise<Response> { const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000); try { return await fetchFn(url, { ...init, signal: controller.signal }); } catch { throw new Error("Requête Replicate impossible ou expirée."); } finally { clearTimeout(timeout); } }
+function retryAfterMs(response: Response, fallbackMs: number): number {
+  const value = response.headers.get("retry-after")?.trim();
+  const seconds = value ? Number(value) : Number.NaN;
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1_000, 30_000) : fallbackMs;
+}
+async function createReplicatePrediction(fetchFn: typeof fetch, token: string, input: unknown): Promise<Response> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const created = await replicateFetch(fetchFn, `https://api.replicate.com/v1/models/${FLUX_SCHNELL_MODEL}/predictions`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=60" }, body: JSON.stringify({ input }) });
+    if (created.ok) return created;
+    if ((created.status === 429 || created.status >= 500) && attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, retryAfterMs(created, 1_000 * (attempt + 1))));
+      continue;
+    }
+    const retryAfter = created.headers.get("retry-after");
+    throw new Error(`Création de prédiction Replicate impossible (HTTP ${created.status}${retryAfter ? `; nouvel essai dans ${retryAfter}s` : ""}).`);
+  }
+  throw new Error("Création de prédiction Replicate impossible.");
+}
 export function createReplicateApi(token: string, fetchFn: typeof fetch = fetch): ReplicateApi {
   return { async run(request) {
-    const created = await replicateFetch(fetchFn, `https://api.replicate.com/v1/models/${FLUX_SCHNELL_MODEL}/predictions`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=60" }, body: JSON.stringify({ input: (request as { input: unknown }).input }) });
-    if (!created.ok) throw new Error("Création de prédiction Replicate impossible.");
+    const created = await createReplicatePrediction(fetchFn, token, (request as { input: unknown }).input);
     let prediction = await created.json() as { status?: unknown; urls?: { get?: unknown }; error?: unknown };
     for (let attempts = 0; attempts < 120; attempts += 1) {
       if (prediction.status === "succeeded") return prediction;

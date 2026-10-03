@@ -77,6 +77,19 @@ test("l'adaptateur Replicate enveloppe input et attend la prédiction terminée"
   assert.equal(calls[1].url, "https://api.replicate.test/predictions/123"); assert.equal((calls[1].init?.headers as Record<string, string>).Authorization, "Bearer r8_example-token");
 });
 
+test("l'adaptateur Replicate respecte Retry-After et conserve le statut en cas d'échec final", async () => {
+  let calls = 0;
+  const retryingFetch = async () => {
+    calls += 1;
+    if (calls === 1) return new Response(JSON.stringify({ detail: "rate limited" }), { status: 429, headers: { "content-type": "application/json", "retry-after": "0" } });
+    return new Response(JSON.stringify({ status: "succeeded", output: ["https://delivery.replicate.test/image.webp"] }), { headers: { "content-type": "application/json" } });
+  };
+  await createReplicateApi("r8_example-token", retryingFetch as typeof fetch).run({ input: { prompt: "une tarte" } });
+  assert.equal(calls, 2);
+  const failingFetch = async () => new Response(JSON.stringify({ detail: "rate limited" }), { status: 429, headers: { "content-type": "application/json", "retry-after": "9" } });
+  await assert.rejects(() => createReplicateApi("r8_example-token", failingFetch as typeof fetch).run({ input: { prompt: "une tarte" } }), /HTTP 429; nouvel essai dans 9s/);
+});
+
 test("le profil expérimental est réservé à Flare et la revue échappe les valeurs", () => {
   assert.throws(() => buildBenchmarkRequest(corpus.cases[3], MINI_MODEL, "ingredient-816"));
   const html = renderReviewPage({ version:2, corpusSha256:corpusSha256("x"), startedAt:"", finishedAt:"", pricing: { source:"", verifiedAt:"", currency:"USD", formula:"", billingNotice:"standard-estimate-not-invoice", ratesPerMillionTokens:{ [MINI_MODEL]: { input:2, output:8 }, [FLARE_MODEL]: { input:5, output:30 } }, providerUnitCostsUsd:{ [FLUX_SCHNELL_MODEL]: 0.003 } }, aggregates:[], humanEvaluation:{}, attempts:[{ caseId:"<case>",useCase:"ingredient",model:"<model>",profile:"production",prompt:null,request:null,quality:null,dimensions:null,receivedDimensions:null,outputFormat:null,status:"failed",latencyMs:0,apiUsage:null,apiUsageAvailability:"unavailable",costMethod:"openai-token-estimate",estimatedStandardCostUsd:null,error:"<error>",imageFile:null,humanEvaluation:{} }] });
