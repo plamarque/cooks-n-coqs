@@ -543,7 +543,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByRole("button", { name: "Sauvegarder", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
     await expect(page.locator(".recipe-detail-image")).toBeVisible();
-    await expect(page.locator(".message.success")).toContainText("Recette importée avec son illustration.");
+    await expect(page.locator(".save-success-badge")).toContainText("Recette importée avec son illustration.");
     await expect.poll(savedRecipeImageId).not.toBeFalsy();
     await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toHaveCount(0);
   });
@@ -744,7 +744,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await card.click();
     await page.getByRole("button", { name: "Sauvegarder", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Tarte temporaire" })).toBeVisible();
-    await expect(page.locator(".message.warning")).toContainText("seule la conservation de son illustration a échoué");
+    await expect(page.locator(".save-success-badge")).toContainText("seule la conservation de son illustration a échoué");
   });
 
   test("Assistant : une ancienne confirmation de suppression disparaît à l’ouverture d’une preview", async ({ page }) => {
