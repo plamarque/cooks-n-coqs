@@ -31,11 +31,11 @@ courant. `story-worktree:stop` ne supprime ni branche ni worktree.
 
 ### BMAD Loop
 
-La création de worktree initialise automatiquement BMAD Loop avec le profil Codex,
-l’isolation Git par worktree et `worktree_seed = [".env"]`. Les worktrees créés par
-le Loop reçoivent ainsi le même `.env` local que ceux créés manuellement. Codex doit
-encore approuver les hooks dans chaque worktree isolé ; c’est une contrainte du profil
-Codex actuel de BMAD Loop.
+Le bootstrap manuel n’initialise pas BMAD Loop : une story manuelle utilise les
+workflows BMAD rendus, sans hooks ni dialogue Codex. BMAD Loop est un orchestrateur
+distinct ; son profil Codex actuel exige une confiance de hooks par worktree isolé.
+Ne pas l’utiliser pour une story manuelle tant que cette limitation amont n’est pas
+levée ou qu’un adaptateur hookless n’est pas choisi.
 
 ## Commandes
 
