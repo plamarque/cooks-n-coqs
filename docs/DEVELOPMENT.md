@@ -29,6 +29,23 @@ sale et retire le worktree/branche qu’elle vient de créer si le provisionneme
 échoue. `npm run story-worktree:verify` rejoue les prérequis dans le worktree
 courant. `story-worktree:stop` ne supprime ni branche ni worktree.
 
+`git worktree add` ne doit pas être utilisé directement pour une story. Si le
+checkout `main` porte des changements non liés, créer la story à partir de son
+`HEAD` validé (sans y copier ces changements) :
+
+```bash
+npm run story-worktree:start-from-head -- <story-key> <slug>
+```
+
+Si un worktree existe déjà sans le bootstrap, le réparer depuis ce worktree :
+
+```bash
+npm run story-worktree:prepare -- /Users/patrice/GitHub/cooks-n-coqs
+```
+
+La commande copie seulement le `.env` local du checkout `main`, exécute `npm ci`
+et rejoue les vérifications BMAD.
+
 ### BMAD Loop
 
 Le bootstrap manuel n’initialise pas BMAD Loop : une story manuelle utilise les

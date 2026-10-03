@@ -24,12 +24,28 @@ case "${1:-}" in
     render "$root/.agents/skills/bmad-build"
     render "$root/.claude/skills/bmad-build-auto"
     ;;
-  start)
+  prepare)
+    source_checkout=${2:-}
+    [[ -n "$source_checkout" ]] || die "usage: prepare <main-checkout-path>"
+    source_root=$(git -C "$source_checkout" rev-parse --show-toplevel 2>/dev/null) || die "source must be a Git checkout"
+    [[ "$source_root" != "$root" ]] || die "source checkout must differ from the worktree being prepared"
+    [[ "$(git -C "$source_root" branch --show-current)" == "main" ]] || die "source must be the main integration checkout"
+    [[ -f "$source_root/.env" ]] || die ".env is required locally in the main integration checkout"
+    cp "$source_root/.env" "$root/.env"
+    chmod 600 "$root/.env"
+    npm ci
+    "$root/scripts/story-worktree.sh" verify
+    echo "ready: $root"
+    ;;
+  start|start-from-head)
+    mode=$1
     key=${2:-}; slug=${3:-}
-    [[ -n "$key" && -n "$slug" ]] || die "usage: start <story-key> <slug>"
+    [[ -n "$key" && -n "$slug" ]] || die "usage: $mode <story-key> <slug>"
     branch_name=$(git branch --show-current)
-    [[ "$branch_name" == "main" ]] || die "start must run from the main integration checkout, not $branch_name"
-    [[ -z "$(git status --porcelain)" ]] || die "integration checkout must be clean"
+    [[ "$branch_name" == "main" ]] || die "$mode must run from the main integration checkout, not $branch_name"
+    if [[ "$mode" == "start" && -n "$(git status --porcelain)" ]]; then
+      die "integration checkout must be clean; use start-from-head to create from committed HEAD without copying local changes"
+    fi
     [[ -f "$root/.env" ]] || die ".env is required locally before creating a story worktree"
     target="${4:-$(dirname "$root")/$(basename "$root")-$key-$slug}"
     branch="codex/$key-$slug"
@@ -56,5 +72,5 @@ case "${1:-}" in
     echo "No worktree, branch, process, merge, push, or deployment is removed by stop."
     echo "Review and stop any runtime you started manually in: $target"
     ;;
-  *) die "usage: verify | start <story-key> <slug> [path] | stop <worktree-path>" ;;
+  *) die "usage: verify | start <story-key> <slug> [path] | start-from-head <story-key> <slug> [path] | prepare <main-checkout-path> | stop <worktree-path>" ;;
 esac

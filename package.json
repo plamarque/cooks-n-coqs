@@ -21,6 +21,8 @@
     "screenshots": "node scripts/generate-screenshots.js",
     "story-worktree:verify": "bash scripts/story-worktree.sh verify",
     "story-worktree:start": "bash scripts/story-worktree.sh start",
+    "story-worktree:start-from-head": "bash scripts/story-worktree.sh start-from-head",
+    "story-worktree:prepare": "bash scripts/story-worktree.sh prepare",
     "story-worktree:stop": "bash scripts/story-worktree.sh stop"
   },
   "engines": {

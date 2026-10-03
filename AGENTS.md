@@ -35,5 +35,6 @@ Cookies & Coquillettes — PWA recettes (Vue 3 / Vite) + BFF Express + package d
 
 ## Worktrees de story
 
-- Depuis un checkout d’intégration propre, utiliser `npm run story-worktree:start -- <story-key> <slug>` ; il prépare les dépendances, le `.env` local autorisé et les workflows BMAD. Ne pas recopier `.env` à la main.
-- Exception à la règle `.env` ci-dessus : ce script peut uniquement copier le `.env` local de `main` vers le worktree qu’il vient de créer ; il ne le versionne ni ne l’affiche.
+- **Ne jamais appeler `git worktree add` directement** pour une story. Depuis `main` propre, appeler obligatoirement `npm run story-worktree:start -- <story-key> <slug>` ; lui seul crée le worktree et prépare les dépendances, le `.env` local autorisé et les workflows BMAD. Si `main` porte des changements locaux non liés, appeler `npm run story-worktree:start-from-head -- <story-key> <slug>` : il part du `HEAD` validé sans copier ces changements.
+- Si un worktree a déjà été créé directement, le réparer avant toute investigation avec `npm run story-worktree:prepare -- <chemin-du-main>` depuis ce worktree.
+- Exception à la règle `.env` ci-dessus : ce script peut uniquement copier le `.env` local de `main` vers le worktree qu’il crée ou prépare ; il ne le versionne ni ne l’affiche.
