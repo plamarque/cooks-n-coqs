@@ -135,7 +135,7 @@ app.post("/api/assistant/select", async (req, res) => {
   res.once("close", () => { if (!res.writableEnded) controller.abort(); });
   let choice;
   try {
-    choice = await assistantDependencies.choose({ request: req.body.request.trim(), candidates: req.body.candidates, turns: req.body.turns, clarificationCount: assistantClarificationCount(req.body.turns) }, controller.signal);
+    choice = await assistantDependencies.choose({ request: req.body.request.trim(), candidates: req.body.candidates }, controller.signal);
   } catch {
     if (!controller.signal.aborted) traceAssistant({ stage: "selection", provider: "none", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: req.body.candidates.length, requestId });
     if (!controller.signal.aborted) assistantError(res, requestId, 503, { kind: "selectionUnavailable" });
@@ -145,20 +145,16 @@ app.post("/api/assistant/select", async (req, res) => {
     traceAssistant({ stage: "selection", provider: "jev", errorClass: "cancelled", durationMs: Date.now() - startedAt, candidateCount: req.body.candidates.length, requestId });
     return;
   }
-  if (choice?.kind === "clarify" && assistantClarificationCount(req.body.turns) >= 2) choice = { kind: "newRecipe" };
-  if (choice?.kind === "clarify") {
-    let question: string | null = null;
-    try { question = await assistantDependencies.clarify({ request: req.body.request.trim(), turns: req.body.turns }, controller.signal); } catch { question = null; }
-    if (!question || controller.signal.aborted) {
-      if (!controller.signal.aborted) traceAssistant({ stage: "selection", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: req.body.candidates.length, requestId });
-      if (!controller.signal.aborted) assistantError(res, requestId, 503, { kind: "selectionUnavailable" });
-      return;
-    }
-    choice = { kind: "clarify", question };
-  }
-  traceAssistant({ stage: "selection", provider: choice ? "jev" : "luna", errorClass: choice ? "none" : "upstream_unavailable", httpStatus: choice ? 200 : 503, durationMs: Date.now() - startedAt, candidateCount: req.body.candidates.length, requestId });
+  const selectedRefs = choice?.kind === "candidates"
+    ? [...new Set(choice.candidateRefs)].filter((candidateRef) => req.body.candidates.some((candidate: { candidateRef: string }) => candidate.candidateRef === candidateRef)).slice(0, 3)
+    : [];
+  const validChoice = choice?.kind === "noCandidate" || selectedRefs.length > 0;
+  traceAssistant({ stage: "selection", provider: validChoice && choice ? choice.provider : "none", errorClass: validChoice ? "none" : "upstream_unavailable", httpStatus: validChoice ? 200 : 503, durationMs: Date.now() - startedAt, candidateCount: req.body.candidates.length, requestId });
   res.setHeader("x-request-id", requestId);
-  res.status(choice ? 200 : 503).json(choice ? choice.kind === "candidate" ? { kind: "candidate", candidateRef: choice.candidateRef, reasonCode: "RELEVANT" } : choice.kind === "import" ? { kind: "import" } : choice.kind === "clarify" ? { kind: "clarify", question: choice.question } : { kind: "newRecipe" } : { kind: "selectionUnavailable" });
+  res.status(validChoice ? 200 : 503).json(validChoice ? choice!.kind === "candidates"
+    ? { kind: "candidates", candidates: selectedRefs.map((candidateRef) => ({ candidateRef, reasonCode: "RELEVANT" })) }
+    : { kind: "noCandidate" }
+    : { kind: "selectionUnavailable" });
 });
 
 async function summarizeAssistantImages(req: express.Request, res: express.Response): Promise<void> {

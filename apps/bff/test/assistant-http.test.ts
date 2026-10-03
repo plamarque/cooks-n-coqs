@@ -34,15 +34,13 @@ test("BFF : le proxy TLS local transmet HTTPS à la requête qui construit les U
   });
 });
 
-test("assistant select HTTP: entrée invalide, candidat, import, nouveau et indisponible", async () => {
+test("assistant select HTTP: entrée invalide, candidats, absence et indisponible", async () => {
   await withServer(async (base) => {
     assert.equal((await post(base, "/api/assistant/select", {})).status, 400);
-    assistantDependencies.choose = async () => ({ kind: "candidate", candidateRef: "candidate-1" });
-    assert.deepEqual(await (await post(base, "/api/assistant/select", { request: "dessert", candidates: [candidate] })).json(), { kind: "candidate", candidateRef: "candidate-1", reasonCode: "RELEVANT" });
-    assistantDependencies.choose = async () => ({ kind: "import" });
-    assert.deepEqual(await (await post(base, "/api/assistant/select", { request: "recette: ...", candidates: [candidate] })).json(), { kind: "import" });
-    assistantDependencies.choose = async () => ({ kind: "newRecipe" });
-    assert.deepEqual(await (await post(base, "/api/assistant/select", { request: "inédit", candidates: [candidate] })).json(), { kind: "newRecipe" });
+    assistantDependencies.choose = async () => ({ kind: "candidates", candidateRefs: ["candidate-1"], provider: "jev" });
+    assert.deepEqual(await (await post(base, "/api/assistant/select", { request: "dessert", candidates: [candidate] })).json(), { kind: "candidates", candidates: [{ candidateRef: "candidate-1", reasonCode: "RELEVANT" }] });
+    assistantDependencies.choose = async () => ({ kind: "noCandidate", provider: "jev" });
+    assert.deepEqual(await (await post(base, "/api/assistant/select", { request: "inédit", candidates: [candidate] })).json(), { kind: "noCandidate" });
     assistantDependencies.choose = async () => null;
     const unavailable = await post(base, "/api/assistant/select", { request: "x", candidates: [] });
     assert.equal(unavailable.status, 503);
@@ -52,7 +50,7 @@ test("assistant select HTTP: entrée invalide, candidat, import, nouveau et indi
 
 test("assistant HTTP: sélection admet les cinq résumés bornés, génération garde sa limite 12000", async () => {
   await withServer(async (base) => {
-    assistantDependencies.choose = async () => ({ kind: "newRecipe" });
+    assistantDependencies.choose = async () => ({ kind: "noCandidate", provider: "jev" });
     assert.equal((await post(base, "/api/assistant/select", { request: "x".repeat(2_600), candidates: [] })).status, 200);
     assert.equal((await post(base, "/api/assistant/select", { request: "x".repeat(2_601), candidates: [] })).status, 400);
     assistantDependencies.generate = async () => ({ title: "Soupe", category: "SALE", ingredients: [{ id: "i", label: "eau", isScalable: false }], steps: [{ id: "s", order: 1, text: "Chauffer" }] });
@@ -60,18 +58,10 @@ test("assistant HTTP: sélection admet les cinq résumés bornés, génération 
   });
 });
 
-test("assistant select HTTP: clarify, plafond dérivé du fil et échec rédacteur", async () => {
+test("assistant select HTTP: le wire ferme les tours conversationnels", async () => {
   await withServer(async (base) => {
-    assistantDependencies.choose = async () => ({ kind: "clarify", question: "" });
-    assistantDependencies.clarify = async () => "Pour combien de personnes ?";
-    const first = await post(base, "/api/assistant/select", { request: "soupe", candidates: [], turns: [{ role: "user", text: "soupe" }] });
-    assert.deepEqual(await first.json(), { kind: "clarify", question: "Pour combien de personnes ?" });
-    const ceiling = await post(base, "/api/assistant/select", { request: "soupe", candidates: [], turns: [{ role: "assistant", text: "q1" }, { role: "assistant", text: "q2" }] });
-    assert.deepEqual(await ceiling.json(), { kind: "newRecipe" });
-    assistantDependencies.clarify = async () => { throw new Error("down"); };
-    const unavailable = await post(base, "/api/assistant/select", { request: "soupe", candidates: [], turns: [] });
-    assert.equal(unavailable.status, 503);
-    assert.ok(unavailable.headers.get("x-request-id"));
+    const response = await post(base, "/api/assistant/select", { request: "soupe", candidates: [], turns: [] });
+    assert.equal(response.status, 400);
   });
 });
 

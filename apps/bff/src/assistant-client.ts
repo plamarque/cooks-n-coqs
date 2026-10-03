@@ -4,7 +4,7 @@ import type { ParsedRecipeDraft } from "./types.js";
 
 type Candidate = { candidateRef: string; title: string; ingredientLabels: string[]; durationMin?: number };
 type Turn = { role: "user" | "assistant"; text: string };
-export type AssistantChoice = { kind: "import" } | { kind: "candidate"; candidateRef: string } | { kind: "newRecipe" } | { kind: "clarify"; question: string };
+export type AssistantChoice = { kind: "candidates"; candidateRefs: string[]; provider: "jev" | "luna" } | { kind: "noCandidate"; provider: "jev" | "luna" };
 const THRESHOLD = 0.5;
 const TYPESAFE_TIMEOUT_MS = 8_000;
 // Une recette structurée peut demander plus de temps qu'une décision ou une question courte.
@@ -22,20 +22,18 @@ const ASSISTANT_IMAGE_RETRY_DELAY_MS = 400;
 const ASSISTANT_IMAGE_TIMEOUT_MS = 25_000;
 export const ASSISTANT_SELECTION_REQUEST_MAX_LENGTH = 2_600;
 export const ASSISTANT_RECIPE_REQUEST_MAX_LENGTH = 12_000;
+class JevFallbackError extends Error {}
 
 function hasValidAssistantTurns(turns: unknown): turns is Turn[] {
   return turns === undefined || Array.isArray(turns) && turns.length <= 5 && turns.every((turn) => !!turn && typeof (turn as Turn).role === "string" && ["user", "assistant"].includes((turn as Turn).role) && typeof (turn as Turn).text === "string" && (turn as Turn).text.trim().length > 0 && (turn as Turn).text.length <= 1200);
 }
 
-export function isAssistantSelectionInput(value: unknown): value is { request: string; candidates: Candidate[]; turns?: Turn[]; clarificationCount?: number } {
+export function isAssistantSelectionInput(value: unknown): value is { request: string; candidates: Candidate[] } {
   if (!value || typeof value !== "object") return false;
   const v = value as { request?: unknown; candidates?: unknown };
-  const turns = (v as { turns?: unknown }).turns;
-  const clarificationCount = (v as { clarificationCount?: unknown }).clarificationCount;
-  const validClarificationCount = clarificationCount === undefined || typeof clarificationCount === "number" && Number.isInteger(clarificationCount) && clarificationCount >= 0 && clarificationCount <= 2;
-  return typeof v.request === "string" && v.request.trim().length > 0 && v.request.length <= ASSISTANT_SELECTION_REQUEST_MAX_LENGTH && Array.isArray(v.candidates) && v.candidates.length <= 60 && hasValidAssistantTurns(turns) && validClarificationCount && new Set(v.candidates.map((c) => (c as Candidate)?.candidateRef)).size === v.candidates.length && v.candidates.every((c) => {
+  return Object.keys(v).every((key) => key === "request" || key === "candidates") && typeof v.request === "string" && v.request.trim().length > 0 && v.request.length <= ASSISTANT_SELECTION_REQUEST_MAX_LENGTH && Array.isArray(v.candidates) && v.candidates.length <= 60 && new Set(v.candidates.map((c) => (c as Candidate)?.candidateRef)).size === v.candidates.length && v.candidates.every((c) => {
     const x = c as Candidate;
-    return !!x && /^candidate-[1-9]\d?$/.test(x.candidateRef) && typeof x.title === "string" && x.title.length > 0 && x.title.length <= 180 && Array.isArray(x.ingredientLabels) && x.ingredientLabels.length <= 40 && x.ingredientLabels.every((i) => typeof i === "string" && i.length <= 120) && (x.durationMin === undefined || Number.isFinite(x.durationMin));
+    return !!x && /^candidate-[1-9]\d?$/.test(x.candidateRef) && typeof x.title === "string" && x.title.length > 0 && x.title.length <= 180 && Array.isArray(x.ingredientLabels) && x.ingredientLabels.length <= 40 && x.ingredientLabels.every((i) => typeof i === "string" && i.length <= 120) && (x.durationMin === undefined || Number.isInteger(x.durationMin) && x.durationMin >= 0);
   });
 }
 
@@ -45,16 +43,27 @@ export function isAssistantRecipeInput(value: unknown): value is { request: stri
   return typeof input.request === "string" && input.request.trim().length > 0 && input.request.length <= ASSISTANT_RECIPE_REQUEST_MAX_LENGTH && hasValidAssistantTurns(input.turns);
 }
 
-function labels(candidates: Candidate[], canClarify: boolean): Record<string, string> {
-  return { ...(canClarify ? { CLARIFY: "Un seul détail réellement déterminant manque ; demander une question courte et ciblée." } : {}), IMPORT: "Le texte apporte déjà une recette à structurer.", NOUVELLE_RECETTE: "Une envie nouvelle ou aucun match Cahier fiable.", ...Object.fromEntries(candidates.map((c) => [c.candidateRef, `Recette Cahier ${c.title}, ingrédients ${c.ingredientLabels.join(", ")}, durée ${c.durationMin ?? "inconnue"}.`])) };
+function labels(candidates: Candidate[]): Record<string, string> {
+  return { NO_CANDIDATE: "Aucune recette Cahier ne répond suffisamment à la demande.", ...Object.fromEntries(candidates.map((c) => [c.candidateRef, `Recette Cahier ${c.title}, ingrédients ${c.ingredientLabels.join(", ")}, durée ${c.durationMin ?? "inconnue"}.`])) };
 }
-function normalize(label: string, probability: number, candidates: Candidate[], canClarify: boolean): AssistantChoice | null {
-  if (label === "CLARIFY") return canClarify ? { kind: "clarify", question: "" } : { kind: "newRecipe" };
-  if (label === "IMPORT") return { kind: "import" };
-  if (label === "NOUVELLE_RECETTE") return { kind: "newRecipe" };
+function normalize(label: string, probability: number, candidates: Candidate[]): AssistantChoice | null {
+  if (!Number.isFinite(probability) || probability < 0 || probability > 1) return null;
+  if (label === "NO_CANDIDATE") return { kind: "noCandidate", provider: "jev" };
   if (!candidates.some((c) => c.candidateRef === label)) return null;
   // Un candidat connu mais insuffisamment fiable est une absence de match, jamais une indisponibilité.
-  return probability >= THRESHOLD ? { kind: "candidate", candidateRef: label } : { kind: "newRecipe" };
+  return probability >= THRESHOLD ? { kind: "candidates", candidateRefs: [label], provider: "jev" } : { kind: "noCandidate", provider: "jev" };
+}
+
+function normalizeMany(raw: Array<{ choice?: unknown; probability?: unknown }>, candidates: Candidate[], provider: "jev" | "luna"): AssistantChoice | null {
+  const refs: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry.choice !== "string" || typeof entry.probability !== "number") return null;
+    const normalized = normalize(entry.choice, entry.probability, candidates);
+    if (!normalized) return null;
+    if (normalized.kind === "noCandidate") continue;
+    for (const ref of normalized.candidateRefs) if (!refs.includes(ref)) refs.push(ref);
+  }
+  return refs.length ? { kind: "candidates", candidateRefs: refs.slice(0, 3), provider } : { kind: "noCandidate", provider };
 }
 
 /** API System One réelle : Jev retourne une Choice typée, sans exposer de raisonnement. */
@@ -170,27 +179,33 @@ export async function summarizeAssistantImage(image: Buffer, mimeType: string, c
   }, signal);
 }
 
-export async function chooseNotebookRecipe(input: { request: string; candidates: Candidate[]; turns?: Turn[]; clarificationCount?: number }, signal?: AbortSignal): Promise<AssistantChoice | null> {
+export async function chooseNotebookRecipe(input: { request: string; candidates: Candidate[] }, signal?: AbortSignal): Promise<AssistantChoice | null> {
   if (!isAssistantSelectionInput(input)) return null;
-  const canClarify = (input.clarificationCount ?? 0) < 2;
-  const criteria = labels(input.candidates, canClarify);
+  const criteria = labels(input.candidates);
   try {
     const key = process.env.TYPESAFE_API_KEY;
-    if (!key) throw new Error("TypeSafe unavailable");
+    if (!key) return null;
     const res = await fetch("https://api.typesafe.ai/v1/systemone", { method: "POST", signal: boundedSignal(signal), headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ model: "jev-1.13.0", state: { request: input.request, candidates: input.candidates }, questions: { route: { type: "choice", instructions: "Choisis une seule voie.", criteria } } }) });
-    if (!res.ok) throw new Error(`TypeSafe ${res.status}`);
-    const answer = (await res.json() as { answers?: { route?: { type?: string; choice?: string; probabilities?: Record<string, number> } } }).answers?.route;
-    if (answer?.type !== "choice" || !answer.choice || typeof answer.probabilities?.[answer.choice] !== "number") throw new Error("TypeSafe invalid response");
-    return normalize(answer.choice, answer.probabilities[answer.choice], input.candidates, canClarify);
+    if (!res.ok) {
+      if (res.status === 429 || res.status >= 500) throw new JevFallbackError(`TypeSafe ${res.status}`);
+      return null;
+    }
+    const answer = (await res.json() as { answers?: { route?: { type?: string; choice?: string; choices?: Array<{ choice?: unknown; probability?: unknown }>; probabilities?: Record<string, number> } } }).answers?.route;
+    if (answer?.type !== "choice") throw new JevFallbackError("TypeSafe invalid response");
+    const single = answer.choice && typeof answer.probabilities?.[answer.choice] === "number" ? [{ choice: answer.choice, probability: answer.probabilities[answer.choice] }] : undefined;
+    const choice = normalizeMany(answer.choices ?? single ?? [], input.candidates, "jev");
+    if (!choice) throw new JevFallbackError("TypeSafe invalid choice");
+    return choice;
   } catch (error) {
     if (signal?.aborted) throw error;
-    // Luna est un secours uniquement après une erreur/forme invalide de Jev.
+    if (!(error instanceof JevFallbackError) && (error as { name?: string })?.name !== "TimeoutError") return null;
+    // Luna est un secours exclusivement après timeout, 429/5xx ou wire Jev invalide.
     if (!process.env.OPENAI_API_KEY) return null;
     try {
       const response = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY }).chat.completions.create({ model: "gpt-5.6-luna", reasoning_effort: "none", response_format: { type: "json_object" }, messages: [{ role: "user", content: `Choisis exactement une clé parmi ${Object.keys(criteria).join(", ")}. Critères: ${JSON.stringify(criteria)}. Contexte: ${JSON.stringify(input)}. JSON {choice, probability} avec probability entre 0 et 1.` }] } as never, { signal: boundedSignal(signal), timeout: TYPESAFE_TIMEOUT_MS });
       const raw = response.choices[0]?.message?.content ?? "";
-      const parsed = JSON.parse(raw.replace(/^```json?\s*|\s*```$/g, "")) as { choice?: unknown; probability?: unknown };
-      return typeof parsed.choice === "string" && typeof parsed.probability === "number" ? normalize(parsed.choice, parsed.probability, input.candidates, canClarify) : null;
+      const parsed = JSON.parse(raw.replace(/^```json?\s*|\s*```$/g, "")) as { choice?: unknown; probability?: unknown; choices?: Array<{ choice?: unknown; probability?: unknown }> };
+      return normalizeMany(parsed.choices ?? [parsed], input.candidates, "luna");
     } catch { return null; }
   }
 }

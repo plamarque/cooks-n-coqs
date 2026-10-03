@@ -1,4 +1,4 @@
-import type { AssistantConversationTurnV1, NotebookCandidateWireV1, NotebookSelectionWireV1, ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
+import { isNotebookSelectionWireV1, type AssistantConversationTurnV1, type NotebookCandidateWireV1, type NotebookSelectionWireV1, type ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
 import { compressImageForTransfer, ImageTransferPreparationError } from "./import-service";
 
 function defaultBffUrl(): string {
@@ -71,10 +71,13 @@ export function buildAssistantSelectionRequest(text: string, visualSummaries: re
   return `${text.slice(0, Math.max(0, availableTextLength))}\n${visualContext}`;
 }
 
-export async function selectNotebookRecipe(request: string, candidates: NotebookCandidateWireV1[], signal: AbortSignal, turns: AssistantConversationTurnV1[] = [], clarificationCount = 0): Promise<NotebookSelectionWireV1> {
-  const response = await fetch(`${API_BASE_URL}/api/assistant/select`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request, candidates, turns, clarificationCount }), signal });
+export async function selectNotebookRecipe(request: string, candidates: NotebookCandidateWireV1[], signal: AbortSignal): Promise<NotebookSelectionWireV1> {
+  if (request.length > ASSISTANT_SELECTION_REQUEST_MAX_LENGTH) throw new Error("selection input too large");
+  const response = await fetch(`${API_BASE_URL}/api/assistant/select`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request, candidates }), signal });
   if (!response.ok) throw new Error("selection unavailable");
-  return await response.json() as NotebookSelectionWireV1;
+  const wire: unknown = await response.json();
+  if (!isNotebookSelectionWireV1(wire)) throw new Error("selection invalid wire");
+  return wire;
 }
 
 export async function generateAssistantRecipe(request: string, signal: AbortSignal, turns: AssistantConversationTurnV1[] = []): Promise<ParsedRecipeDraft> {
