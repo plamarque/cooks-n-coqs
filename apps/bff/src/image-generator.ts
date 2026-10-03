@@ -20,7 +20,7 @@ function isGptImageModel(model: string): boolean {
   return model.startsWith("gpt-image-");
 }
 
-function buildImageParams(useCase: ImageUseCase): {
+export function buildImageParams(useCase: ImageUseCase): {
   model: string;
   size: "1024x1024";
   quality: string;
@@ -51,6 +51,21 @@ function buildImageParams(useCase: ImageUseCase): {
   return base;
 }
 
+export function buildRecipeImagePrompt(input: GenerateRecipeImageInput): string {
+  const ingredientsText = input.ingredients.map((i) => i.label).filter(Boolean).slice(0, 10).join(", ");
+  return `Professional flat lay food photography, Instagram-style recipe photo. The dish: "${input.title}". Main ingredients visible: ${ingredientsText || "various"}. Style: elegant, appetizing, on a clean white or neutral background, top-down view, natural lighting, high-end food blog quality. No text in the image.`;
+}
+
+export function buildIngredientImagePrompt(input: GenerateIngredientImageInput): string | undefined {
+  const label = input.label.trim();
+  return label ? `Photorealistic product photo of exactly one cooking ingredient: "${label}". The ingredient must appear only once as the single subject (no duplicates, no repeated pieces). Tight close-up framing, centered, very legible. Pure white seamless background. No cast shadow, no drop shadow, no reflection, no vignette, no gradient background. No staging props, no plate, no utensils, no hands, no packaging brand, no text or labels.` : undefined;
+}
+
+export function buildCookingStepImagePrompt(input: GenerateCookingStepImageInput): string | undefined {
+  const stepText = input.stepText.trim();
+  return stepText ? `Cinematic food photography illustration of a single cooking step. Depict this exact step action: "${stepText}". Focus on hands, utensils and ingredients involved in the action, realistic textures, appetizing atmosphere, kitchen context, natural light. No text, no labels, no watermark, no collage, no split-screen.` : undefined;
+}
+
 /**
  * Génère une image de recette via l'API image IA (GPT Image ou DALL-E).
  * Style : flat lay, photo de plat type Instagram, élégant, appétissant.
@@ -63,13 +78,7 @@ export async function generateRecipeImage(
     return undefined;
   }
 
-  const ingredientsText = input.ingredients
-    .map((i) => i.label)
-    .filter(Boolean)
-    .slice(0, 10)
-    .join(", ");
-
-  const prompt = `Professional flat lay food photography, Instagram-style recipe photo. The dish: "${input.title}". Main ingredients visible: ${ingredientsText || "various"}. Style: elegant, appetizing, on a clean white or neutral background, top-down view, natural lighting, high-end food blog quality. No text in the image.`;
+  const prompt = buildRecipeImagePrompt(input);
 
   const { model, size, quality, style } = buildImageParams("recipe");
 
@@ -114,12 +123,10 @@ export async function generateIngredientImage(
     return undefined;
   }
 
-  const label = input.label.trim();
-  if (!label) {
+  const prompt = buildIngredientImagePrompt(input);
+  if (!prompt) {
     return undefined;
   }
-
-  const prompt = `Photorealistic product photo of exactly one cooking ingredient: "${label}". The ingredient must appear only once as the single subject (no duplicates, no repeated pieces). Tight close-up framing, centered, very legible. Pure white seamless background. No cast shadow, no drop shadow, no reflection, no vignette, no gradient background. No staging props, no plate, no utensils, no hands, no packaging brand, no text or labels.`;
 
   const { model, size, quality, style } = buildImageParams("ingredient");
 
@@ -164,12 +171,10 @@ export async function generateCookingStepImage(
     return undefined;
   }
 
-  const stepText = input.stepText.trim();
-  if (!stepText) {
+  const prompt = buildCookingStepImagePrompt(input);
+  if (!prompt) {
     return undefined;
   }
-
-  const prompt = `Cinematic food photography illustration of a single cooking step. Depict this exact step action: "${stepText}". Focus on hands, utensils and ingredients involved in the action, realistic textures, appetizing atmosphere, kitchen context, natural light. No text, no labels, no watermark, no collage, no split-screen.`;
 
   const { model, size, quality, style } = buildImageParams("cooking_step");
 
