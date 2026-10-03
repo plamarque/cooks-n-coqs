@@ -24,8 +24,24 @@ npm run story-worktree:start -- 2-1 trouver-recette
 
 La commande crée la branche/worktree, copie le `.env` **uniquement** dans ce
 worktree, exécute `npm ci` et vérifie les workflows BMAD. Elle n’affiche ni ne
-versionne de secret. `npm run story-worktree:verify` rejoue les prérequis dans
-le worktree courant. `story-worktree:stop` ne supprime ni branche ni worktree.
+versionne de secret. Elle refuse une branche de story ou un checkout d’intégration
+sale et retire le worktree/branche qu’elle vient de créer si le provisionnement
+échoue. `npm run story-worktree:verify` rejoue les prérequis dans le worktree
+courant. `story-worktree:stop` ne supprime ni branche ni worktree.
+
+### BMAD Loop
+
+BMAD Loop doit être initialisé une fois par checkout local, avec le profil Codex :
+
+```bash
+bmad-loop init --project . --cli codex --no-skills
+```
+
+Sa politique locale doit conserver `scm.isolation = "worktree"` et
+`worktree_seed = [".env"]` : ses worktrees isolés reçoivent alors le même `.env`
+local que ceux créés manuellement. Codex peut demander une confiance d’espace de
+travail lors de la première ouverture d’un nouveau répertoire : l’accepter est une
+action locale, non automatisable et sans effet sur Git.
 
 ## Commandes
 

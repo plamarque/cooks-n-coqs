@@ -27,14 +27,26 @@ case "${1:-}" in
   start)
     key=${2:-}; slug=${3:-}
     [[ -n "$key" && -n "$slug" ]] || die "usage: start <story-key> <slug>"
+    branch_name=$(git branch --show-current)
+    [[ "$branch_name" == "main" ]] || die "start must run from the main integration checkout, not $branch_name"
     [[ -z "$(git status --porcelain)" ]] || die "integration checkout must be clean"
     [[ -f "$root/.env" ]] || die ".env is required locally before creating a story worktree"
     target="${4:-$(dirname "$root")/$(basename "$root")-$key-$slug}"
     branch="codex/$key-$slug"
+    created=false
+    cleanup_failed_start() {
+      if [[ "$created" == true ]]; then
+        git worktree remove --force "$target" >/dev/null 2>&1 || true
+        git branch -D "$branch" >/dev/null 2>&1 || true
+      fi
+    }
+    trap cleanup_failed_start ERR
     git worktree add -b "$branch" "$target" HEAD
+    created=true
     cp "$root/.env" "$target/.env"
     chmod 600 "$target/.env"
     (cd "$target" && npm ci && "$target/scripts/story-worktree.sh" verify)
+    trap - ERR
     echo "ready: $target ($branch)"
     ;;
   stop)
