@@ -72,7 +72,7 @@ test("l'adaptateur Replicate enveloppe input et attend la prédiction terminée"
   const result = await createReplicateApi("r8_example-token", fetchMock as typeof fetch).run({ input: { prompt: "une tarte", aspect_ratio: "1:1", megapixels: "1", go_fast: true, output_format: "webp", num_inference_steps: 4 } });
   assert.deepEqual(result, { status: "succeeded", output: ["https://delivery.replicate.test/image.webp"] });
   assert.equal(calls.length, 2); assert.equal(calls[0].url, `https://api.replicate.com/v1/models/${FLUX_SCHNELL_MODEL}/predictions`);
-  assert.equal(calls[0].init?.method, "POST"); assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, "Bearer r8_example-token");
+  assert.equal(calls[0].init?.method, "POST"); assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, "Bearer r8_example-token"); assert.equal((calls[0].init?.headers as Record<string, string>).Prefer, "wait=60");
   assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { input: { prompt: "une tarte", aspect_ratio: "1:1", megapixels: "1", go_fast: true, output_format: "webp", num_inference_steps: 4 } });
   assert.equal(calls[1].url, "https://api.replicate.test/predictions/123"); assert.equal((calls[1].init?.headers as Record<string, string>).Authorization, "Bearer r8_example-token");
 });

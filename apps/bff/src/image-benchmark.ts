@@ -155,7 +155,7 @@ export async function replicateImageResult(response: unknown, fetchFn: typeof fe
 async function replicateFetch(fetchFn: typeof fetch, url: string, init: RequestInit): Promise<Response> { const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000); try { return await fetchFn(url, { ...init, signal: controller.signal }); } catch { throw new Error("Requête Replicate impossible ou expirée."); } finally { clearTimeout(timeout); } }
 export function createReplicateApi(token: string, fetchFn: typeof fetch = fetch): ReplicateApi {
   return { async run(request) {
-    const created = await replicateFetch(fetchFn, `https://api.replicate.com/v1/models/${FLUX_SCHNELL_MODEL}/predictions`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ input: (request as { input: unknown }).input }) });
+    const created = await replicateFetch(fetchFn, `https://api.replicate.com/v1/models/${FLUX_SCHNELL_MODEL}/predictions`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=60" }, body: JSON.stringify({ input: (request as { input: unknown }).input }) });
     if (!created.ok) throw new Error("Création de prédiction Replicate impossible.");
     let prediction = await created.json() as { status?: unknown; urls?: { get?: unknown }; error?: unknown };
     for (let attempts = 0; attempts < 120; attempts += 1) {
