@@ -9,8 +9,7 @@ dans le dossier local de benchmark, ignoré par Git. Une recommandation ne peut
 
 - Comparer par usage, jamais sur le seul prix ou tarif.
 - Distinguer les **mesures API relevées** des **appréciations humaines**.
-- Ne pas estimer un coût : lorsque `apiUsageAvailability` vaut `unavailable` ou
-  qu'aucun coût n'est fourni par l'API, noter « indisponible ».
+- Distinguer tokens API, estimation standard et facture réelle : l'estimation suit la table datée et la formule du manifeste, est explicitement non facturée. Sans tokens requis, noter `indisponible`, jamais zéro.
 - Conserver les échecs (`status: failed`) et leur erreur ; ils ne deviennent ni
   un succès implicite ni une donnée de coût.
 - Cette validation ne modifie ni `.env`, ni `ai-config.ts`, ni les modèles par
@@ -46,15 +45,14 @@ Recopier ces données depuis `manifest.json`, sans les compléter par
 interprétation. Créer une ligne par couple cas-modèle, y compris un échec.
 
 Avant toute validation, vérifier que le manifeste contient exactement
-**9 × nombre de modèles comparés** tentatives : une tentative pour chacun des
-neuf cas et chacun des modèles déclarés. Documenter toute absence de couple
+**21 tentatives** : 18 couples production (neuf cas × Mini/Flare) et trois ingrédients Flare `ingredient-816`. Documenter toute absence de couple
 attendu dans la colonne erreur et rechercher sa cause. Une tentative `failed`
 est bien une tentative à conserver, avec son erreur ; en revanche, si un
 couple cas-modèle manque du manifeste, aucune décision par usage ne peut être
 validée tant que cette absence n'est pas documentée et résolue par une
 exécution identifiée.
 
-| Cas | Usage | Modèle | Statut | Qualité demandée | Dimensions / format | Latence (ms) | Usage API brut | Disponibilité usage API | Coût fourni par API | Erreur |
+| Cas | Usage | Modèle / profil | Statut | Qualité demandée | Dimensions demandées / reçues | Latence (ms) | Tokens API normalisés | Disponibilité usage API | Coût standard estimé non facturé | Erreur |
 | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- |
 | À compléter | À compléter | À compléter | À compléter | À compléter | À compléter | À compléter | À compléter | `available` / `unavailable` | À compléter ou `indisponible` | À compléter |
 
@@ -65,8 +63,7 @@ de même être évaluées.
 
 ## Grille d'appréciation humaine par cas
 
-Ouvrir le `review.html` local et renseigner **une ligne par couple
-cas-modèle**. Répéter les neuf lignes ci-dessous pour chaque modèle comparé
+Ouvrir le `review.html` local et renseigner **une ligne par tentative**. Répéter les neuf lignes ci-dessous pour Mini et Flare, puis les trois ingrédients Flare `ingredient-816`,
 (et ajouter les répétitions nécessaires) : un même cas doit donc apparaître
 une fois pour chacun de ces modèles. Ces colonnes expriment un jugement visuel
 et ne sont pas des mesures API ; elles ne doivent pas être recopiées dans le
@@ -105,7 +102,7 @@ rapport et décidé une bascule distincte.
 ## Validation humaine finale
 
 - [ ] Le manifeste identifié est complet et son hash de corpus est consigné.
-- [ ] Le manifeste contient exactement `9 × nombre de modèles comparés`
+- [ ] Le manifeste contient exactement `21`
       tentatives ; tout couple absent est documenté et bloque la décision.
 - [ ] Chaque couple cas-modèle a ses mesures API ou son indisponibilité/erreur.
 - [ ] Les neuf cas ont une appréciation humaine au gabarit de revue réel.
@@ -120,8 +117,7 @@ rapport et décidé une bascule distincte.
 
 ## Passage opérateur après validation
 
-1. Exécuter le benchmark local avec une clé API fournie par l'opérateur et des
-   modèles explicites, incluant le modèle courant.
+1. Exécuter le benchmark local Mini ↔ Flare avec une clé API fournie par l'opérateur ; ne pas modifier les modèles, tailles ou variables de production.
 2. Consigner l'identité du manifeste et revoir `review.html` localement.
 3. Compléter les mesures puis la grille humaine et valider les décisions par
    usage dans ce document.

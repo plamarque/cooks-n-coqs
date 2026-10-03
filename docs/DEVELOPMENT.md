@@ -97,13 +97,13 @@ Référence tarifs : [OpenAI Pricing](https://developers.openai.com/api/docs/pri
 
 ### Benchmark visuels local
 
-Le benchmark compare le corpus culinaire public versionné aux modèles explicitement fournis, sans toucher au cache BFF, à Render ou R2. Il exige `OPENAI_API_KEY` et le modèle courant déclaré par l'opérateur :
+Le benchmark décisionnel compare le corpus culinaire public versionné à `gpt-image-1-mini` et `gpt-image-2.5-flare`, sans toucher au cache BFF, à Render ou R2. Il exige `OPENAI_API_KEY` :
 
 ```bash
-npm run benchmark:images -w @cookies-et-coquilettes/bff -- --current-model gpt-image-1-mini --models gpt-image-1-mini,gpt-image-2
+npm run benchmark:images -w @cookies-et-coquilettes/bff
 ```
 
-Les artefacts restent locaux dans `apps/bff/benchmark-results/<horodatage>-<suffixe>/` (ignorés par Git) : images, `manifest.json` identifié par hash du corpus et `review.html` aux gabarits recette, ingrédient et étape. Le manifeste ne calcule jamais de coût : il enregistre seulement l'usage API reçu ou son indisponibilité. Ne transmettez ni résultats ni cache à Render/R2 ; l'évaluation humaine formelle relève de la story 3.2.
+Le run produit 18 essais comparables à `1024x1024` et trois essais Flare ingrédients `816x816`, revus à `64x64`. Les artefacts restent locaux dans `apps/bff/benchmark-results/<horodatage>-<suffixe>/` (ignorés par Git) : images, `manifest.json` identifié par hash du corpus et `review.html` avec agrégats modèle × usage. Le manifeste sépare tokens API, estimation standard tarifaire datée explicitement non facturée et jugement humain ; sans tokens complets, coût et tokens sont `indisponible`, jamais zéro. Ne transmettez ni résultats ni cache à Render/R2.
 
 Après l'exécution, suivre le [protocole de validation des modèles d'images](IMAGE_MODEL_VALIDATION.md) : renseigner le rapport versionné à partir du manifeste et de la revue locale, puis le faire valider par un humain. L'exécution, le remplissage du rapport, sa validation et toute éventuelle bascule des variables Render sont des opérations humaines distinctes ; le benchmark ne modifie aucune configuration de production.
 
