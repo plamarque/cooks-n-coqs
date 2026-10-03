@@ -158,7 +158,7 @@ L'utilisateur peut formuler une envie libre ; l'Assistant consulte d'abord son C
 
 ### Epic 3: Conserver des visuels de recette fiables et pérennes
 
-Les personnes utilisant Cooks-n-Coqs continuent à recevoir des photos de recettes, d'ingrédients et d'étapes de qualité cohérente après le retrait de `gpt-image-1-mini`, avec une décision de modèle fondée sur des résultats mesurés plutôt que sur une estimation.
+Les personnes utilisant Cooks-n-Coqs continuent à recevoir des photos de recettes, d'ingrédients et d'étapes de qualité cohérente après le retrait de `gpt-image-1-mini`, avec une décision de remplacement fondée sur une comparaison mesurée avec `gpt-image-2.5-flare`, plutôt que sur une estimation.
 
 **FRs covered:** FR-M1, FR-M2, FR-M3, FR-M4, FR-M5.
 
@@ -359,12 +359,20 @@ So that je décide sur des exemples réels plutôt que sur les caractéristiques
 
 **Given** une exécution du benchmark,
 **When** chaque requête image se termine,
-**Then** le relevé associe à chaque rendu le modèle, la qualité, les dimensions, la latence, les données de coût/usage disponibles et le statut d'erreur ou de succès,
+**Then** le relevé associe à chaque rendu le modèle, la qualité, les dimensions demandées et reçues quand disponibles, la latence, les tokens d'entrée et de sortie fournis par l'API, le statut d'erreur ou de succès et le coût API standard estimé,
+**And** la table tarifaire utilisée, sa date de vérification et la formule sont versionnées avec le résultat ; une absence de données de tokens rend le coût indisponible, jamais nul,
 **And** une erreur individuelle n'empêche pas la collecte des autres cas.
+
+**Given** le run de décision,
+**When** il compare le modèle courant et son candidat de remplacement,
+**Then** il exécute `gpt-image-1-mini` et `gpt-image-2.5-flare` avec les mêmes prompts, qualité `low` et paramètres de taille actuels,
+**And** un second profil Flare compare pour les ingrédients `1024x1024` et `816x816`, puis les rend tous deux au format de lecture `64x64`,
+**And** l'essai de taille ne modifie pas encore la taille de production et ne compare pas une taille non prise en charge par Mini.
 
 **Given** les images de benchmark,
 **When** elles sont examinées dans leur contexte d'usage,
 **Then** les sorties permettent d'évaluer la fidélité au prompt, l'absence d'artefacts et la lisibilité à la taille réellement affichée dans l'application,
+**And** la page de revue et le manifeste présentent les mesures par tentative et les agrégats par modèle et par usage, en distinguant valeurs API, coût estimé et appréciation humaine,
 **And** le benchmark ne change ni les variables Render ni les objets déjà présents dans le cache de production.
 
 ### Story 3.2: Valider le modèle retenu par usage
@@ -375,15 +383,17 @@ So that je retiens un modèle adapté pour chaque type de visuel sans dégrader 
 
 **Acceptance Criteria:**
 
-**Given** un benchmark terminé pour le modèle actuel et les candidats,
+**Given** un benchmark Mini ↔ Flare terminé et une évaluation humaine renseignée pour chaque usage,
 **When** les résultats sont consolidés,
-**Then** un rapport compare par usage `recipe`, `ingredient` et `cooking_step` la qualité observée, la lisibilité, les artefacts, la latence, les erreurs et le coût,
+**Then** un rapport compare par usage `recipe`, `ingredient` et `cooking_step` la qualité observée, la lisibilité, les artefacts, la latence, les erreurs, les tokens API et le coût standard estimé,
 **And** il distingue les mesures API des appréciations visuelles humaines.
 
 **Given** les critères de décision convenus,
 **When** un modèle est retenu ou rejeté pour un usage,
-**Then** le rapport explicite la décision et les cas de corpus qui la justifient,
-**And** il ne conclut pas qu'un modèle est meilleur à partir du seul tarif par token.
+**Then** le rapport conclut par usage : conserver temporairement Mini pendant l'évaluation, retenir Flare à taille actuelle, retenir Flare avec la taille ingrédient optimisée, ou ne pas retenir Flare,
+**And** il explicite la décision et les cas de corpus qui la justifient,
+**And** pour les ingrédients, la décision exige une lisibilité équivalente à `64x64`, l'absence d'artefact et un gain mesuré ou une absence de régression acceptable sur coût et latence,
+**And** il ne prétend pas comparer la facture réelle ; les taux de régénération sont marqués non mesurés s'ils n'ont pas fait l'objet d'essais.
 
 **Given** une recommandation de migration,
 **When** elle est préparée pour l'implémentation,
@@ -398,7 +408,7 @@ So that je ne perds pas les illustrations de recettes, d'ingrédients ou d'étap
 
 **Acceptance Criteria:**
 
-**Given** une recommandation de modèle validée pour chaque usage,
+**Given** une recommandation Mini ↔ Flare explicitement validée par Patrice et, si une taille de production est retenue, la taille par usage explicitement validée,
 **When** la configuration BFF est mise à jour avant le 1er décembre 2026,
 **Then** `recipe`, `ingredient` et `cooking_step` résolvent les modèles explicitement retenus,
 **And** la configuration est documentée pour Render sans exposer de secret au navigateur.
@@ -406,9 +416,10 @@ So that je ne perds pas les illustrations de recettes, d'ingrédients ou d'étap
 **Given** le déploiement de cette configuration,
 **When** une photo de recette, un ingrédient et une étape sont générés en production,
 **Then** chaque usage produit une image lisible et accessible via le cache existant,
+**And** la migration modifie uniquement les modèles et, le cas échéant, les tailles explicitement validées,
 **And** les images mises en cache avant la bascule restent lisibles et ne sont ni purgées ni régénérées par celle-ci.
 
 **Given** une régression identifiée après déploiement,
 **When** le mainteneur applique le repli documenté,
-**Then** il peut restaurer la configuration précédente par usage sans changement de code ni purge du cache,
+**Then** il peut restaurer le modèle et la taille précédents par usage sans changement de code ni purge du cache,
 **And** le contrôle post-déploiement et son résultat sont consignés.
