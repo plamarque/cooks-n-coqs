@@ -107,6 +107,12 @@ test("assistant image intents HTTP: plusieurs images temporaires, bornées et im
     assert.equal(response.headers.get("x-request-id"), attemptId);
     assert.deepEqual(await response.json(), { summaries: ["Résumé dessert", "Résumé dessert"] });
     assert.equal(maximumSimultaneous, 1);
+    const singleForm = new FormData();
+    singleForm.append("file", new Blob(["c"], { type: "image/png" }), "c.png");
+    singleForm.append("contextText", "goûter");
+    const single = await fetch(`${base}/api/assistant/image-intent`, { method: "POST", body: singleForm });
+    assert.equal(single.status, 200);
+    assert.deepEqual(await single.json(), { summaries: ["Résumé goûter"] });
     assistantDependencies.summarizeImage = async () => null;
     const unavailableForm = new FormData(); unavailableForm.append("files", new Blob(["a"], { type: "image/png" }), "a.png");
     const unavailable = await fetch(`${base}/api/assistant/image-intents`, { method: "POST", body: unavailableForm });
