@@ -116,7 +116,7 @@ body {
 .assistant-preview-card-open { position: absolute; right: 15px; bottom: 14px; display: inline-flex; min-height: 40px; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; background: #1f4f46; color: #fffdf9; font-size: .83rem; font-weight: 800; }
 @keyframes assistant-preview-arrive { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
 @keyframes assistant-hero-shimmer { to { background-position: -220% 0; } }
-.assistant-preview-detail .recipe-detail-header { margin-inline: -28px; margin-top: -28px; }
+.assistant-preview-detail .recipe-detail-header { width: auto; margin-inline: -1rem; margin-top: -28px; }
 .assistant-preview-detail .recipe-detail-image, .assistant-preview-detail .recipe-detail-image-placeholder { border-radius: 1rem 1rem 0 0; max-height: 320px; }
 .assistant-preview-save { min-height: 44px; }
 .assistant-preview-ingredient-card { cursor: default; }

@@ -119,6 +119,28 @@ async function expectAssistantPreviewGeometry(card) {
   }
 }
 
+async function expectAssistantPreviewDetailGeometry(preview, mediaSelector) {
+  const renderingTolerance = 2;
+  const layout = await preview.evaluate((element, selector) => {
+    const box = (node) => {
+      const rect = node?.getBoundingClientRect();
+      return rect && { left: rect.left, right: rect.right };
+    };
+    return {
+      card: box(element),
+      header: box(element.querySelector(".recipe-detail-header")),
+      media: box(element.querySelector(selector))
+    };
+  }, mediaSelector);
+  expect(layout.card).toBeTruthy();
+  expect(layout.header).toBeTruthy();
+  expect(layout.media).toBeTruthy();
+  for (const element of [layout.header, layout.media]) {
+    expect(Math.abs(element.left - layout.card.left)).toBeLessThanOrEqual(renderingTolerance);
+    expect(Math.abs(element.right - layout.card.right)).toBeLessThanOrEqual(renderingTolerance);
+  }
+}
+
 async function imageMarkerColors(page, buffers) {
   return page.evaluate(async (data) => Promise.all(data.map(async (base64) => {
     const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
@@ -470,6 +492,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expectAssistantPreviewGeometry(card);
     await card.click();
     await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
+    await expectAssistantPreviewDetailGeometry(page.locator(".assistant-preview-detail"), ".recipe-detail-image");
     const imageBox = await page.locator(".assistant-preview-detail .recipe-detail-image").boundingBox();
     const actionsBox = await page.locator(".assistant-preview-detail .recipe-detail-header-actions").boundingBox();
     expect(imageBox).toBeTruthy();
@@ -481,6 +504,23 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.locator(".message.success")).toContainText("Recette importée avec son illustration.");
     await expect.poll(savedRecipeImageId).not.toBeFalsy();
     await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toHaveCount(0);
+  });
+
+  test("Assistant : une preview desktop avec illustration aligne la carte, le header et l’image", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 844 });
+    await page.goto("/");
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Risotto aux champignons", category: "SALE", ingredients: [{ id: "riz", label: "riz", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Cuire doucement." }]
+    } }));
+    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3C/svg%3E" } }));
+    await page.getByLabel("Votre demande").fill("un risotto crémeux");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    const card = page.getByRole("button", { name: /Prévisualisation prête/ });
+    await expect(card.locator("img")).toBeVisible();
+    await card.click();
+    await expect(page.getByRole("heading", { name: "Risotto aux champignons" })).toBeVisible();
+    await expectAssistantPreviewDetailGeometry(page.locator(".assistant-preview-detail"), ".recipe-detail-image");
   });
 
   test("Assistant : une preview mobile avec photo jointe conserve toute la carte dans le Compositeur", async ({ page }) => {
@@ -666,6 +706,7 @@ test.describe("Cookies & Coquillettes v1", () => {
   });
 
   test("Assistant : une ancienne confirmation de suppression disparaît à l’ouverture d’une preview", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await page.locator(".assistant-carousel-card").first().click();
     await page.locator(".recipe-detail-actions").getByRole("button", { name: "Supprimer" }).click();
@@ -675,9 +716,11 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
       title: "Soupe propre", category: "SALE", ingredients: [{ id: "eau", label: "eau", isScalable: false }], steps: [{ id: "s1", order: 1, text: "Chauffer." }]
     } }));
+    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: null } }));
     await page.getByLabel("Votre demande").fill("une soupe");
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await page.getByRole("button", { name: /Prévisualisation prête/ }).click();
+    await expectAssistantPreviewDetailGeometry(page.locator(".assistant-preview-detail"), ".recipe-detail-image-placeholder");
     await expect(page.getByText("Recette supprimée.")).toHaveCount(0);
   });
 
