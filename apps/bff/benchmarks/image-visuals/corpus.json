@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "cases": [
+    { "id": "tarte-tomates", "useCase": "recipe", "input": { "title": "Tarte fine aux tomates et basilic", "ingredients": [{ "label": "tomates cerises" }, { "label": "pâte feuilletée" }, { "label": "basilic" }], "steps": [{ "text": "Garnir la pâte." }] } },
+    { "id": "curry-pois-chiches", "useCase": "recipe", "input": { "title": "Curry de pois chiches et épinards", "ingredients": [{ "label": "pois chiches" }, { "label": "épinards" }, { "label": "lait de coco" }], "steps": [{ "text": "Mijoter doucement." }] } },
+    { "id": "crumble-pommes", "useCase": "recipe", "input": { "title": "Crumble pommes et cannelle", "ingredients": [{ "label": "pommes" }, { "label": "farine" }, { "label": "cannelle" }], "steps": [{ "text": "Cuire jusqu'à dorure." }] } },
+    { "id": "pois-chiche", "useCase": "ingredient", "input": { "label": "pois chiche cuit" } },
+    { "id": "basilic", "useCase": "ingredient", "input": { "label": "feuilles de basilic frais" } },
+    { "id": "citron", "useCase": "ingredient", "input": { "label": "citron jaune" } },
+    { "id": "saisir-saumon", "useCase": "cooking_step", "input": { "stepText": "Saisir le filet de saumon côté peau dans une poêle chaude pendant 4 minutes." } },
+    { "id": "fouetter-creme", "useCase": "cooking_step", "input": { "stepText": "Fouetter la crème avec le sucre jusqu'à obtenir une texture légère." } },
+    { "id": "raper-legumes", "useCase": "cooking_step", "input": { "stepText": "Râper les carottes et les mélanger délicatement avec les herbes fraîches." } }
+  ]
+}

@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:unit": "node --import tsx --test test/*.test.ts"
+    "test:unit": "node --import tsx --test test/*.test.ts",
+    "benchmark:images": "tsx scripts/run-image-visual-benchmark.ts"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

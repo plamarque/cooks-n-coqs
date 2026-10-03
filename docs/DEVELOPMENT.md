@@ -95,6 +95,16 @@ Les sept appels `chat.completions.create` omettent volontairement `temperature`,
 
 Référence tarifs : [OpenAI Pricing](https://developers.openai.com/api/docs/pricing).
 
+### Benchmark visuels local
+
+Le benchmark compare le corpus culinaire public versionné aux modèles explicitement fournis, sans toucher au cache BFF, à Render ou R2. Il exige `OPENAI_API_KEY` et le modèle courant déclaré par l'opérateur :
+
+```bash
+npm run benchmark:images -w @cookies-et-coquilettes/bff -- --current-model gpt-image-1-mini --models gpt-image-1-mini,gpt-image-2
+```
+
+Les artefacts restent locaux dans `apps/bff/benchmark-results/<horodatage>-<suffixe>/` (ignorés par Git) : images, `manifest.json` identifié par hash du corpus et `review.html` aux gabarits recette, ingrédient et étape. Le manifeste ne calcule jamais de coût : il enregistre seulement l'usage API reçu ou son indisponibilité. Ne transmettez ni résultats ni cache à Render/R2 ; l'évaluation humaine formelle relève de la story 3.2.
+
 ## Prérequis E2E / screenshots
 
 ```bash
