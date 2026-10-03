@@ -31,6 +31,23 @@ export function routeAssistantImport(text: string, attachments: readonly File[])
   return "text";
 }
 
+/**
+ * Le fil affiché garde le texte source, y compris une recette collée complète.
+ * Seule sa copie envoyée aux services décisionnels respecte leur contrat borné.
+ */
+export function projectAssistantTurnsForNetwork(turns: readonly AssistantConversationTurnV1[]): AssistantConversationTurnV1[] {
+  return turns.slice(-5).map((turn) => ({ ...turn, text: truncateAssistantTurnForNetwork(turn.text) }));
+}
+
+function truncateAssistantTurnForNetwork(text: string): string {
+  let projected = "";
+  for (const codePoint of text) {
+    if (projected.length + codePoint.length > 1_200) break;
+    projected += codePoint;
+  }
+  return projected;
+}
+
 export function assistantImageErrorMessage(error: AssistantImageRequestError): string {
   const explanation = error.category === "preparation"
     ? error.preparationReason === "count"
@@ -111,7 +128,7 @@ export class AssistantSession {
   }
 
   /** Même propriétaire AbortController/requestId pour sélection puis génération texte. */
-  async resolveText(text: string, adapter: AssistantTextAdapter): Promise<AssistantTextResolution | null> {
+  async resolveText(text: string, adapter: AssistantTextAdapter, options: { hasImages?: boolean } = {}): Promise<AssistantTextResolution | null> {
     this.controller?.abort();
     this.controller = null;
     this.preview = null;
@@ -153,11 +170,13 @@ export class AssistantSession {
         this.error = assistantImageErrorMessage(error);
         return null;
       }
+      const preservesImages = options.hasImages;
+      const preservedInput = preservesImages ? "Vos photos et votre demande sont conservées." : "Votre demande est conservée.";
       this.error = detail
-        ? `Je n’ai pas pu joindre le service d’analyse. Vos photos et votre demande sont conservées.`
+        ? `Je n’ai pas pu joindre le service d’analyse. ${preservedInput}`
         : stage
-        ? `Je n’ai pas pu terminer ${stageLabel[stage] ?? "cette étape"}. Vos photos et votre demande sont conservées.`
-        : "Je n’ai pas pu finaliser cette proposition. Vos photos et votre demande sont intactes : vous pouvez préciser votre envie ou essayer à nouveau.";
+        ? `Je n’ai pas pu terminer ${stageLabel[stage] ?? "cette étape"}. ${preservedInput}`
+        : `Je n’ai pas pu finaliser cette proposition. ${preservedInput} Vous pouvez préciser votre envie ou essayer à nouveau.`;
       return null;
     } finally {
       if (requestId === this.requestId) this.controller = null;

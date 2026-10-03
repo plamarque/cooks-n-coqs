@@ -239,6 +239,48 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(field).toHaveValue(/Quiche/);
   });
 
+  test("Assistant : une recette texte longue garde sa source complète et projette un fil valide", async ({ page }) => {
+    const longRecipe = ("Saucisses, pommes de terre, poivron et chèvre. ").repeat(53).slice(0, 2_059);
+    let selectionBody;
+    let importBody;
+    await page.goto("/");
+    await page.route("**/api/assistant/select", async (route) => {
+      selectionBody = route.request().postDataJSON();
+      await route.fulfill({ json: { kind: "import" } });
+    });
+    await page.route("**/api/import/text", async (route) => {
+      importBody = route.request().postDataJSON();
+      await route.fulfill({ json: { title: "Saucisses et pommes de terre", category: "SALE", ingredients: [], steps: [] } });
+    });
+    const field = page.getByLabel("Votre demande");
+    await field.fill(longRecipe);
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+    expect(selectionBody.turns).toHaveLength(1);
+    expect(selectionBody.turns[0].text).toHaveLength(1_200);
+    expect(importBody.text).toBe(longRecipe);
+    await expect(field).toHaveValue(longRecipe);
+  });
+
+  test("Assistant : une recette texte longue borne aussi le fil de génération sans altérer le Compositeur", async ({ page }) => {
+    const longRecipe = ("Saucisses, pommes de terre, poivron et chèvre. ").repeat(53).slice(0, 2_059);
+    let recipeBody;
+    await page.goto("/");
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/recipe", async (route) => {
+      recipeBody = route.request().postDataJSON();
+      await route.fulfill({ json: { title: "Saucisses et pommes de terre", category: "SALE", ingredients: [], steps: [] } });
+    });
+    const field = page.getByLabel("Votre demande");
+    await field.fill(longRecipe);
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+    expect(recipeBody.turns).toHaveLength(1);
+    expect(recipeBody.turns[0].text).toHaveLength(1_200);
+    expect(recipeBody.request).toBe(longRecipe);
+    await expect(field).toHaveValue(longRecipe);
+  });
+
   test("Compositeur : image locale retirable et retour Cahier/Assistant au focus", async ({ page }) => {
     await page.goto("/");
     const imagePath = path.join(process.cwd(), "e2e", "fixtures", "test-image.png");

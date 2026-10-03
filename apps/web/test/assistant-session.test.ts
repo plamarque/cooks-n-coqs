@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AssistantSession, assistantImageErrorMessage, routeAssistantImport } from "../src/utils/assistant-session";
+import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, routeAssistantImport } from "../src/utils/assistant-session";
 import { AssistantImageRequestError } from "../src/services/assistant-service";
 
 const draft = { title: "Soupe", category: "SALE" as const, ingredients: [], steps: [], source: { type: "TEXT" as const, capturedAt: "2026-10-02" } };
@@ -117,6 +117,50 @@ test("session Assistant : fil volatile, deux précisions puis remise à zéro", 
   session.cancel();
   assert.deepEqual(session.turns, []);
   assert.equal(session.question, null);
+});
+
+test("session Assistant : la projection réseau borne le fil sans tronquer son affichage", () => {
+  const longRecipe = "Saucisses pommes de terre poivron chèvre. ".repeat(53).slice(0, 2_059);
+  const session = new AssistantSession();
+  session.beginConversation(longRecipe);
+  const projected = projectAssistantTurnsForNetwork(session.turns);
+  assert.equal(session.turns[0].text, longRecipe);
+  assert.equal(session.turns[0].text.length, 2_059);
+  assert.equal(projected.length, 1);
+  assert.equal(projected[0].text.length, 1_200);
+  assert.equal(projected[0].role, "user");
+});
+
+test("session Assistant : la projection réseau ne coupe jamais un emoji à la frontière UTF-16", () => {
+  const turn = `${"a".repeat(1_199)}🍲fin`;
+  const [projected] = projectAssistantTurnsForNetwork([{ role: "user", text: turn }]);
+  assert.equal(projected.text.length, 1_199);
+  assert.doesNotMatch(projected.text, /[\uD800-\uDBFF]$/);
+});
+
+test("session Assistant : la projection réseau retient les cinq derniers tours dans leur ordre", () => {
+  const turns = Array.from({ length: 6 }, (_, index) => ({
+    role: index % 2 ? "assistant" as const : "user" as const,
+    text: `${index}-${"x".repeat(1_300)}`
+  }));
+  const projected = projectAssistantTurnsForNetwork(turns);
+  assert.deepEqual(projected.map(({ role }) => role), ["assistant", "user", "assistant", "user", "assistant"]);
+  assert.deepEqual(projected.map(({ text }) => text.slice(0, 2)), ["1-", "2-", "3-", "4-", "5-"]);
+  assert.ok(projected.every(({ text }) => text.length <= 1_200));
+});
+
+test("session Assistant : l’échec de sélection texte ne mentionne pas de photos", async () => {
+  const session = new AssistantSession();
+  await session.resolveText("recette sans image", { resolve: async () => { throw new Error("assistant_stage:decision"); } });
+  assert.match(session.error ?? "", /choix de la meilleure piste/);
+  assert.match(session.error ?? "", /Votre demande est conservée/);
+  assert.doesNotMatch(session.error ?? "", /photos/i);
+});
+
+test("session Assistant : l’échec de sélection avec photos conserve leur copy", async () => {
+  const session = new AssistantSession();
+  await session.resolveText("recette jointe", { resolve: async () => { throw new Error("assistant_stage:decision"); } }, { hasImages: true });
+  assert.match(session.error ?? "", /Vos photos et votre demande sont conservées/);
 });
 
 test("session Assistant : une erreur de proposition reste neutre et conserve la saisie appelante", async () => {

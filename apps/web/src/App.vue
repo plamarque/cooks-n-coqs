@@ -74,7 +74,7 @@ import {
   generateCookingStepImage,
   generateRecipeImage
 } from "./services/import-service";
-import { AssistantSession, assistantImageErrorMessage, routeAssistantImport, type AssistantPreview } from "./utils/assistant-session";
+import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, routeAssistantImport, type AssistantPreview } from "./utils/assistant-session";
 import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
@@ -1225,7 +1225,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
         stage = "decision";
         progress("searching");
         assistantPhase.value = assistantSession.phase;
-        const choice = await selectNotebookRecipe(selectionRequest, candidates, signal, assistantSession.turns, assistantSession.clarificationCount);
+        const choice = await selectNotebookRecipe(selectionRequest, candidates, signal, projectAssistantTurnsForNetwork(assistantSession.turns), assistantSession.clarificationCount);
     if (choice.kind === "clarify") {
       assistantSession.showClarification(choice.question);
       assistantTurns.value = assistantSession.turns;
@@ -1252,7 +1252,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
         progress("creating");
         assistantPhase.value = assistantSession.phase;
         stage = "generation";
-        const draft = await generateAssistantRecipe(generationRequest, signal, assistantSession.turns);
+        const draft = await generateAssistantRecipe(generationRequest, signal, projectAssistantTurnsForNetwork(assistantSession.turns));
         return { kind: "draft" as const, draft: { ...draft, source: { type: "TEXT", capturedAt: new Date().toISOString() } } };
       } catch (error) {
         if ((error as Error).name === "AbortError") throw error;
@@ -1261,7 +1261,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
         throw new Error(`assistant_stage:${stage}`);
       }
     }
-  });
+  }, { hasImages: route === "image" });
   if (assistantSession.question) {
     assistantPhase.value = "idle";
     // Le premier message est désormais dans le fil : le champ attend seulement la réponse.
