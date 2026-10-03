@@ -1,0 +1,9 @@
+# Local policy materialized by story-worktree.sh before bmad-loop init.
+# It is copied to ignored .bmad-loop/policy.toml in each isolated worktree.
+
+[adapter]
+name = "codex"
+
+[scm]
+isolation = "worktree"
+worktree_seed = [".env"]

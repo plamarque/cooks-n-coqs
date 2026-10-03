@@ -31,6 +31,7 @@ case "${1:-}" in
     [[ "$branch_name" == "main" ]] || die "start must run from the main integration checkout, not $branch_name"
     [[ -z "$(git status --porcelain)" ]] || die "integration checkout must be clean"
     [[ -f "$root/.env" ]] || die ".env is required locally before creating a story worktree"
+    command -v bmad-loop >/dev/null || die "bmad-loop is required to initialize the Codex loop profile"
     target="${4:-$(dirname "$root")/$(basename "$root")-$key-$slug}"
     branch="codex/$key-$slug"
     created=false
@@ -45,7 +46,8 @@ case "${1:-}" in
     created=true
     cp "$root/.env" "$target/.env"
     chmod 600 "$target/.env"
-    (cd "$target" && npm ci && "$target/scripts/story-worktree.sh" verify)
+    cp "$target/scripts/bmad-loop-policy.toml" "$target/.bmad-loop/policy.toml"
+    (cd "$target" && npm ci && bmad-loop init --project "$target" --cli codex --no-skills && "$target/scripts/story-worktree.sh" verify)
     trap - ERR
     echo "ready: $target ($branch)"
     ;;

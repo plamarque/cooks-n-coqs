@@ -31,17 +31,11 @@ courant. `story-worktree:stop` ne supprime ni branche ni worktree.
 
 ### BMAD Loop
 
-BMAD Loop doit être initialisé une fois par checkout local, avec le profil Codex :
-
-```bash
-bmad-loop init --project . --cli codex --no-skills
-```
-
-Sa politique locale doit conserver `scm.isolation = "worktree"` et
-`worktree_seed = [".env"]` : ses worktrees isolés reçoivent alors le même `.env`
-local que ceux créés manuellement. Codex peut demander une confiance d’espace de
-travail lors de la première ouverture d’un nouveau répertoire : l’accepter est une
-action locale, non automatisable et sans effet sur Git.
+La création de worktree initialise automatiquement BMAD Loop avec le profil Codex,
+l’isolation Git par worktree et `worktree_seed = [".env"]`. Les worktrees créés par
+le Loop reçoivent ainsi le même `.env` local que ceux créés manuellement. Codex peut
+demander une confiance d’espace de travail lors de la première ouverture d’un nouveau
+répertoire : l’accepter est une action locale, non automatisable et sans effet sur Git.
 
 ## Commandes
 
