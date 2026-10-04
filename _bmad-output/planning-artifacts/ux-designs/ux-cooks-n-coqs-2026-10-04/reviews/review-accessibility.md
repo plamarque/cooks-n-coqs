@@ -1,7 +1,7 @@
 # Revue UX — accessibilité et mobile
 
-Date : 2026-10-04  
-Périmètre : `DESIGN.md`, `EXPERIENCE.md`, décisions consignées et maquettes de travail.  
+Date : 2026-10-04
+Périmètre : `DESIGN.md`, `EXPERIENCE.md`, décisions consignées et maquettes de travail.
 Verdict : **à corriger avant finalisation**. Le contrat pose une intention inclusive solide (mouvement non nécessaire, réduction du mouvement, alternative au déplacement), mais il doit rendre ces garanties testables dans les composants et les écrans contraints.
 
 ## Constats
