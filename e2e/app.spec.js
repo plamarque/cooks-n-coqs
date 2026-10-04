@@ -249,7 +249,7 @@ test.describe("Cookies & Coquillettes v1", () => {
   test("Chef : le premier envoi ouvre un fil et Nouvelle recette le clôt sans créer de fil vide", async ({ page }) => {
     await page.goto("/");
     await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
-    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: { title: "Soupe", category: "SALE", ingredients: [], steps: [{ id: "step-1", order: 1, text: "Cuire." }] } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: { title: "Soupe", category: "SALE", ingredients: [{ id: "ingredient-1", label: "légumes", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire." }] } }));
     await page.getByLabel("Votre demande").fill("Une soupe rapide");
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: "Nouvelle recette" })).toBeVisible();
@@ -260,6 +260,35 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByLabel("Votre demande")).toHaveValue("");
     await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await expect(page.locator(".notebook-header .assistant-nav")).toBeFocused();
+    await page.locator(".notebook-header .assistant-nav").click();
+    await expect(page.locator(".assistant-resume-card")).toContainText("dernier échange");
+    await page.getByRole("button", { name: "Reprendre" }).click();
+    await expect(page.locator(".assistant-conversation-turn--user")).toContainText("Une soupe rapide");
+    await expect(page.locator(".assistant-conversation-turn--assistant")).toContainText(/proposition/i);
+  });
+
+  test("Chef : sans fil, aucune reprise inactive ; journal illisible, repli sans perte de saisie", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: "Reprendre" })).toHaveCount(0);
+    await page.evaluate(async () => {
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.open("cookies-et-coquilettes");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result;
+          const transaction = database.transaction("chefConversations", "readwrite");
+          transaction.objectStore("chefConversations").put({ id: "illisible", createdAt: "pas-une-date", turns: [] });
+          transaction.onerror = () => reject(transaction.error);
+          transaction.oncomplete = () => { database.close(); resolve(); };
+        };
+      });
+    });
+    await page.reload();
+    await expect(page.locator(".assistant-resume-card")).toContainText("indisponible");
+    const field = page.getByLabel("Votre demande");
+    await field.fill("Je garde cette idée");
+    await page.getByRole("button", { name: "Nouvelle conversation" }).click();
+    await expect(field).toHaveValue("Je garde cette idée");
   });
 
   test("Assistant : une recette texte longue garde sa source complète et projette un fil valide", async ({ page }) => {

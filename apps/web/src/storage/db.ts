@@ -1,6 +1,6 @@
 import Dexie, { type Table } from "dexie";
 import type { ChefConversationRecord } from "../utils/chef-session";
-import type { IngredientImage, Recipe, RecipeImage } from "@cookies-et-coquilettes/domain";
+import { isChefConversation, type IngredientImage, type Recipe, type RecipeImage } from "@cookies-et-coquilettes/domain";
 
 export interface CookingStepImage {
   id: string;
@@ -9,6 +9,19 @@ export interface CookingStepImage {
   mimeType: string;
   sizeBytes: number;
   createdAt: string;
+}
+
+/** Ignore les lignes legacy ou corrompues sans jamais les modifier. */
+export type ChefConversationResume =
+  | { kind: "available"; conversation: ChefConversationRecord }
+  | { kind: "none" }
+  | { kind: "unavailable" };
+
+export function selectLastResumableChefConversation(records: readonly unknown[]): ChefConversationResume {
+  const conversations = records.filter(isChefConversation)
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  if (conversations[0]) return { kind: "available", conversation: conversations[0] };
+  return records.length ? { kind: "unavailable" } : { kind: "none" };
 }
 
 export class RecipesDatabase extends Dexie {
@@ -33,6 +46,10 @@ export class RecipesDatabase extends Dexie {
       cookingStepImages: "id, recipeId, [recipeId+stepId], createdAt",
       chefConversations: "id, createdAt, closedAt"
     });
+  }
+
+  async findLastResumableChefConversation(): Promise<ChefConversationResume> {
+    return selectLastResumableChefConversation(await this.chefConversations.toArray());
   }
 }
 

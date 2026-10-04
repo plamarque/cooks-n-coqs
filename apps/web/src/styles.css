@@ -96,6 +96,31 @@ body {
   letter-spacing: -0.075em;
 }
 
+.assistant-resume-card {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid #cbd8d0;
+  border-radius: 1rem;
+  background: rgb(255 253 248 / .82);
+  color: #1f4f46;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.assistant-resume-card p { margin: 0; font-weight: 700; }
+.assistant-resume-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .85rem; }
+.assistant-resume-primary,
+.assistant-resume-secondary {
+  min-height: 44px;
+  padding: .6rem .9rem;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.assistant-resume-primary { border: 1px solid #1f4f46; background: #1f4f46; color: #fffdf8; }
+.assistant-resume-secondary { border: 1px solid #cbd8d0; background: #fffdf8; color: #1f4f46; }
+
 .assistant-composer-section {
   margin: 28px 0 16px;
 }

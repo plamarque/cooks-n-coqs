@@ -38,13 +38,13 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `recipe-native-share` | Orchestration Web Share (`navigator.share` / `canShare`) texte ± image illustrative PNG ; fallback presse-papiers | `apps/web/src/services/recipe-native-share.ts` |
 | `recipe-detail-selection` | Résolution de la fiche DETAIL (override hors filtres), navigation post-sauvegarde, badge transitoire | `apps/web/src/utils/recipe-detail-selection.ts` |
 | `cooking-mode-service` | Wake Lock + fallback navigateur | `apps/web/src/services/cooking-mode-service.ts` |
-| `db` | Schéma IndexedDB et accès tables | `apps/web/src/storage/db.ts` |
+| `db` | Schéma IndexedDB, accès tables et recherche non mutante du dernier journal Chef valide | `apps/web/src/storage/db.ts` |
 | `ingredient-image-service` | Résolution d'image ingrédient (cache local, génération IA), stockage | `apps/web/src/services/ingredient-image-service.ts` |
 | `cooking-step-image-service` | Résolution d'image d'étape en mode cuisine (cache local, génération IA), fallback image recette | `apps/web/src/services/cooking-step-image-service.ts` |
 | `step-timer-service` | Détection de durée de timer d'étape (sémantique IA + fallback) | `apps/web/src/services/step-timer-service.ts` |
 | `assistant-composer` | Validation locale, starters, raccourci et pièce jointe éphémère de l’accueil Assistant | `apps/web/src/utils/assistant-composer.ts` |
 | `assistant-session` | `AbortController`, `requestId`, annulation, exclusions mémoire de candidates et phases `searching` / `creating` : seul un `noCandidate` revalidé mène à un draft éphémère ; une liste vide après refus local ne le simule jamais, les réponses tardives sont ignorées et aucune issue ne persiste une recette | `apps/web/src/utils/assistant-session.ts` |
-| `chef-session` | Cycle local du fil Chef : création au premier envoi, tours ordonnés, synchronisation et clôture sans effacement | `apps/web/src/utils/chef-session.ts` |
+| `chef-session` | Cycle local du fil Chef : création au premier envoi, validation/hydratation stricte, tours ordonnés, synchronisation et clôture sans effacement | `apps/web/src/utils/chef-session.ts` |
 | `chef-profile` | Préférences, apprentissages confiancés et paramètres de foyer locaux, distincts du Cahier | À introduire côté `apps/web` |
 | `chef-tools` | Validation et exécution côté client de demandes d'outils typées et minimisées | À introduire côté `apps/web` |
 | `chef-api` | Capacité IA stateless : réponse typée ou demande d'outil, sans persistance de données personnelles | À introduire côté `apps/bff` |

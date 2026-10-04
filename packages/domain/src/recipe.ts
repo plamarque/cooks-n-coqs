@@ -153,6 +153,26 @@ export interface AssistantConversationTurnV1 {
   text: string;
 }
 
+/** Journal local minimal d'un échange Chef, sans preview ni pièce jointe. */
+export interface ChefConversation {
+  id: string;
+  createdAt: string;
+  closedAt?: string;
+  turns: AssistantConversationTurnV1[];
+}
+
+export function isChefConversation(value: unknown): value is ChefConversation {
+  if (!value || typeof value !== "object") return false;
+  const conversation = value as Record<string, unknown>;
+  if (typeof conversation.id !== "string" || !conversation.id || typeof conversation.createdAt !== "string" || Number.isNaN(Date.parse(conversation.createdAt))) return false;
+  if (conversation.closedAt !== undefined && (typeof conversation.closedAt !== "string" || Number.isNaN(Date.parse(conversation.closedAt)))) return false;
+  return Array.isArray(conversation.turns) && conversation.turns.length > 0 && conversation.turns.every((turn) => {
+    if (!turn || typeof turn !== "object") return false;
+    const candidate = turn as Record<string, unknown>;
+    return (candidate.role === "user" || candidate.role === "assistant") && typeof candidate.text === "string" && candidate.text.trim().length > 0;
+  });
+}
+
 export type NotebookSelectionWireV1 =
   | { kind: "candidates"; candidates: Array<{ candidateRef: string; reasonCode: "RELEVANT" }> }
   | { kind: "noCandidate" }

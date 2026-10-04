@@ -65,7 +65,7 @@ import {
   RecipeBookImportError
 } from "./services/recipe-book-transfer-service";
 import { rehydrateRecipeMediaAfterArchiveImport } from "./services/recipe-book-rehydrate-after-import";
-import { db } from "./storage/db";
+import { db, type ChefConversationResume } from "./storage/db";
 import { browserCookingModeService } from "./services/cooking-mode-service";
 import {
   bffImportService,
@@ -208,6 +208,9 @@ const assistantCardsAfterTurn = (turnCount: number) => assistantThreadCards.valu
 const assistantError = ref<string | null>(null);
 const assistantTurns = ref(assistantSession.turns);
 const assistantQuestion = ref<string | null>(null);
+const assistantResumeConversation = ref<ChefConversationResume | null>(null);
+const assistantResumeUnavailable = ref(false);
+let assistantResumeRequestId = 0;
 // La préparation locale (notamment la compression des photos) commence avant
 // le premier appel réseau. Elle doit donc verrouiller le compositeur dès le clic.
 const assistantPreparing = ref(false);
@@ -1084,6 +1087,49 @@ async function withinAssistantDeadline<T>(operation: Promise<T>, label: string, 
 function openAssistant(): void {
   clearMessages();
   viewMode.value = "ASSISTANT";
+  void discoverChefConversation();
+  focusAssistantComposer();
+}
+
+async function discoverChefConversation(): Promise<void> {
+  if (assistantSession.turns.length || chefSession.active) return;
+  const requestId = ++assistantResumeRequestId;
+  assistantResumeConversation.value = null;
+  assistantResumeUnavailable.value = false;
+  try {
+    const resume = await db.findLastResumableChefConversation();
+    if (requestId !== assistantResumeRequestId || assistantSession.turns.length || chefSession.active) return;
+    assistantResumeConversation.value = resume;
+    assistantResumeUnavailable.value = resume.kind === "unavailable";
+  } catch {
+    assistantResumeUnavailable.value = true;
+    assistantAnnouncement.value = "La reprise de conversation est indisponible pour le moment.";
+  }
+}
+
+function resumeChefConversation(): void {
+  const resume = assistantResumeConversation.value;
+  if (!resume || resume.kind !== "available" || assistantBusy.value) return;
+  const hydrated = chefSession.hydrate(resume.conversation);
+  if (!hydrated) {
+    assistantResumeUnavailable.value = true;
+    assistantResumeConversation.value = null;
+    assistantAnnouncement.value = "La reprise de cette conversation est indisponible pour le moment.";
+    return;
+  }
+  assistantSession.hydrateConversation(hydrated.turns);
+  assistantTurns.value = [...assistantSession.turns];
+  assistantResumeConversation.value = null;
+  assistantResumeUnavailable.value = false;
+  assistantAnnouncement.value = "Conversation reprise.";
+  revealLatestAssistantEvent();
+  focusAssistantComposer();
+}
+
+function declineChefConversationResume(): void {
+  assistantResumeConversation.value = null;
+  assistantResumeUnavailable.value = false;
+  assistantAnnouncement.value = "Nouvelle conversation prête.";
   focusAssistantComposer();
 }
 
@@ -3071,6 +3117,7 @@ onMounted(async () => {
   await seedIfEmpty();
   await refresh();
   await consumeShareTargetPayloadFromUrl();
+  await discoverChefConversation();
 });
 
 onUnmounted(() => {
@@ -3212,6 +3259,19 @@ onUnmounted(() => {
 
       <div v-if="!assistantTurns.length" class="assistant-intro">
         <h1 id="assistant-title">On mange quoi&nbsp;?</h1>
+        <section v-if="assistantResumeConversation?.kind === 'available' || assistantResumeUnavailable" class="assistant-resume-card" aria-live="polite">
+          <template v-if="assistantResumeConversation?.kind === 'available'">
+            <p>Retrouvez votre dernier échange avec l’Assistant.</p>
+            <div class="assistant-resume-actions">
+              <button type="button" class="assistant-resume-primary" @click="resumeChefConversation">Reprendre</button>
+              <button type="button" class="assistant-resume-secondary" @click="declineChefConversationResume">Nouvelle conversation</button>
+            </div>
+          </template>
+          <template v-else>
+            <p>La reprise de conversation est indisponible pour le moment.</p>
+            <button type="button" class="assistant-resume-secondary" @click="declineChefConversationResume">Nouvelle conversation</button>
+          </template>
+        </section>
       </div>
 
       <section class="assistant-composer-section" :class="{ 'assistant-composer-section--conversation': assistantTurns.length }">

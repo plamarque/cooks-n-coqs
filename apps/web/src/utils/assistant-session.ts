@@ -103,6 +103,14 @@ export class AssistantSession {
     this.rejectedCandidateIds.clear();
   }
 
+  hydrateConversation(turns: readonly AssistantConversationTurnV1[]): void {
+    this.resetConversation();
+    this.preview = null;
+    this.turns = turns.map((turn) => ({ ...turn }));
+    this.phase = "idle";
+    this.error = null;
+  }
+
   rejectCandidate(candidateId: string): boolean {
     if (!candidateId || this.rejectedCandidateIds.has(candidateId)) return false;
     this.rejectedCandidateIds.add(candidateId);

@@ -1,10 +1,10 @@
-import type { AssistantConversationTurnV1 } from "@cookies-et-coquilettes/domain";
+import { isChefConversation, type AssistantConversationTurnV1, type ChefConversation } from "@cookies-et-coquilettes/domain";
 
-export interface ChefConversationRecord {
-  id: string;
-  createdAt: string;
-  closedAt?: string;
-  turns: AssistantConversationTurnV1[];
+export type ChefConversationRecord = ChefConversation;
+
+export function hydrateChefConversation(value: unknown): ChefConversationRecord | null {
+  if (!isChefConversation(value)) return null;
+  return { ...value, turns: value.turns.map((turn) => ({ ...turn })) };
 }
 
 export class ChefSession {
@@ -12,6 +12,12 @@ export class ChefSession {
   begin(turns: readonly AssistantConversationTurnV1[], now = new Date()): ChefConversationRecord {
     if (this.active) return this.active;
     this.active = { id: crypto.randomUUID(), createdAt: now.toISOString(), turns: turns.map((turn) => ({ ...turn })) };
+    return this.active;
+  }
+  hydrate(value: unknown): ChefConversationRecord | null {
+    const conversation = hydrateChefConversation(value);
+    if (!conversation) return null;
+    this.active = { ...conversation, closedAt: undefined };
     return this.active;
   }
   sync(turns: readonly AssistantConversationTurnV1[]): ChefConversationRecord | null {
