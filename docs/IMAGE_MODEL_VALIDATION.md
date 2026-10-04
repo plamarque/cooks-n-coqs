@@ -89,9 +89,9 @@ API disponible. Le coût seul ne justifie jamais une décision.
 
 | Usage | Cas observés | Modèle retenu / rejeté | Preuves synthétiques (qualité, lisibilité, artefacts) | Mesures API (latence, erreurs, usage / coût disponible) | Configuration cible proposée | Repli proposé | Décision et validation humaine |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `recipe` | `tarte-tomates`, `curry-pois-chiches`, `crumble-pommes` | À compléter | À compléter | À compléter | `AI_IMAGE_MODEL_RECIPE` + `AI_IMAGE_QUALITY_RECIPE` : à compléter | modèle + qualité : à compléter | `awaiting-operator` |
-| `ingredient` | `pois-chiche`, `basilic`, `citron` | À compléter | À compléter | À compléter | `AI_IMAGE_MODEL_INGREDIENT` + `AI_IMAGE_QUALITY_INGREDIENT` : à compléter | modèle + qualité : à compléter | `awaiting-operator` |
-| `cooking_step` | `saisir-saumon`, `fouetter-creme`, `raper-legumes` | À compléter | À compléter | À compléter | `AI_IMAGE_MODEL_COOKING_STEP` + `AI_IMAGE_QUALITY_COOKING_STEP` : à compléter | modèle + qualité : à compléter | `awaiting-operator` |
+| `recipe` | `tarte-tomates`, `curry-pois-chiches`, `crumble-pommes` | Mini conservé ; Flare et FLUX rejetés comme primaires | Patrice juge Mini meilleur ; les alternatives ne justifient pas une dégradation qualité/prix | Run complet de référence : 30 succès ; coûts estimés Mini $0.021160, Flare $0.073750, FLUX $0.027000 | Mini primaire, sans changement de production dans cette étape | Flare contrôlé, à implémenter par 3.3 | `validé par Patrice — 2026-10-04` |
+| `ingredient` | `pois-chiche`, `basilic`, `citron` | Mini conservé ; Flare et FLUX rejetés comme primaires | Même décision de qualité et de coût ; aucun gain suffisant à 64×64 | Voir run complet de référence, coût estimé par modèle ci-dessus | Mini primaire, sans changement de production dans cette étape | Flare contrôlé, à implémenter par 3.3 | `validé par Patrice — 2026-10-04` |
+| `cooking_step` | `saisir-saumon`, `fouetter-creme`, `raper-legumes` | Mini conservé ; Flare et FLUX rejetés comme primaires | Même décision de qualité et de coût | Voir run complet de référence, coût estimé par modèle ci-dessus | Mini primaire, sans changement de production dans cette étape | Flare contrôlé, à implémenter par 3.3 | `validé par Patrice — 2026-10-04` |
 
 Les noms de variables ci-dessus sont des propositions de configuration à
 valider, pas des instructions de changement. Les valeurs actuelles et les
@@ -111,8 +111,10 @@ rapport et décidé une bascule distincte.
 - [ ] Aucune conclusion ne dépend du seul coût/tarif.
 - [ ] Aucune configuration de production n'a été modifiée dans cette étape.
 
-**Décision finale :** `awaiting-operator`  
-**Nom, date et accord de l'opérateur :** À compléter
+**Décision finale :** conserver `gpt-image-1-mini` comme primaire ; ne pas remplacer Mini par FLUX ni par Flare ; préparer uniquement un repli Flare contrôlé dans la story 3.3, avant le 1er décembre 2026.
+
+**Run de référence :** `apps/bff/benchmark-results/2026-10-03T14-14-21-397Z-0fn9it/manifest.json` — 30 tentatives réussies.
+**Nom, date et accord de l'opérateur :** Patrice — 2026-10-04
 
 ## Passage opérateur après validation
 
