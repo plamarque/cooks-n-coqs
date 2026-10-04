@@ -44,6 +44,10 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `step-timer-service` | Détection de durée de timer d'étape (sémantique IA + fallback) | `apps/web/src/services/step-timer-service.ts` |
 | `assistant-composer` | Validation locale, starters, raccourci et pièce jointe éphémère de l’accueil Assistant | `apps/web/src/utils/assistant-composer.ts` |
 | `assistant-session` | `AbortController`, `requestId`, annulation et phases `searching` / `creating` : seul un `noCandidate` revalidé mène à un draft éphémère ; les réponses tardives sont ignorées et aucune issue ne persiste une recette | `apps/web/src/utils/assistant-session.ts` |
+| `chef-session` | Cycle du fil Chef, contexte hôte, annulation et invalidation locale des réponses tardives | À introduire côté `apps/web` |
+| `chef-profile` | Préférences, apprentissages confiancés et paramètres de foyer locaux, distincts du Cahier | À introduire côté `apps/web` |
+| `chef-tools` | Validation et exécution côté client de demandes d'outils typées et minimisées | À introduire côté `apps/web` |
+| `chef-api` | Capacité IA stateless : réponse typée ou demande d'outil, sans persistance de données personnelles | À introduire côté `apps/bff` |
 | `notebook-search` / `assistant-service` | Snapshot local immuable (`listRecipes`, tri favoris/date/id, plafond 60), refs opaques, contrôles littéraux et décodage du wire fermé. Le BFF ne reçoit que demande, ref, titre, ingrédients et durée; Jev puis un unique fallback Luna retournent 1–3 cartes, `noCandidate` ou indisponibilité. | `apps/web/src/utils/notebook-search.ts`, `apps/web/src/services/assistant-service.ts` |
 | `preview-save-service` | Unique conversion `AssistantPreview` → `Recipe` : prépare l’illustration distante hors Dexie, puis écrit fichiers source, illustration prête et recette par transaction `images + recipes` ; la candidate existante conserve son enrichissement séparé sans remplacer une image existante | `apps/web/src/services/preview-save-service.ts`, `apps/web/src/services/recipe-service.ts`, `apps/web/src/App.vue` |
 | `speech-recognition-adapter` | Adaptateur optionnel de transcription navigateur, sans blob audio ni persistance | `apps/web/src/services/speech-recognition-adapter.ts` |
@@ -73,6 +77,13 @@ Règles de contrat :
 - `saveAssistantPreview(preview, illustrationUrl)` — projette et valide le draft avec les règles domaine, prépare l’illustration distante en best-effort, puis ouvre une transaction Dexie `rw` sur `images` et `recipes`.
 - Les blobs source et l’illustration préparée sont ajoutés avant `createRecipe` dans cette transaction ; une exception Dexie annule toutes les lignes de cette sauvegarde. L’URL distante n’est jamais persistée et son échec ne bloque pas une recette valide.
 
+### Chef client et outils
+
+- Le client est l'orchestrateur du Chef : il possède le fil, le profil et le contexte affiché ; le BFF traite seulement une requête temporaire bornée et ne persiste ni conversation, ni profil, ni Cahier.
+- Une demande d'outil émise par le BFF est une capacité nommée à payload minimal. Le client valide, accepte ou refuse la capacité avant de fournir un extrait local ou d'exécuter une écriture autorisée.
+- Annuler, fermer un fil ou ouvrir une nouvelle conversation invalide localement toute réponse tardive. Les états d'animation sont déclenchés localement ; mouvement réduit et texte restent suffisants à la compréhension.
+- Une action de séance réversible peut être appliquée immédiatement avec un retour clair. Toute écriture durable de recette, plan, quantité ou préférence est prévisualisée puis confirmée avant l'écriture locale ; l'exception est un invariant explicite mémorisable silencieusement.
+
 ### Recipe book transfer (export / import fichier)
 
 - `exportRecipeBookJson(recipes)` — JSON **version 3** toujours **sans images** ; remplit **`importSourceStableKey`** sur chaque recette lorsque la clé peut être dérivée de `source` (module domaine `import-source-dedup`).
@@ -84,6 +95,7 @@ Règles de contrat :
 - `import-source-dedup` (`packages/domain`) — `normalizeUrlForDedup`, `computeImportSourceStableKey`, `resolveImportSourceStableKey` (SHA-256 hex via `crypto.subtle` si disponible, sinon même hachage en pur JavaScript pour contextes non sécurisés).
 - `shouldRehydrateRecipeMediaAfterImport(payload)` — vrai lorsque le profil effectif n’inclut aucune image (ex. **v3** ou v2 « tout off »).
 - `recipe-book-rehydrate-after-import.ts` — photo principale (cache recette puis `generateRecipeImage`), icônes (`resolveIngredientImageId`), images d’étapes (cache étape puis `generateCookingStepImage`), stockage via `storeImageFromUrl` / `updateRecipe` ; remet **`pendingBookMediaHydration`** à `false` en fin de parcours.
+- Le transfert peut porter une section versionnée de profil Chef, validée et fusionnée localement après aperçu et confirmation. Les conversations, prompts, transcriptions, images et historique brut du Chef en sont exclus ; une archive sans profil reste importable.
 
 ### BFF — clés de cache image (sans génération)
 
@@ -154,6 +166,7 @@ Tables minimales :
 - `images`
 - `ingredientImages` (images d'ingrédients, clé = id normalisé du label)
 - `cookingStepImages` (illustrations d'étapes en mode cuisine, cache local)
+- données Chef locales : journal de conversations et profil ; leur schéma Dexie détaillé est défini par les stories qui les introduisent
 
 Index minimaux :
 - `category`
@@ -170,6 +183,11 @@ Index minimaux :
    l’état Vue. `AssistantPreview` et ses `File` restent hors persistance jusqu’à Sauvegarder ; ce clic
    emprunte exclusivement `preview-save-service` et sa transaction `images + recipes`. Les flux v1
    `parse -> create -> détail` restent inchangés.
+5. Les fils Chef et le profil Chef sont des données utilisateur locales distinctes des recettes et des
+   prévisualisations. Ils sont supprimables ; le BFF ne les persiste jamais.
+6. Aucune notification Chef n'est active par défaut. Un rituel explicitement activé peut demander une
+   proposition ponctuelle au BFF et, lorsque l'appareil le permet, déclencher une notification locale
+   best-effort.
 
 ## Import et parsing
 
