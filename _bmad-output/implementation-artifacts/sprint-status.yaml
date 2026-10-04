@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-13-2026 04:57
-last_updated: 10-03-2026 11:15
+last_updated: 10-04-2026 16:45
 project: cooks-n-coqs
 project_key: NOKEY
 tracking_system: file-system
@@ -47,7 +47,40 @@ development_status:
   epic-2-retrospective: optional
 
   epic-3: backlog
-  3-1-produire-un-benchmark-représentatif-des-visuels: awaiting-operator
+  3-1-produire-un-benchmark-représentatif-des-visuels: review
   3-2-valider-le-modèle-retenu-par-usage: backlog
   3-3-migrer-les-modèles-image-avec-repli-contrôlé: backlog
   epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-démarrer-et-clôturer-une-conversation-assistant: backlog
+  4-2-retrouver-le-dernier-échange-assistant: backlog
+  4-3-garder-les-messages-riches-dans-le-fil: backlog
+  4-4-préserver-le-fil-en-cas-d-interruption: backlog
+  4-5-donner-un-conseil-culinaire-orienté-et-honnête: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-intégrer-l-asset-de-production-du-chef: backlog
+  5-2-rendre-les-six-états-du-chef-localement: backlog
+  5-3-lier-les-états-du-chef-au-cycle-de-conversation: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-appeler-le-chef-depuis-une-fiche-recette: backlog
+  6-2-garder-le-chef-disponible-pendant-la-cuisine: backlog
+  6-3-donner-un-fil-propre-à-chaque-séance-de-cuisine: backlog
+  6-4-dépanner-et-adapter-dans-le-contexte-de-cuisine: backlog
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-faire-apprendre-le-chef-localement-et-avec-nuance: backlog
+  7-2-rendre-les-préférences-du-chef-visibles-et-maîtrisables: backlog
+  7-3-outiller-le-chef-sans-lui-abandonner-les-données: backlog
+  7-4-emporter-le-profil-du-chef-avec-le-cahier: backlog
+  epic-7-retrospective: optional
+
+  epic-8: backlog
+  8-1-choisir-les-rituels-culinaires-du-chef: backlog
+  8-2-délivrer-une-proposition-proactive-sans-promettre-l-impossib: backlog
+  epic-8-retrospective: optional
