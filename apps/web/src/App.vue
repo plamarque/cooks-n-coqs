@@ -75,6 +75,7 @@ import {
   generateRecipeImage
 } from "./services/import-service";
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, routeAssistantImport, type AssistantPreview } from "./utils/assistant-session";
+import { createNoCandidateAssistantPreview } from "./utils/assistant-no-candidate";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
 import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, resolveAssistantProgressPhotoUrl, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
@@ -1214,6 +1215,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
   // Une réponse utilisateur ferme la question en attente sans effacer le fil affiché.
   if (assistantSession.question) assistantSession.question = null;
   const inputText = assistantText.value.trim();
+  const originalSourceFiles = assistantAttachments.value.map(({ file }) => file);
   const attachments = await prepareAssistantImages(assistantAttachments.value.map(({ file }) => file), () => preparationId === assistantPreparationId && assistantPreparing.value, (progress) => { assistantImageProgress.value = progress; });
   if (!attachments || preparationId !== assistantPreparationId || !assistantPreparing.value) return null;
   // La préparation est finie : l'étape Cahier qui suit ne traite plus une photo précise.
@@ -1243,7 +1245,20 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
         assistantPhase.value = assistantSession.phase;
         const choice = await selectNotebookRecipe(selectionRequest, candidates, signal);
         if (choice.kind === "candidates") return { kind: "candidates" as const, candidateRefs: choice.candidates.map(({ candidateRef }) => candidateRef) };
-        if (choice.kind === "noCandidate") return { kind: "noCandidate" as const };
+        if (choice.kind === "noCandidate") {
+          generationRequest = selectionRequest;
+          stage = "generation";
+          const preview = await createNoCandidateAssistantPreview({
+            route,
+            selectionRequest: generationRequest,
+            sourceFiles: originalSourceFiles,
+            turns: projectAssistantTurnsForNetwork(assistantSession.turns),
+            signal,
+            creating: () => progress("creating"),
+            generate: generateAssistantRecipe
+          });
+          return { kind: "draft" as const, ...preview };
+        }
         throw new Error("selection unavailable");
       } catch (error) {
         if ((error as Error).name === "AbortError") throw error;

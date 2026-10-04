@@ -1,4 +1,4 @@
-import { isNotebookSelectionWireV1, type AssistantConversationTurnV1, type NotebookCandidateWireV1, type NotebookSelectionWireV1, type ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
+import { decodeAssistantDraftWireV1, isNotebookSelectionWireV1, type AssistantConversationTurnV1, type NotebookCandidateWireV1, type NotebookSelectionWireV1, type ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
 import { compressImageForTransfer, ImageTransferPreparationError } from "./import-service";
 
 function defaultBffUrl(): string {
@@ -18,6 +18,11 @@ export class AssistantImageRequestError extends Error {
   readonly assistantStage = "vision";
   constructor(readonly category: "preparation" | "network" | "http" | "response", readonly reference: string, readonly status?: number, readonly preparationReason?: "conversion" | "size" | "count", readonly imageIndex?: number) {
     super(`assistant_image:${category}`);
+  }
+}
+export class AssistantRecipeRequestError extends Error {
+  constructor(readonly category: "unavailable" | "invalid") {
+    super(`assistant_recipe:${category}`);
   }
 }
 export type AssistantImageProgress = { phase: "preparing" | "reading"; current: number; total: number; durationMs?: number };
@@ -90,8 +95,12 @@ export async function selectNotebookRecipe(request: string, candidates: Notebook
 
 export async function generateAssistantRecipe(request: string, signal: AbortSignal, turns: AssistantConversationTurnV1[] = []): Promise<ParsedRecipeDraft> {
   const response = await fetch(`${API_BASE_URL}/api/assistant/recipe`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request, turns }), signal });
-  if (!response.ok) throw new Error("recipe unavailable");
-  return await response.json() as ParsedRecipeDraft;
+  if (!response.ok) throw new AssistantRecipeRequestError("unavailable");
+  let wire: unknown;
+  try { wire = await response.json(); } catch { throw new AssistantRecipeRequestError("invalid"); }
+  const draft = decodeAssistantDraftWireV1(wire);
+  if (!draft) throw new AssistantRecipeRequestError("invalid");
+  return draft;
 }
 
 export async function summarizeAssistantImage(file: File, contextText: string, signal: AbortSignal): Promise<string> {

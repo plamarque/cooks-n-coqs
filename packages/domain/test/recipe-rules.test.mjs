@@ -1,11 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  decodeAssistantDraftWireV1,
   assertRecipeValidForSave,
   isRecipeValidForSave,
   normalizeIngredient,
   scaleIngredientsFromBase
 } from "../src/recipe-rules.js";
+
+test("le wire Assistant fermé refuse les données de persistance", () => {
+  const valid = { title: "Soupe", category: "SALE", ingredients: [{ id: "ingredient-1", label: "eau", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Chauffer" }] };
+  assert.equal(decodeAssistantDraftWireV1(valid)?.title, "Soupe");
+  assert.equal(decodeAssistantDraftWireV1({ ...valid, source: { type: "TEXT" } }), null);
+  assert.equal(decodeAssistantDraftWireV1({ ...valid, ingredients: [{ ...valid.ingredients[0], extra: true }] }), null);
+  assert.equal(decodeAssistantDraftWireV1({ ...valid, steps: [{ ...valid.steps[0], order: 2 }] }), null);
+});
 
 test("validation: reject empty title and empty content", () => {
   assert.equal(

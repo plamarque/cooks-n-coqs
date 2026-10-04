@@ -20,7 +20,7 @@ export interface AssistantImportAdapter {
 export type AssistantTextResolution =
   | { kind: "candidates"; candidateRefs: string[] }
   | { kind: "noCandidate" }
-  | { kind: "draft"; draft: ParsedRecipeDraft };
+  | { kind: "draft"; draft: ParsedRecipeDraft; sourceFiles?: File[] };
 
 export interface AssistantTextAdapter {
   resolve(text: string, signal: AbortSignal, progress: (phase: "importing" | "searching" | "creating") => void): Promise<AssistantTextResolution>;
@@ -129,7 +129,7 @@ export class AssistantSession {
   }
 
   /** Même propriétaire AbortController/requestId pour sélection puis génération texte. */
-  async resolveText(text: string, adapter: AssistantTextAdapter, options: { hasImages?: boolean } = {}): Promise<AssistantTextResolution | null> {
+  async resolveText(text: string, adapter: AssistantTextAdapter, options: { hasImages?: boolean; sourceFiles?: File[] } = {}): Promise<AssistantTextResolution | null> {
     this.controller?.abort();
     this.controller = null;
     this.preview = null;
@@ -146,7 +146,7 @@ export class AssistantSession {
       });
       if (controller.signal.aborted || requestId !== this.requestId) return null;
       if (result.kind === "draft") {
-        this.preview = { requestId, draft: result.draft, source: result.draft.source, sourceFiles: [] };
+        this.preview = { requestId, draft: result.draft, source: result.draft.source, sourceFiles: result.sourceFiles ?? options.sourceFiles ?? [] };
         this.phase = "ready";
       } else {
         this.phase = "idle";

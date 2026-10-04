@@ -88,3 +88,17 @@ export function scaleIngredientsFromBase(ingredients, servingsTarget, servingsBa
     };
   });
 }
+/** Décode le wire fermé de création Assistant avant toute prévisualisation. */
+export function decodeAssistantDraftWireV1(value) {
+  if (!value || typeof value !== "object") return null;
+  const draft = value;
+  const allowed = new Set(["title", "category", "ingredients", "steps", "prepTimeMin", "cookTimeMin", "restTimeMin"]);
+  if (Object.keys(draft).some((key) => !allowed.has(key))) return null;
+  if (typeof draft.title !== "string" || !draft.title.trim() || draft.title.length > 180 || (draft.category !== "SUCRE" && draft.category !== "SALE")) return null;
+  const minute = (item) => item === undefined || Number.isInteger(item) && item >= 0 && item <= 1440;
+  if (!minute(draft.prepTimeMin) || !minute(draft.cookTimeMin) || !minute(draft.restTimeMin) || !Array.isArray(draft.ingredients) || !Array.isArray(draft.steps) || !draft.ingredients.length || !draft.steps.length || draft.ingredients.length > 80 || draft.steps.length > 80) return null;
+  const ingredients = draft.ingredients.every((item, index) => !!item && typeof item === "object" && Object.keys(item).every((key) => key === "id" || key === "label" || key === "isScalable") && typeof item.id === "string" && item.id === `ingredient-${index + 1}` && typeof item.label === "string" && !!item.label.trim() && item.label.length <= 180 && typeof item.isScalable === "boolean");
+  const steps = draft.steps.every((item, index) => !!item && typeof item === "object" && Object.keys(item).every((key) => key === "id" || key === "order" || key === "text") && typeof item.id === "string" && item.id === `step-${index + 1}` && item.order === index + 1 && typeof item.text === "string" && !!item.text.trim() && item.text.length <= 2000);
+  if (!ingredients || !steps) return null;
+  return { title: draft.title.trim(), category: draft.category, ingredients: draft.ingredients, steps: draft.steps, ...(draft.prepTimeMin === undefined ? {} : { prepTimeMin: draft.prepTimeMin }), ...(draft.cookTimeMin === undefined ? {} : { cookTimeMin: draft.cookTimeMin }), ...(draft.restTimeMin === undefined ? {} : { restTimeMin: draft.restTimeMin }) };
+}

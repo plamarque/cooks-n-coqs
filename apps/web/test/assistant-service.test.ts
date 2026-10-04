@@ -39,11 +39,32 @@ test("Jev envoie uniquement la demande et le snapshot minimisé au BFF", async (
 
 test("génération Jev : une recette complète devient un brouillon temporaire", async () => {
   const previous = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({ title: "Crumble", category: "SUCRE", ingredients: [{ id: "pomme", label: "pomme", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Cuire." }] }), { status: 200 });
+  globalThis.fetch = async () => new Response(JSON.stringify({ title: "Crumble", category: "SUCRE", ingredients: [{ id: "ingredient-1", label: "pomme", isScalable: true }], steps: [{ id: "step-1", order: 1, text: "Cuire." }] }), { status: 200 });
   try {
     const draft = await generateAssistantRecipe("dessert", new AbortController().signal);
     assert.equal(draft.title, "Crumble");
     assert.equal(draft.steps.length, 1);
+  } finally { globalThis.fetch = previous; }
+});
+
+test("génération Assistant : transmet la demande enrichie et refuse un wire hors contrat", async () => {
+  const previous = globalThis.fetch;
+  let sent = "";
+  globalThis.fetch = async (_url, init) => {
+    sent = String(init?.body);
+    return new Response(JSON.stringify({ title: "Crumble", category: "SUCRE", ingredients: [{ id: "ingredient-1", label: "pomme", isScalable: true }], steps: [{ id: "step-1", order: 1, text: "Cuire." }], source: { type: "TEXT" } }), { status: 200 });
+  };
+  try {
+    await assert.rejects(generateAssistantRecipe("Dessert\nRésumés visuels temporaires: pommes", new AbortController().signal), /assistant_recipe:invalid/);
+    assert.match(sent, /Résumés visuels temporaires/);
+  } finally { globalThis.fetch = previous; }
+});
+
+test("génération Assistant : une indisponibilité ne produit pas de brouillon", async () => {
+  const previous = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: "UPSTREAM_UNAVAILABLE" }), { status: 503 });
+  try {
+    await assert.rejects(generateAssistantRecipe("Soupe", new AbortController().signal), /assistant_recipe:unavailable/);
   } finally { globalThis.fetch = previous; }
 });
 

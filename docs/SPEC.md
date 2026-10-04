@@ -151,7 +151,7 @@ Depuis le seul Compositeur Assistant, une image est prioritaire sur une URL HTTP
 
 ## Sélection Assistant Jev (story 2.1)
 
-Pour une demande texte libre d’au plus 2 600 caractères, le client envoie au BFF uniquement la demande et un instantané plafonné à 60 recettes (titre, libellés d’ingrédients, durée et référence temporaire). Jev retourne une à trois références à partir de 0,5, ou `noCandidate`; les références sont vérifiées localement avant affichage. Timeout, 429, 5xx ou wire Jev invalide déclenchent un unique secours Luna ; deux échecs donnent `selectionUnavailable`. Une annulation, `noCandidate`, une erreur 4xx ou une réponse tardive ne créent ni ne modifient rien. Les diagnostics ne journalisent que route, phase, issue, classe HTTP et identifiant opaque.
+Pour une demande texte libre d’au plus 2 600 caractères, le client envoie au BFF uniquement la demande et un instantané plafonné à 60 recettes (titre, libellés d’ingrédients, durée et référence temporaire). Jev retourne une à trois références à partir de 0,5, ou `noCandidate`; les références sont vérifiées localement avant affichage. Timeout, 429, 5xx ou wire Jev invalide déclenchent un unique secours Luna ; deux échecs donnent `selectionUnavailable`. Une annulation, une erreur 4xx ou une réponse tardive ne créent ni ne modifient rien. Un `noCandidate` localement valide est la seule issue de sélection qui autorise la création d’une prévisualisation sur mesure : elle reçoit la demande enrichie des résumés visuels, reste éphémère et ne devient une recette qu’à Sauvegarder. Les diagnostics ne journalisent que route, phase, issue, classe HTTP et identifiant opaque.
 
 ## Précisions conversationnelles Assistant (story 2.3)
 

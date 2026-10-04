@@ -106,6 +106,22 @@ test("session Assistant : une demande libre progresse d'analyse à recherche pui
   assert.equal(session.phase, "ready");
 });
 
+test("session Assistant : le draft issu d'un noCandidate ouvre une preview éphémère", async () => {
+  const session = new AssistantSession();
+  const photo = {} as File;
+  const result = await session.resolveText("une soupe inédite", {
+    resolve: async (_text, _signal, progress) => {
+      progress("searching");
+      progress("creating");
+      return { kind: "draft", draft };
+    }
+  }, { hasImages: true, sourceFiles: [photo] });
+  assert.equal(result?.kind, "draft");
+  assert.equal(session.preview?.draft.title, "Soupe");
+  assert.deepEqual(session.preview?.sourceFiles, [photo]);
+  assert.equal(session.phase, "ready");
+});
+
 test("session Assistant : fil volatile, deux précisions puis remise à zéro", () => {
   const session = new AssistantSession();
   session.beginConversation("salade d'automne");
