@@ -20,7 +20,9 @@ function cloneAndFreeze<T>(value: T): T {
 /** Snapshot strictement local et éphémère : les ids IndexedDB ne quittent jamais le navigateur. */
 export async function buildNotebookSnapshot(listRecipes: () => Promise<Recipe[]> = () => dexieRecipeService.listRecipes()): Promise<NotebookSnapshot> {
   const recipes = [...await listRecipes()]
-    .sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+    .sort((a, b) => Number(b.favorite) - Number(a.favorite)
+      || String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""))
+      || String(a.id ?? "").localeCompare(String(b.id ?? "")))
     .slice(0, 60);
   const refs = new Map<string, Recipe>();
   const candidates = recipes.map((recipe, index) => {
