@@ -86,11 +86,12 @@ Après une proposition, Camille dit « À l'avenir, ne me donne pas deux options
 ### FR-4 — Mémoire personnelle contrôlable
 
 1. Le Chef peut exploiter cinq catégories : préférences explicites, profil du foyer, goûts et retours, contexte de séance, garde-manger probable.
-2. Il n'enregistre durablement une préférence que si la personne le demande explicitement ou formule une préférence générale tournée vers l'avenir. Une contrainte temporelle reste temporaire.
-3. La personnalisation peut être implicite dans une proposition et ne doit pas réciter le profil. À la demande, le Chef explique le signal utilisé et donne accès à sa correction.
-4. La personne peut voir, modifier, supprimer ou désactiver les mémoires durables. Le nombre de convives est un défaut modifiable, jamais une contrainte.
-5. Le garde-manger probable est présenté comme une hypothèse « à vérifier », jamais comme un stock certain.
-6. Le Chef adapte le poids de la mémoire à la précision de l'intention : une demande explicite la limite fortement ; une demande vague l'autorise davantage.
+2. Il enregistre silencieusement un invariant explicite ou une préférence générale tournée vers l'avenir. Une contrainte temporelle reste temporaire.
+3. Lorsqu'il déduit une préférence avec doute, il la retient à faible confiance et ne la consolide qu'avec des signaux convergents ; elle reste visible, corrigible et supprimable.
+4. La personnalisation peut être implicite dans une proposition et ne doit pas réciter le profil. À la demande, le Chef explique le signal utilisé et donne accès à sa correction.
+5. La personne peut voir, modifier, supprimer ou désactiver les mémoires durables. Le nombre de convives est un défaut modifiable, jamais une contrainte.
+6. Le garde-manger probable est présenté comme une hypothèse « à vérifier », jamais comme un stock certain.
+7. Le Chef adapte le poids de la mémoire à la précision de l'intention : une demande explicite la limite fortement ; une demande vague l'autorise davantage.
 
 ### FR-5 — Accès au contexte et protection des données
 

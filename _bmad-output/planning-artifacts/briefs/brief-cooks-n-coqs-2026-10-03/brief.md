@@ -66,11 +66,11 @@ La mémoire rend l'aide meilleure, mais doit être visible, locale par défaut e
 | --- | --- | --- |
 | Préférences explicites | « Choisis huile ou beurre, pas les deux », épicé, moins d'options | Ajoutée ou confirmée par la personne ; éditable et supprimable. |
 | Profil du foyer | Nombre habituel de convives, niveau de cuisine, rythme | Paramètres visibles ; sert de défaut modifiable, jamais de contrainte. |
-| Goûts et retours | Aimé, pas aimé, à refaire, trop compliqué | Signal lisible et corrigeable ; ne transforme pas un essai isolé en interdiction. |
+| Goûts et retours | Aimé, pas aimé, à refaire, trop compliqué | Signal lisible et corrigeable ; une inférence discrète porte un niveau de confiance et ne devient une règle forte qu'après confirmation répétée. |
 | Contexte de séance | Recette, étape, portions, ingrédient manquant | Temporaire ; utilisé pour la réponse en cours sans devenir automatiquement une préférence. |
 | Garde-manger probable | Produits de base déclarés ou souvent utilisés | Hypothèse affichable : l'Assistant peut dire « à vérifier », jamais affirmer que le produit est en stock. |
 
-L'historique et les apprentissages doivent pouvoir être consultés, corrigés, effacés et désactivés. **[ASSUMPTION]** La première version reste local-first, sans compte ni synchronisation cloud ; la synchronisation future ne sera pas déduite de ce brief.
+Le Chef apprend silencieusement lorsqu'un invariant est explicite ; lorsqu'il déduit une préférence avec doute, il la conserve à faible confiance et la consolide seulement avec des signaux convergents. L'historique et les apprentissages doivent pouvoir être consultés, corrigés, effacés et désactivés. **[ASSUMPTION]** La première version reste local-first, sans compte ni synchronisation cloud ; la synchronisation future ne sera pas déduite de ce brief.
 
 ## Planifier sans moraliser
 
