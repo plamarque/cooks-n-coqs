@@ -12,6 +12,7 @@ import {
   dexieRecipeService,
   prepareImageFromUrl
 } from "./recipe-service";
+import { preparePreviewStepMediaForSave } from "./step-media-import";
 
 export type PreviewSaveResult = {
   recipe: Recipe;
@@ -111,9 +112,18 @@ export async function saveAssistantPreview(
   const recipe = recipeFromAssistantPreview(preview, deps.makeId, deps.now);
   assertRecipeValidForSave(recipe);
 
-  const preparedIllustration = illustrationUrl
-    ? await deps.prepareIllustration(illustrationUrl)
-    : { blob: undefined };
+  let preparedIllustration: Awaited<ReturnType<typeof prepareImageFromUrl>> = { blob: undefined, issue: "fetch" };
+  if (illustrationUrl) {
+    try {
+      preparedIllustration = await deps.prepareIllustration(illustrationUrl);
+    } catch {
+      // Une illustration distante est facultative ; ne pas bloquer une recette valide.
+    }
+  }
+  const preparedStepMedia = await preparePreviewStepMediaForSave(recipe.steps, preview.draft.steps, {
+    prepareImage: deps.prepareIllustration,
+    createImageRow: (blob) => createRecipeImageRow(blob, deps.makeId())
+  });
   const sourceRows = preview.sourceFiles
     .filter((file) => file.type.startsWith("image/"))
     .map((file) => createRecipeImageRow(file, deps.makeId()));
@@ -122,13 +132,14 @@ export async function saveAssistantPreview(
     : undefined;
   const savedRecipe: Recipe = {
     ...recipe,
+    steps: preparedStepMedia.steps,
     ...(sourceRows.length ? { sourceImageIds: sourceRows.map((row) => row.id) } : {}),
     ...(illustrationRow ? { imageId: illustrationRow.id } : {})
   };
 
   await deps.transaction("rw", deps.images, deps.recipes, async () => {
-    if (sourceRows.length) await deps.images.bulkAdd(sourceRows);
-    if (illustrationRow) await deps.images.add(illustrationRow);
+    const imageRows = [...sourceRows, ...preparedStepMedia.imageRows, ...(illustrationRow ? [illustrationRow] : [])];
+    if (imageRows.length) await deps.images.bulkAdd(imageRows);
     await deps.createRecipe.createRecipe(savedRecipe);
   });
 

@@ -97,6 +97,47 @@ test("preview Assistant : illustration distante indisponible ne bloque pas la re
   assert.equal(result.illustrationUnavailable, true);
 });
 
+test("preview Assistant : les médias d’étape préparés entrent dans la même transaction", async () => {
+  const fake = fakeDependencies({ illustration: new Blob(["image"], { type: "image/png" }) });
+  const result = await saveAssistantPreview(preview({
+    sourceFiles: [],
+    draft: {
+      title: "Tarte",
+      category: "SUCRE",
+      ingredients: [{ id: "i", label: "Pommes", isScalable: false }],
+      steps: [{
+        id: "s",
+        order: 1,
+        text: "Cuire.",
+        media: [
+          { type: "image", imageUrl: "https://example.test/step.png" },
+          { type: "video", url: "https://example.test/video" }
+        ]
+      }]
+    }
+  }), undefined, fake.dependencies as never);
+  assert.equal(fake.imageRows.length, 1);
+  assert.deepEqual(result.recipe.steps[0].media, [
+    { type: "image", imageId: fake.imageRows[0].id },
+    { type: "video", url: "https://example.test/video" }
+  ]);
+});
+
+test("preview Assistant : une image d’étape indisponible est omise sans bloquer", async () => {
+  const fake = fakeDependencies();
+  const result = await saveAssistantPreview(preview({
+    sourceFiles: [],
+    draft: {
+      title: "Tarte",
+      category: "SUCRE",
+      ingredients: [{ id: "i", label: "Pommes", isScalable: false }],
+      steps: [{ id: "s", order: 1, text: "Cuire.", media: [{ type: "image", imageUrl: "https://example.test/step.png" }] }]
+    }
+  }), undefined, fake.dependencies as never);
+  assert.equal(fake.recipes.length, 1);
+  assert.equal(result.recipe.steps[0].media, undefined);
+});
+
 test("preview Assistant : draft invalide ne modifie aucune table", async () => {
   const fake = fakeDependencies();
   const invalid = preview({ draft: { title: "Vide", category: "SALE", ingredients: [], steps: [] } });

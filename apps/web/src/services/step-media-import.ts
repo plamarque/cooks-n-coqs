@@ -6,6 +6,62 @@ import type {
 import type { FormStepMedium } from "../utils/step-media";
 import { isAllowedVideoUrl } from "../utils/step-media";
 import { dexieRecipeService, storeImageFromUrl } from "./recipe-service";
+import { createRecipeImageRow, prepareImageFromUrl } from "./recipe-service";
+
+type RecipeImageRow = ReturnType<typeof createRecipeImageRow>;
+
+export type PreparedPreviewStepMedia = {
+  steps: InstructionStep[];
+  imageRows: RecipeImageRow[];
+};
+
+/**
+ * Prépare les médias distants d'une preview hors IndexedDB. Les images qui ne
+ * peuvent pas être récupérées restent best-effort : elles ne figurent pas dans
+ * la recette ni dans la transaction qui suit.
+ */
+export async function preparePreviewStepMediaForSave(
+  recipeSteps: InstructionStep[],
+  draftSteps: ParsedInstructionStep[],
+  options: {
+    prepareImage?: typeof prepareImageFromUrl;
+    createImageRow?: (blob: Blob) => RecipeImageRow;
+  } = {}
+): Promise<PreparedPreviewStepMedia> {
+  const prepareImage = options.prepareImage ?? prepareImageFromUrl;
+  const createImageRow = options.createImageRow ?? ((blob) => createRecipeImageRow(blob));
+  const draftById = new Map(draftSteps.map((step) => [step.id, step]));
+  const imageRows: RecipeImageRow[] = [];
+  const steps: InstructionStep[] = [];
+
+  for (let index = 0; index < recipeSteps.length; index += 1) {
+    const step = recipeSteps[index];
+    const draft = draftById.get(step.id) ?? draftSteps[index];
+    if (!draft?.media?.length) {
+      steps.push(step);
+      continue;
+    }
+    const media: StepMedium[] = [];
+    for (const medium of draft.media) {
+      if (medium.type === "video") {
+        const url = medium.url.trim();
+        if (url.startsWith("http://") || url.startsWith("https://")) media.push({ type: "video", url });
+        continue;
+      }
+      try {
+        const prepared = await prepareImage(medium.imageUrl);
+        if (!prepared.blob) continue;
+        const row = createImageRow(prepared.blob);
+        imageRows.push(row);
+        media.push({ type: "image", imageId: row.id });
+      } catch {
+        // Ressource distante indisponible : la recette valide reste sauvegardable.
+      }
+    }
+    steps.push({ ...step, ...(media.length ? { media } : {}) });
+  }
+  return { steps, imageRows };
+}
 
 export async function resolveFormStepMediaForSave(
   media: FormStepMedium[] | undefined

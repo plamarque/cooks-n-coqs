@@ -108,9 +108,26 @@ test("Assistant : une candidate Cahier ouvre son détail sans mutation", () => {
   const savePreview = app.match(/async function saveAssistantPreview\([\s\S]*?\n\}/);
   assert.ok(savePreview);
   assert.match(savePreview[0], /await persistAssistantPreview/);
+  assert.doesNotMatch(savePreview[0], /hydrateStepMediaFromDraft/);
   assert.doesNotMatch(savePreview[0], /db\.images\.delete/);
   assert.match(savePreview[0], /detailRecipeOverride\.value = saved\.recipe/);
   assert.match(app, /seule la conservation de son illustration a échoué/);
+});
+
+test("Assistant : la preview est éditable en mémoire avant Sauvegarder", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const previewSection = app.match(/viewMode === 'ASSISTANT_PREVIEW'[\s\S]*?<\/section>/);
+  assert.ok(previewSection);
+  assert.match(previewSection[0], /v-model="assistantPreview\.draft\.title"/);
+  assert.match(previewSection[0], /v-model="ingredient\.label"/);
+  assert.match(previewSection[0], /v-model="step\.text"/);
+  assert.match(previewSection[0], /addAssistantPreviewStepMedium/);
+  assert.match(previewSection[0], /:disabled="assistantPreviewSaving"/);
+  assert.match(previewSection[0], /<fieldset class="assistant-preview-editor" :disabled="assistantPreviewSaving">/);
+  const closePreview = app.match(/async function closeAssistantPreview\([\s\S]*?\n\}/);
+  assert.ok(closePreview);
+  assert.match(closePreview[0], /if \(assistantPreviewSaving\.value\) return/);
 });
 
 test("resolveDetailRecipe returns null without selected id", () => {
