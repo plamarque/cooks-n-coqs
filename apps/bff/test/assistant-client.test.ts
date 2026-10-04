@@ -140,6 +140,8 @@ test("sélection BFF : rejette des candidats arbitraires", () => {
   assert.equal(isAssistantSelectionInput({ request: "x", candidates: [{ candidateRef: "candidate-1", title: "x", ingredientLabels: [] }, { candidateRef: "candidate-1", title: "y", ingredientLabels: [] }] }), false);
   assert.equal(isAssistantSelectionInput({ request: "x", candidates: [{ candidateRef: "candidate-1", title: "x", ingredientLabels: [], durationMin: -1 }] }), false);
   assert.equal(isAssistantSelectionInput({ request: "x", candidates: [{ candidateRef: "candidate-1", title: "x", ingredientLabels: [], durationMin: 1.5 }] }), false);
+  assert.equal(isAssistantSelectionInput({ request: "x".repeat(2_600), candidates: [] }), true);
+  assert.equal(isAssistantSelectionInput({ request: "x".repeat(2_601), candidates: [] }), false);
 });
 
 test("draft Assistant : rejette vide ou malformé et nettoie les identifiants", () => {

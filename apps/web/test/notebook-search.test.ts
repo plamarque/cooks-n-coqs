@@ -38,6 +38,7 @@ test("matrice recherche qualifiée : listRecipes, tri, plafond 60 et refs opaque
   assert.ok(snapshot.candidates.every(({ candidateRef }) => !candidateRef.includes("durable-")));
   assert.equal(snapshot.resolve("candidate-1")?.id, "durable-00");
   assert.equal(snapshot.resolve("candidate-61"), undefined);
+  assert.deepEqual(recipes.slice(0, 2).map(({ id }) => id), ["durable-60", "durable-59"]);
 });
 
 test("matrice absence utile : contrainte rejetée ne conserve aucun candidat", () => {
@@ -47,4 +48,21 @@ test("matrice absence utile : contrainte rejetée ne conserve aucun candidat", (
 test("matrice entrée non sûre : la référence absente ne peut pas être résolue", async () => {
   const snapshot = await buildNotebookSnapshot(async () => [recipe()]);
   assert.equal(snapshot.resolve("candidate-2"), undefined);
+});
+
+test("snapshot Cahier : les candidates et la vue de résolution sont immuables et isolées", async () => {
+  const source = [recipe({ title: "Soupe initiale" })];
+  const snapshot = await buildNotebookSnapshot(async () => source);
+  const resolved = snapshot.resolve("candidate-1")!;
+
+  assert.throws(() => { (snapshot.candidates as unknown as Array<unknown>).push({}); }, TypeError);
+  assert.throws(() => { (snapshot.candidates[0] as { title: string }).title = "Altérée"; }, TypeError);
+  assert.throws(() => { (resolved.ingredients[0] as { label: string }).label = "Altéré"; }, TypeError);
+  source[0].title = "Modifiée après snapshot";
+  source[0].ingredients[0].label = "modifiée";
+
+  assert.equal(snapshot.candidates[0].title, "Soupe initiale");
+  assert.equal(snapshot.candidates[0].ingredientLabels[0], "carotte");
+  assert.equal(snapshot.resolve("candidate-1")?.title, "Soupe initiale");
+  assert.equal(snapshot.resolve("candidate-1")?.ingredients[0].label, "carotte");
 });

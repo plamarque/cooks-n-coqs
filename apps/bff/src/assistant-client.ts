@@ -1,8 +1,10 @@
 import OpenAI from "openai";
+import { isNotebookSelectionRequestV1, NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH } from "@cookies-et-coquilettes/domain/notebook-selection";
 import { getChatModel } from "./ai-config.js";
 import type { ParsedRecipeDraft } from "./types.js";
 
 type Candidate = { candidateRef: string; title: string; ingredientLabels: string[]; durationMin?: number };
+type NotebookSelectionRequestV1 = { request: string; candidates: Candidate[] };
 type Turn = { role: "user" | "assistant"; text: string };
 export type AssistantChoice = { kind: "candidates"; candidateRefs: string[]; provider: "jev" | "luna" } | { kind: "noCandidate"; provider: "jev" | "luna" };
 const THRESHOLD = 0.5;
@@ -20,7 +22,7 @@ const ASSISTANT_IMAGE_RETRY_DELAY_MS = 400;
 // Les captures de recettes comportent beaucoup de texte. Huit secondes (le
 // délai de Jev) coupaient parfois une réponse vision pourtant valide.
 const ASSISTANT_IMAGE_TIMEOUT_MS = 25_000;
-export const ASSISTANT_SELECTION_REQUEST_MAX_LENGTH = 2_600;
+export const ASSISTANT_SELECTION_REQUEST_MAX_LENGTH = NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH;
 export const ASSISTANT_RECIPE_REQUEST_MAX_LENGTH = 12_000;
 class JevFallbackError extends Error {}
 
@@ -28,14 +30,7 @@ function hasValidAssistantTurns(turns: unknown): turns is Turn[] {
   return turns === undefined || Array.isArray(turns) && turns.length <= 5 && turns.every((turn) => !!turn && typeof (turn as Turn).role === "string" && ["user", "assistant"].includes((turn as Turn).role) && typeof (turn as Turn).text === "string" && (turn as Turn).text.trim().length > 0 && (turn as Turn).text.length <= 1200);
 }
 
-export function isAssistantSelectionInput(value: unknown): value is { request: string; candidates: Candidate[] } {
-  if (!value || typeof value !== "object") return false;
-  const v = value as { request?: unknown; candidates?: unknown };
-  return Object.keys(v).every((key) => key === "request" || key === "candidates") && typeof v.request === "string" && v.request.trim().length > 0 && v.request.length <= ASSISTANT_SELECTION_REQUEST_MAX_LENGTH && Array.isArray(v.candidates) && v.candidates.length <= 60 && new Set(v.candidates.map((c) => (c as Candidate)?.candidateRef)).size === v.candidates.length && v.candidates.every((c) => {
-    const x = c as Candidate;
-    return !!x && /^candidate-[1-9]\d?$/.test(x.candidateRef) && typeof x.title === "string" && x.title.length > 0 && x.title.length <= 180 && Array.isArray(x.ingredientLabels) && x.ingredientLabels.length <= 40 && x.ingredientLabels.every((i) => typeof i === "string" && i.length <= 120) && (x.durationMin === undefined || Number.isInteger(x.durationMin) && x.durationMin >= 0);
-  });
-}
+export const isAssistantSelectionInput = isNotebookSelectionRequestV1;
 
 export function isAssistantRecipeInput(value: unknown): value is { request: string; turns?: Turn[] } {
   if (!value || typeof value !== "object") return false;
@@ -188,7 +183,7 @@ export async function summarizeAssistantImage(image: Buffer, mimeType: string, c
   }, signal);
 }
 
-export async function chooseNotebookRecipe(input: { request: string; candidates: Candidate[] }, signal?: AbortSignal): Promise<AssistantChoice | null> {
+export async function chooseNotebookRecipe(input: NotebookSelectionRequestV1, signal?: AbortSignal): Promise<AssistantChoice | null> {
   if (!isAssistantSelectionInput(input)) return null;
   const criteria = labels(input.candidates);
   try {

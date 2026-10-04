@@ -30,10 +30,20 @@ test("Jev envoie uniquement la demande et le snapshot minimisé au BFF", async (
     return new Response(JSON.stringify({ kind: "noCandidate" }), { status: 200 });
   };
   try {
-    const result = await selectNotebookRecipe("dessert fruité", [{ candidateRef: "c-1", title: "Tarte", ingredientLabels: ["pomme"], durationMin: 40 }], new AbortController().signal);
+    const result = await selectNotebookRecipe("dessert fruité", [{ candidateRef: "candidate-1", title: "Tarte", ingredientLabels: ["pomme"], durationMin: 40 }], new AbortController().signal);
     assert.equal(result.kind, "noCandidate");
     assert.match(body, /dessert fruité/);
     assert.doesNotMatch(body, /steps|imageUrl|source/);
+  } finally { globalThis.fetch = previous; }
+});
+
+test("Jev refuse localement un snapshot hors contrat sans appel réseau", async () => {
+  const previous = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; return new Response(); };
+  try {
+    await assert.rejects(selectNotebookRecipe("dîner", [{ candidateRef: "durable-id", title: "Recette", ingredientLabels: [] }], new AbortController().signal), /selection input invalid/);
+    assert.equal(calls, 0);
   } finally { globalThis.fetch = previous; }
 });
 

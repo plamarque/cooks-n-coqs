@@ -1,4 +1,4 @@
-import { decodeAssistantDraftWireV1, isNotebookSelectionWireV1, type AssistantConversationTurnV1, type NotebookCandidateWireV1, type NotebookSelectionWireV1, type ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
+import { decodeAssistantDraftWireV1, isNotebookSelectionRequestV1, isNotebookSelectionWireV1, NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH, type AssistantConversationTurnV1, type NotebookCandidateWireV1, type NotebookSelectionWireV1, type ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
 import { compressImageForTransfer, ImageTransferPreparationError } from "./import-service";
 
 function defaultBffUrl(): string {
@@ -11,7 +11,7 @@ function defaultBffUrl(): string {
 }
 
 const API_BASE_URL = import.meta.env?.VITE_BFF_URL || defaultBffUrl();
-export const ASSISTANT_SELECTION_REQUEST_MAX_LENGTH = 2_600;
+export const ASSISTANT_SELECTION_REQUEST_MAX_LENGTH = NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH;
 export const ASSISTANT_IMAGE_CONTEXT_MAX_LENGTH = 1_200;
 
 export class AssistantImageRequestError extends Error {
@@ -85,7 +85,7 @@ export function buildAssistantSelectionRequest(text: string, visualSummaries: re
 }
 
 export async function selectNotebookRecipe(request: string, candidates: NotebookCandidateWireV1[], signal: AbortSignal): Promise<NotebookSelectionWireV1> {
-  if (request.length > ASSISTANT_SELECTION_REQUEST_MAX_LENGTH) throw new Error("selection input too large");
+  if (!isNotebookSelectionRequestV1({ request, candidates })) throw new Error("selection input invalid");
   const response = await fetch(`${API_BASE_URL}/api/assistant/select`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request, candidates }), signal });
   if (!response.ok) throw new Error("selection unavailable");
   const wire: unknown = await response.json();
