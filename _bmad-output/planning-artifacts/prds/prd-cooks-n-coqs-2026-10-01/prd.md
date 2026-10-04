@@ -1,199 +1,170 @@
 ---
-title: "Évolution PRD — Mode Assistant repas"
+title: "Évolution PRD — Chef C&C, compagnon culinaire"
 status: final
 created: "2026-10-01"
-updated: "2026-10-01"
+updated: "2026-10-04"
 source_of_truth_to_update: "docs/SPEC.md"
+sources:
+  - "../../briefs/brief-cooks-n-coqs-2026-10-03/brief.md"
+  - "../../../forge/compagnon-culinaire/forged-idea.md"
 ---
 
-# Mode Assistant repas
+# Chef C&C — compagnon culinaire
 
-## 0. Objet du document
+## 0. Décision produit à valider
 
-Ce PRD brouillon sert à faire valider le comportement produit avant la mise à jour des sources normatives et avant toute implémentation. Il consolide la maquette interactive validée, ses tests et les règles v1 existantes ; il ne remplace pas encore `docs/SPEC.md`.
+Faire évoluer l'Assistant repas d'une entrée d'accueil vers le **Chef C&C**, un compagnon culinaire spécialisé et contextuel. Il aide à inventer une recette sur mesure, importer, retrouver, adapter et cuisiner une recette dans les parcours existants. Son succès n'est pas le nombre de fonctions : une personne qui se sent peu inspirée ou peu compétente doit pouvoir avancer avec confiance, sans être jugée.
 
-## Décision à valider
+Ce PRD remplace le périmètre précédent qui excluait mémoire conversationnelle et préférences apprises. Il reste une proposition : aucun changement de runtime, BFF, contrat de domaine ou document normatif n'est autorisé avant sa validation, puis les mises à jour cohérentes de `docs/SPEC.md`, `docs/DOMAIN.md` et `docs/ARCH.md`.
 
-Faire de l'accueil de Cookies & Coquillettes une entrée **assistant-first** : l'utilisateur part de ce qu'il a, de ce qu'il veut manger ou d'une recette déjà rencontrée. Un unique compositeur reçoit un texte, une URL, une image ou une voix transcrite, puis conduit sans détour vers l'import, une recette pertinente du cahier, ou une proposition de recette à sauvegarder explicitement.
+## 1. Problème et promesse
 
-Ce document est une proposition d'évolution de `docs/SPEC.md`. Il n'autorise pas encore de changement de l'application, du BFF, des contrats de domaine, ni des documents normatifs.
+Le Cahier centralise les recettes, mais la cuisine quotidienne commence souvent par une situation imparfaite : une envie vague, peu d'ingrédients, un manque pendant une étape, des invités, une recette qui ne ressemble plus au plan. Les écrans actuels demandent encore de savoir quelle opération choisir avant d'exprimer ce besoin.
 
-## Contexte et problème
+Le Chef C&C transforme cette situation en une recommandation concrète et désirable. Il ne joue pas au chef intimidant ni à l'agent généraliste. Il oriente, explique juste assez pour rendre autonome, et reste disponible dans le contexte où l'aide est nécessaire.
 
-Le produit sait déjà centraliser, importer, consulter et modifier des recettes, mais son accueil demande aujourd'hui de choisir d'abord une opération. Le besoin validé par la maquette est de commencer par une intention naturelle : « qu'est-ce qu'on mange aujourd'hui ? », des ingrédients disponibles, un lien, une photo ou une recette dictée.
+### Principes verrouillés
 
-L'assistant doit rester un accélérateur du cahier local, pas une conversation opaque ni un nouvel espace de données. Les recettes existantes restent consultables et éditables selon les règles v1.
-
-## Objectifs produit
-
-1. Donner un point de départ unique et chaleureux pour importer, retrouver ou imaginer un repas.
-2. Retrouver d'abord une recette suffisamment proche du cahier avant de proposer une création.
-3. Respecter l'intention import : une URL, une image ou une recette structurée ne doivent pas être traitées comme une vague demande de repas.
-4. Rendre l'avancement perceptible, annulable et rassurant sans afficher de raisonnement interne ni de score technique.
-5. Préserver le contrôle utilisateur : une proposition sur mesure n'entre dans le cahier qu'après une sauvegarde explicite.
-
-## Hors périmètre de cette évolution
-
-- Conversation persistante, historique de chat ou profil de préférences implicites.
-- Enregistrement ou envoi d'audio brut ; la voix sert uniquement à alimenter le texte du compositeur après consentement et transcription.
-- Nouvelle synchronisation cloud ou modification du modèle de stockage local des recettes.
-- Réécriture des règles v1 d'import, de provenance, de dédoublonnage, d'édition, de portions, de partage ou de mode cuisine.
-- Promesse de disponibilité hors ligne pour les opérations qui nécessitent une analyse distante ; la consultation et l'édition locales conservent leurs garanties existantes.
-
-## Utilisateur et parcours de référence
-
-Camille ouvre l'application en fin de journée. Elle peut exprimer « il me reste des courgettes et j'ai envie de quelque chose de rapide », coller une URL, ajouter une photo, ou dicter puis corriger son texte. L'application l'informe brièvement de l'étape en cours. Elle ouvre une carte de recette proposée, consulte son détail, et choisit soit de revenir à l'accueil soit de sauvegarder la recette si elle est nouvelle.
-
-### UJ-1 — Camille trouve une recette déjà dans son cahier
-
-Camille décrit ce qu'elle a et le repas souhaité dans le Compositeur. L'Assistant repas recherche le Cahier, expose une Carte de résultat avec une raison courte, puis Camille ouvre le Détail de cette recette sans créer ni modifier de donnée.
-
-### UJ-2 — Camille importe une recette qu'elle apporte
-
-Camille colle une URL, un texte de recette, un partage F2 ou une image dans le Compositeur. Le Routage l'oriente vers l'import approprié, présente des étapes publiques d'avancement, puis ouvre le Détail de la prévisualisation selon la proposition de réconciliation à valider.
-
-### UJ-3 — Camille accepte une recette sur mesure
-
-Camille formule une envie pour laquelle le Cahier ne propose rien d'utile. L'Assistant repas présente une Carte de résultat ouvrable. Camille consulte le Détail, puis choisit explicitement de Sauvegarder ; la recette devient alors une recette locale normale.
+1. **Intention avant profil.** Une demande précise domine les habitudes. Une demande vague ou incertaine permet au Chef de s'appuyer davantage sur le foyer, les goûts, le niveau et le garde-manger probable.
+2. **Personnalisation sans enfermement.** Mémoire et habitudes sont des indices, jamais des filtres ; une mémoire pauvre ouvre l'exploration plutôt qu'une suggestion générique.
+3. **Conseil orienté.** Le Chef recommande une voie principale avec une raison courte ; sur une demande vague, il ouvre au plus une autre piste concrète.
+4. **Incertitude honnête.** Si une information indispensable manque, il pose une question ciblée ou demande une photo plutôt que d'inventer un conseil assuré.
+5. **Contrôle visible.** Il peut lire, calculer, proposer et préparer. Toute écriture durable est prévisualisée et confirmée.
+6. **Présence contextuelle.** Le Chef rejoint le contexte ; il ne force pas à quitter une recette, une étape ou le Cahier pour demander de l'aide.
 
 ## Glossaire
 
-- **Assistant repas** — Expérience d'accueil qui interprète l'entrée du Compositeur et guide vers un import, le Cahier ou une proposition sur mesure.
-- **Cahier** — Ensemble local des recettes persistées de l'utilisateur, consulté avant toute proposition sur mesure.
-- **Compositeur** — Surface unique qui reçoit texte, URL, image et transcription vocale modifiable avant l'envoi.
-- **Routage** — Sélection explicable de la voie import, recherche dans le Cahier ou proposition sur mesure à partir de l'entrée envoyée.
-- **Carte de résultat** — Élément de résultat activable qui ouvre un Détail ; elle ne persiste rien elle-même.
-- **Détail** — Vue de consultation d'une recette existante ou de prévisualisation d'une recette non sauvegardée.
-- **Sauvegarde** — Action explicite qui persiste une prévisualisation validée dans le Cahier. Elle est distincte du favori.
+- **Chef C&C** : l'Assistant culinaire spécialisé de Cookies & Coquillettes.
+- **Cahier** : l'ensemble local des recettes persistées de la personne.
+- **Contexte de séance** : les informations temporaires de l'interaction active, telles que la recette, l'étape et les portions affichées.
+- **Mémoire durable** : une préférence, un paramètre de foyer ou un retour que la personne peut consulter, corriger ou supprimer.
+- **Prévisualisation** : une proposition éditable qui ne devient persistée qu'après confirmation explicite.
 
-## Expérience d'accueil
+## 2. Parcours de référence
 
-### Accueil assistant-first
+### UJ-1 — Camille n'a pas d'idée et veut réussir ce soir
 
-- L'accueil met en premier plan la question du repas et le compositeur ; il maintient un accès clair au cahier existant.
-- Des starters immédiatement utilisables sous le compositeur aident à formuler une envie, sans empêcher la saisie libre. Ils peuvent refléter le moment de la journée et la saison.
-- Les suggestions de contexte sont des aides à l'inspiration, jamais des contraintes de filtrage ni des affirmations sur l'utilisateur.
-- Le contexte « moment » est dérivé de l'heure locale courante ; la saison est dérivée de la date locale. Il n'est pas conservé comme donnée personnelle.
+Camille ouvre l'application, écrit « J'ai des œufs et des épinards surgelés, je suis nulle en cuisine ». Le Chef propose deux cartes simples, recommande clairement l'omelette généreuse en expliquant qu'elle est rapide et utilise déjà l'essentiel, puis garde un gratin doux comme alternative. Camille choisit, ouvre la recette et ne se sent pas interrogée ni abandonnée devant une liste.
 
-### FR-1 — Compositeur unique
+### UJ-2 — Camille demande une recette très précise
 
-Le compositeur permet, dans une même surface :
+Camille écrit « Ce soir j'ai cinq invités ; je veux un coq au vin avec des pommes de terre ». Le Chef respecte cette intention précise, sans détourner la proposition selon ses habitudes. Il peut seulement ajuster un détail non demandé, par exemple les portions habituelles, et crée une prévisualisation sauvegardable.
 
-1. La saisie et l'édition de texte libre.
-2. Le collage d'une URL ou d'un texte de recette.
-3. L'ajout ou le collage d'une image.
-4. La dictée facultative, avec une transcription insérée dans le texte à la position du curseur et modifiable avant envoi.
-5. Le retrait d'une image jointe avant envoi.
+### UJ-3 — Camille cuisine et manque d'un ingrédient
 
-Le bouton d'envoi reste indisponible seulement pendant un traitement en cours. Un envoi vide, sans image jointe, explique les formats acceptés.
+Dans le mode cuisine, Camille touche le bouton flottant du Chef et demande comment remplacer un œuf à l'étape affichée. Le Chef reçoit la recette, l'étape et les portions visibles. S'il doit savoir ce qu'elle a, il pose une question courte ou demande une photo ; il propose ensuite une substitution adaptée sans masquer la recette.
 
-### FR-2 — Routage de l'intention
+### UJ-4 — Camille corrige le Chef pour l'avenir
 
-À l'envoi, l'application identifie la voie métier selon les priorités suivantes :
+Après une proposition, Camille dit « À l'avenir, ne me donne pas deux options huile ou beurre : choisis ». Le Chef accuse réception de la préférence sous une forme discrète et propose de l'enregistrer. Une remarque bornée, comme « pas épicé ce soir », reste seulement dans la séance. Camille peut consulter, corriger ou supprimer ce qui a été retenu.
 
-1. Une image jointe ou collée déclenche un import image. Le texte éventuellement présent est un contexte d'import et non une demande séparée.
-2. Une URL HTTP(S) déclenche l'import URL existant.
-3. Un texte reconnu comme recette structurée, texte F2 reçu ou contenu de partage déclenche l'import texte/partage selon les règles déjà normatives.
-4. Toute demande libre déclenche une recherche approximative dans le cahier, y compris lorsqu'elle formule une envie créative.
-5. Si le cahier ne fournit pas de proposition suffisamment pertinente, l'application prépare une proposition sur mesure.
+## 3. Exigences fonctionnelles
 
-En cas d'ambiguïté entre une recette structurée et une demande libre, le produit privilégie l'import afin de ne pas perdre une recette apportée par l'utilisateur. Une ambiguïté restante doit être présentée en termes compréhensibles avec le choix « Importer cette recette » ou « Chercher une idée » ; elle ne doit pas être résolue silencieusement.
+### FR-1 — Identité et surfaces du Chef
 
-### FR-3 — Recherche dans le cahier et création si nécessaire
+1. L'accueil et l'import s'appuient sur une même entrée Assistant, avec une identité visuelle reconnaissable inspirée du logo et une animation discrète, respectueuse du mouvement réduit.
+2. Le Chef est la surface principale à l'accueil/import ; depuis le Cahier ou une fiche recette, il s'ouvre dans un panneau contextuel ; en mode cuisine, un bouton flottant ouvre une aide courte et refermable au-dessus de l'étape.
+3. Chaque invocation conserve le contexte visuel de départ et permet de le retrouver immédiatement à la fermeture.
+4. La voix est une entrée facultative ; le texte reste toujours une alternative complète et modifiable avant envoi.
 
-- La recherche approximative considère le titre, les ingrédients et la durée connue. Elle peut interpréter une envie, des ingrédients, une durée ou un ton de repas ; elle ne prétend pas à une correspondance exacte. À l'envoi explicite d'une demande d'au plus 1 200 caractères, elle transmet au BFF un snapshot limité du Cahier (trié favoris puis dernière modification, limité à 60 ; titre, libellés d'ingrédients, durée et références éphémères, sans étapes, images, notes, URL source ni identifiants durables), sans opt-in ni interstitiel par recherche. Une demande trop longue échoue sans appel distant. Jev classe les recettes et retient au plus trois candidates dont la pertinence est au moins 0,5 ; GPT-5.6 Luna avec effort `none` ne sert qu'en continuité si Jev est indisponible ou invalide, avec le même seuil. Le score n'est jamais affiché.
-- Une réponse issue du cahier identifie clairement la recette existante et donne une raison courte, orientée utilisateur (par exemple ingrédients communs ou repas rapide), sans score ni explication du raisonnement.
-- Si une recette est suffisamment proche, l'utilisateur peut l'ouvrir ou ajuster sa demande. La recette existante n'est pas dupliquée ni modifiée.
-- Si aucune proposition utile n'est disponible après ce classement et les contraintes littérales vérifiables localement, l'assistant propose une recette sur mesure à prévisualiser. Une indisponibilité des deux fournisseurs est une erreur, pas une absence de recette. La création n'écrit rien dans le cahier avant l'action explicite de sauvegarde.
+### FR-2 — Compréhension et conversation culinaire
 
-### FR-4 — Progression et annulation
+1. Le Chef comprend une demande libre, une URL, un texte de recette, une image ou une voix transcrite, selon les routes d'import déjà définies.
+2. Une entrée clairement importable garde la priorité d'import ; une demande libre consulte le Cahier avant la création sur mesure.
+3. Une demande suffisamment qualifiée reçoit une première proposition sans clarification superflue. Une demande vague reçoit au plus deux pistes concrètes, dont une est clairement recommandée.
+4. Après une carte ou une prévisualisation, la personne peut demander une variante, modifier l'angle, poser une question ou explorer une autre piste dans le même fil.
+5. Les réponses sont chaleureuses, concrètes, non jugeantes et sans exposition de chaîne de pensée, score ou jargon technique.
 
-Pendant une importation, une recherche ou la préparation d'une recette sur mesure, l'interface affiche un statut court, localisé et compréhensible (par exemple « Je reconnais ce lien », « Je regarde dans votre cahier », « Je prépare une recette »).
+### FR-3 — Création et adaptation sur mesure
 
-- Ces messages décrivent une étape utile au résultat, jamais une chaîne de pensée, une instruction interne, un prompt, un score ou une justification détaillée.
-- Un utilisateur peut annuler. L'annulation arrête l'affichage du résultat à venir, réactive le compositeur et conserve le texte et l'image déjà fournis.
-- Une erreur d'import ou d'analyse s'appuie sur les fallbacks v1 : le contenu utilisateur est préservé et un brouillon éditable reste proposé quand le contrat d'import le permet.
+1. Le Chef crée une recette française structurée lorsque le Cahier n'offre pas de piste utile ou lorsque la personne demande explicitement une création.
+2. Il peut proposer une variante, un remplacement d'ingrédient, une adaptation des portions, une correction ou une aide de rattrapage à partir de la recette et de l'étape courantes.
+3. Lorsqu'il manque une donnée indispensable à une adaptation fiable, il pose une question ciblée ou demande une photo.
+4. Toute recette nouvelle ou variante durable est une prévisualisation éditable. Elle n'entre dans le Cahier qu'après `Sauvegarder`.
+5. Une proposition de modification d'une recette existante montre le changement avant confirmation ; elle ne réécrit jamais silencieusement la recette source.
 
-### FR-5 — Cartes de résultat et vue détail
+### FR-4 — Mémoire personnelle contrôlable
 
-- Tout résultat recette est présenté comme une carte activable au clavier et au toucher.
-- Une carte du cahier ouvre le détail de la recette existante.
-- Une carte sur mesure ouvre une prévisualisation détaillée : titre, durée si connue, ingrédients/étapes disponibles et action de sauvegarde.
-- La fermeture du détail ou de la prévisualisation ramène à l'accueil assistant. Une prévisualisation non sauvegardée est abandonnée et l'accueil est réinitialisé ; une recette du cahier n'est jamais modifiée par cette fermeture.
-- Sauvegarder une recette sur mesure applique les validations métier v1, crée une recette locale et confirme clairement la sauvegarde. Elle devient alors une recette ordinaire : détail, édition, favoris, portions, partage et mode cuisine suivent les règles existantes.
+1. Le Chef peut exploiter cinq catégories : préférences explicites, profil du foyer, goûts et retours, contexte de séance, garde-manger probable.
+2. Il n'enregistre durablement une préférence que si la personne le demande explicitement ou formule une préférence générale tournée vers l'avenir. Une contrainte temporelle reste temporaire.
+3. La personnalisation peut être implicite dans une proposition et ne doit pas réciter le profil. À la demande, le Chef explique le signal utilisé et donne accès à sa correction.
+4. La personne peut voir, modifier, supprimer ou désactiver les mémoires durables. Le nombre de convives est un défaut modifiable, jamais une contrainte.
+5. Le garde-manger probable est présenté comme une hypothèse « à vérifier », jamais comme un stock certain.
+6. Le Chef adapte le poids de la mémoire à la précision de l'intention : une demande explicite la limite fortement ; une demande vague l'autorise davantage.
 
-### Proposition de réconciliation — import depuis le compositeur
+### FR-5 — Accès au contexte et protection des données
 
-La maquette place la sauvegarde dans le détail, y compris après un import reconnu. Elle contredit donc le contrat v1 « parse → création immédiate → détail ». La décision produit validée est la suivante :
+1. Pendant une interaction active, le Chef lit automatiquement le contexte affiché : recette, étape, portions et éléments nécessaires de l'écran courant.
+2. Lorsqu'il doit consulter plus largement le Cahier, il le fait par un outil explicitement adapté à l'intention ; l'application locale résout la demande et ne renvoie au BFF que le minimum nécessaire.
+3. Aucun Cahier complet, audio brut, historique intégral ou profil personnel n'est envoyé par défaut à un service distant.
+4. Les diagnostics décrivent la voie générale suivie et l'issue, sans contenu complet de demande ni raisonnement interne.
 
-1. Un import lancé depuis le compositeur produit une prévisualisation détaillée, avec provenance et contenu éditable.
-2. Une sauvegarde explicite crée la recette dans IndexedDB ; fermer avant cette action abandonne la prévisualisation.
-3. « Sauvegarder » ne signifie pas « mettre en favori » : le favori reste une propriété distincte d'une recette déjà persistée.
-4. Les imports issus des autres entrées v1 ne changent pas tant qu'une migration explicite de leur parcours n'est pas décidée.
+### FR-6 — Actions, progression et erreurs
 
-Cette décision modifie les exigences actuelles d'import. Les mises à jour cohérentes de `docs/SPEC.md`, `docs/DOMAIN.md` et `docs/ARCH.md` restent à faire après la finalisation du PRD.
+1. Le Chef peut librement lire, calculer, proposer et préparer une prévisualisation. Une action de séance réversible peut être appliquée immédiatement ; toute écriture durable est montrée puis confirmée.
+2. Toute opération distante ou longue affiche un statut court, compréhensible et annulable. L'annulation préserve la saisie et évite d'afficher un résultat tardif.
+3. En cas d'indisponibilité BFF ou d'analyse impossible, l'interface préserve l'entrée et expose le fallback compatible avec le flux concerné ; une indisponibilité n'est jamais interprétée comme une absence de recette.
 
-### FR-6 — Accessibilité et mouvement
+### FR-7 — Découverte et proactivité consentie
 
-- Chaque action est exploitable au clavier avec un nom accessible ; les cartes ouvrables ne dépendent pas uniquement du geste tactile.
-- La voix conserve une alternative texte complète. Un refus d'autorisation, une indisponibilité navigateur ou une transcription échouée ne bloque jamais la saisie manuelle.
-- Les états de progression restent compréhensibles sans animation et respectent la préférence de mouvement réduit.
-- L'accueil mobile ne crée pas de défilement horizontal et garde les actions principales atteignables.
+1. Le Chef peut proposer une découverte lorsque la personne le demande ou selon un réglage d'ouverture choisi : rarement, de temps en temps ou souvent.
+2. Aucune notification ni suggestion hors application n'est déclenchée par défaut. Un rituel ou service explicitement activé autorise des suggestions configurables.
+3. Les suggestions proactives sont des commodités best-effort ; elles ne promettent ni une exécution ponctuelle universelle ni une consultation du Cahier lorsque l'application n'est pas active.
 
-### FR-7 — Entrées v1 à préserver
+## 4. Hors périmètre de cette première évolution
 
-Le compositeur n'élimine pas les parcours v1 nécessaires : création manuelle, import de fichier `.zip` du cahier, édition d'une recette existante et partage système. Ils restent accessibles par une action explicite adaptée ; leur sémantique de transfert n'est pas absorbée par le routage d'une demande de repas.
+- Planification hebdomadaire, liste de courses consolidée et inventaire de stock exact.
+- Synchronisation cloud, compte utilisateur ou mémoire partagée entre appareils.
+- Prescription médicale, diagnostic nutritionnel ou règle d'équilibre alimentaire imposée.
+- Audio brut stocké, écoute permanente ou commande vocale sans alternative texte.
+- Modification automatique d'une recette, d'une préférence ou d'un profil.
 
-## Exigences non fonctionnelles
+Ces possibilités restent des horizons du brief produit. Elles feront l'objet d'un cadrage séparé une fois le Chef utile dans les parcours existants.
 
-### NFR-1 — Confidentialité et contrôle
+## 5. Exigences non fonctionnelles
 
-- Aucun audio brut n'est stocké par cette évolution ; seul le texte accepté dans le compositeur peut être utilisé par le flux choisi.
-- Les recettes et leurs données restent local-first conformément à l'architecture v1.
-- La source d'un import reste conservée selon les règles `ImportSource` existantes.
+### NFR-1 — Local-first, confidentialité et contrôle
 
-### NFR-2 — Dégradation progressive
+- Les recettes persistées restent la source de vérité dans IndexedDB.
+- Les mémoires durables sont locales par défaut, visibles, corrigibles et supprimables.
+- Les données transmises hors appareil sont réduites à l'intention et au contexte strictement nécessaires à l'outil appelé.
 
-- Sans BFF ou lorsque l'analyse distante échoue, les flux d'import conservent le comportement de draft minimal éditable déjà spécifié.
-- L'absence de microphone ou de reconnaissance vocale expose une information claire et laisse le compositeur texte utilisable.
-- Le rendu de l'accueil et les actions locales essentielles ne dépendent pas de l'animation de progression.
+### NFR-2 — Accessibilité et continuité
 
-### NFR-3 — Observabilité sans contenu sensible
+- Toutes les surfaces du Chef sont exploitables au clavier et au toucher, avec noms accessibles et alternative texte à la voix.
+- Les animations respectent `prefers-reduced-motion` et ne sont jamais nécessaires à la compréhension.
+- Le Chef ne masque pas durablement une étape de cuisine ni l'action principale de l'écran hôte.
 
-Les diagnostics techniques nécessaires peuvent indiquer le type de voie suivie (import URL, image, texte, recherche cahier, proposition) et l'issue générale ; ils ne doivent pas enregistrer l'audio, la chaîne de pensée ou le contenu complet de la demande sans une décision de confidentialité distincte.
+### NFR-3 — Confiance et sécurité culinaire
 
-## Mesures de succès
+- Le Chef distingue une certitude, une hypothèse et une donnée à vérifier dans une formulation compréhensible.
+- Il ne prétend pas connaître un ingrédient, une préférence ou un stock qu'il n'a pas reçu ou déduit avec une confiance suffisante.
+- Les conseils alimentaires restent généraux et non médicaux.
 
-1. Une personne peut partir d'une envie, d'un lien, d'une image ou d'une dictée sans rechercher d'abord le bon écran.
-2. Une recette déjà présente et pertinente est proposée avant une nouvelle recette.
-3. Aucun résultat sur mesure n'est ajouté au cahier sans sauvegarde explicite.
-4. À chaque traitement, l'utilisateur peut identifier l'étape visible ou annuler sans perdre son contenu.
-5. Les interactions principales sont utilisables sur mobile et au clavier.
+## 6. Mesures de succès
 
-## Périmètre MVP
+1. Une personne peut obtenir une proposition adaptée sans chercher le bon écran ni répéter le contexte visible.
+2. Face à une demande vague, elle peut choisir et cuisiner une piste recommandée sans se sentir submergée.
+3. Une préférence explicitement corrigée influence une proposition ultérieure et peut être retirée facilement.
+4. Aucune recette, préférence ou modification durable n'est créée sans confirmation explicite.
+5. L'aide en mode cuisine permet de résoudre une question sans perdre l'étape active.
 
-### Inclus
+### Contre-métriques
 
-- Accueil Assistant repas, Compositeur, Routage, progression publique annulable et Carte de résultat.
-- Recherche approximative dans le Cahier suivie, au besoin, d'une proposition sur mesure non persistée.
-- Suggestions heure/saison locales et accessibilité décrite par FR-6.
+- La hausse des propositions ne doit pas augmenter les recettes, préférences ou variantes créées sans compréhension ni confirmation.
+- La personnalisation ne doit pas réduire la diversité des propositions choisies ni faire remonter des éléments de mémoire perçus comme intrusifs.
+- Le panneau du Chef ne doit pas empêcher l'accès à l'étape, au minutage ou aux actions de cuisine.
 
-### Reporté
+## 7. Décisions ouvertes avant UX et architecture
 
-- Mémoire conversationnelle, préférences apprises, historique de demandes et recommandation personnalisée.
-- Automatisation sans confirmation de la sauvegarde ou de la modification de recettes existantes.
-- Toute utilisation d'audio brut ou synchronisation des entrées assistant.
+1. Durée et interface de gestion de l'historique conversationnel local.
+2. Représentation d'une adaptation : variante temporaire, copie ou modification proposée de la recette source.
+3. Signaux exacts qui alimentent le garde-manger probable et leur niveau de confiance visible.
+4. Périmètre initial des gestes vocaux et des plateformes supportées.
+5. Mécanisme d'explication à la demande d'une personnalisation discrète.
 
-## Décisions ouvertes avant implémentation
+## 8. Alignement avec les sources normatives
 
-## Alignement avec les sources normatives
-
-- Les importations URL, texte, capture, partage F2, leur provenance et leurs fallbacks restent soumis à `docs/SPEC.md`, `docs/DOMAIN.md` et `docs/ARCH.md`.
-- La persistance d'une recette créée par l'assistant utilise les règles v1 : titre et au moins un ingrédient ou une étape, sauvegarde explicite, IndexedDB local et détails post-sauvegarde.
-- Cette proposition ne modifie aucun des contrats existants ; après validation, les modifications normatives nécessaires seront apportées de façon cohérente à `docs/SPEC.md`, `docs/DOMAIN.md` et `docs/ARCH.md` avant l'implémentation.
-
-## Sources considérées
-
-- `docs/SPEC.md`, `docs/DOMAIN.md`, `docs/ARCH.md`, `docs/WORKFLOW.md`
-- `docs/mockups/meal-assistant-home.html` et son test interactif
-- Consolidation locale de maquette : `4058395`, `0ce5190`, `5c258b1`, `c1455b7`, `12cc1ea`, `46cb913`, `4094cbf`, `0ccff19`
+- Les règles v1 d'import, provenance, dédoublonnage, portions, édition, partage et mode cuisine restent applicables tant que les documents normatifs ne sont pas réconciliés.
+- Les imports issus du Chef suivent la prévisualisation et la sauvegarde explicite validées pour le Compositeur ; les autres entrées v1 ne changent pas sans décision distincte.
+- Ce PRD n'implémente ni contrat IA, ni modèle, ni schéma de persistance, ni protocole outil client/BFF. Ces choix relèvent de l'UX et de l'architecture après validation du présent document.

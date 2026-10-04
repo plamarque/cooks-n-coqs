@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forge — Compagnon culinaire</title>
+  <style>
+    :root { color: #173f38; background: #f8f4eb; font-family: Manrope, ui-sans-serif, system-ui, sans-serif; }
+    body { max-width: 780px; margin: 0 auto; padding: 56px 24px; line-height: 1.55; }
+    header { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: start; }
+    h1 { font-size: clamp(2rem, 8vw, 3.5rem); line-height: .98; margin: 0; letter-spacing: -.06em; }
+    h2 { margin: 42px 0 12px; font-size: 1.1rem; text-transform: uppercase; letter-spacing: .08em; }
+    .seal { width: 124px; height: 124px; display: grid; place-items: center; text-align: center; border-radius: 50%; color: #fffdf9; background: #b54235; border: 9px double #fffdf9; box-shadow: 0 0 0 3px #b54235; font-weight: 800; letter-spacing: .08em; transform: rotate(8deg); }
+    .lead { font-size: 1.23rem; max-width: 58ch; }
+    ul { padding-left: 1.2rem; } li { margin: .7rem 0; }
+    .voices { display: flex; flex-wrap: wrap; gap: 8px; } .voice { padding: 6px 10px; border-radius: 99px; background: #dfebe1; }
+    .risk { border-left: 4px solid #d88f33; padding: 2px 16px; background: #fff9eb; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><p>Cookies &amp; Coquillettes · Forge Idea</p><h1>Compagnon culinaire</h1></div>
+    <div class="seal">IDÉE<br>DURCIE</div>
+  </header>
+  <p class="lead">Le Chef C&amp;C est un agent spécialisé qui redonne confiance en cuisine. Sa valeur n'est pas d'ajouter des fonctions : il transforme une situation concrète en recommandation sur mesure, claire et contrôlable.</p>
+  <h2>Ce qui est verrouillé</h2>
+  <ul>
+    <li>Un curseur adapte le poids de la mémoire : une demande précise la domine ; une demande vague laisse davantage les habitudes guider et ouvrir la découverte.</li>
+    <li>Il conseille une voie principale et ouvre une alternative, plutôt que d'abandonner l'utilisateur devant des options équivalentes.</li>
+    <li>Il apprend seulement les préférences explicites ou générales ; le contexte du jour reste temporaire.</li>
+    <li>Il rejoint la recette, le Cahier ou l'étape en cours sans faire quitter le contexte.</li>
+    <li>Il prépare et propose ; toute écriture durable est confirmée.</li>
+  </ul>
+  <h2>Ce qui a été écarté</h2>
+  <ul>
+    <li>Un agent réduit à des automatismes, des rappels aléatoires ou un inventaire exhaustif.</li>
+    <li>Une personnalisation qui enferme le foyer dans ses recettes habituelles.</li>
+    <li>Une présence chat qui masque la recette ou l'étape à cuisiner.</li>
+  </ul>
+  <h2>Point de vigilance restant</h2>
+  <p class="risk">Les notifications peuvent être utiles après activation explicite, mais elles ne doivent pas être le socle du service : une PWA ne garantit pas un processus résident ni une exécution ponctuelle universelle.</p>
+  <h2>Voix du forge</h2>
+  <div class="voices"><span class="voice">📋 John · produit</span><span class="voice">🎨 Sally · UX</span><span class="voice">🏗️ Winston · architecture</span><span class="voice">📏 Level · preuves</span><span class="voice">🃏 Wildcard · options</span></div>
+</body>
+</html>
