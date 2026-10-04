@@ -77,6 +77,8 @@ export class AssistantSession {
   turns: AssistantConversationTurnV1[] = [];
   clarificationCount = 0;
   question: string | null = null;
+  /** Identifiants Cahier exclus pour le seul fil Assistant courant. */
+  private rejectedCandidateIds = new Set<string>();
 
   beginConversation(text: string): void {
     this.question = null;
@@ -94,6 +96,17 @@ export class AssistantSession {
     this.turns = [];
     this.clarificationCount = 0;
     this.question = null;
+    this.rejectedCandidateIds.clear();
+  }
+
+  rejectCandidate(candidateId: string): boolean {
+    if (!candidateId || this.rejectedCandidateIds.has(candidateId)) return false;
+    this.rejectedCandidateIds.add(candidateId);
+    return true;
+  }
+
+  isCandidateRejected(candidateId: string): boolean {
+    return this.rejectedCandidateIds.has(candidateId);
   }
   private requestId = 0;
   private controller: AbortController | null = null;

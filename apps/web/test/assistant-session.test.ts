@@ -135,6 +135,20 @@ test("session Assistant : fil volatile, deux précisions puis remise à zéro", 
   assert.equal(session.question, null);
 });
 
+test("session Assistant : une candidate refusée reste exclue jusqu’à la fin de la séance", () => {
+  const session = new AssistantSession();
+  assert.equal(session.rejectCandidate("cahier-1"), true);
+  assert.equal(session.rejectCandidate("cahier-1"), false);
+  assert.equal(session.isCandidateRejected("cahier-1"), true);
+
+  session.cancel();
+  assert.equal(session.isCandidateRejected("cahier-1"), false);
+
+  session.rejectCandidate("cahier-1");
+  session.closePreview();
+  assert.equal(session.isCandidateRejected("cahier-1"), false);
+});
+
 test("session Assistant : la projection réseau borne le fil sans tronquer son affichage", () => {
   const longRecipe = "Saucisses pommes de terre poivron chèvre. ".repeat(53).slice(0, 2_059);
   const session = new AssistantSession();

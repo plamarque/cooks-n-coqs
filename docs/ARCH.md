@@ -43,7 +43,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `cooking-step-image-service` | Résolution d'image d'étape en mode cuisine (cache local, génération IA), fallback image recette | `apps/web/src/services/cooking-step-image-service.ts` |
 | `step-timer-service` | Détection de durée de timer d'étape (sémantique IA + fallback) | `apps/web/src/services/step-timer-service.ts` |
 | `assistant-composer` | Validation locale, starters, raccourci et pièce jointe éphémère de l’accueil Assistant | `apps/web/src/utils/assistant-composer.ts` |
-| `assistant-session` | `AbortController`, `requestId`, annulation et phases `searching` / `creating` : seul un `noCandidate` revalidé mène à un draft éphémère ; les réponses tardives sont ignorées et aucune issue ne persiste une recette | `apps/web/src/utils/assistant-session.ts` |
+| `assistant-session` | `AbortController`, `requestId`, annulation, exclusions mémoire de candidates et phases `searching` / `creating` : seul un `noCandidate` revalidé mène à un draft éphémère ; une liste vide après refus local ne le simule jamais, les réponses tardives sont ignorées et aucune issue ne persiste une recette | `apps/web/src/utils/assistant-session.ts` |
 | `chef-session` | Cycle du fil Chef, contexte hôte, annulation et invalidation locale des réponses tardives | À introduire côté `apps/web` |
 | `chef-profile` | Préférences, apprentissages confiancés et paramètres de foyer locaux, distincts du Cahier | À introduire côté `apps/web` |
 | `chef-tools` | Validation et exécution côté client de demandes d'outils typées et minimisées | À introduire côté `apps/web` |

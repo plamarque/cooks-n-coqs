@@ -222,9 +222,15 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByRole("button", { name: "Favoris", exact: true })).toBeVisible();
   });
 
-  test("Compositeur : starter, demande vide et raccourci importent une prévisualisation", async ({ page }) => {
+  test("Compositeur : starter, demande vide et raccourci créent une prévisualisation après noCandidate", async ({ page }) => {
     await page.goto("/");
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "import" } }));
+    let legacyImportCalls = 0;
+    await page.route("**/api/import/**", (route) => { legacyImportCalls += 1; return route.abort(); });
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Quiche", category: "SALE", ingredients: [{ id: "ingredient-1", label: "oeufs", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Mélanger." }]
+    } }));
+    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: null } }));
     const field = page.getByLabel("Votre demande");
     const quickStarter = page.getByRole("button", { name: /rapide ce soir/i });
     await expect(quickStarter).toHaveText("Rapide ce soir");
@@ -237,28 +243,29 @@ test.describe("Cookies & Coquillettes v1", () => {
     await field.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
     await expect(field).toHaveValue(/Quiche/);
+    expect(legacyImportCalls).toBe(0);
   });
 
   test("Assistant : une recette texte longue garde sa source complète et projette un fil valide", async ({ page }) => {
     const longRecipe = ("Saucisses, pommes de terre, poivron et chèvre. ").repeat(53).slice(0, 2_059);
     let selectionBody;
-    let importBody;
+    let recipeBody;
     await page.goto("/");
     await page.route("**/api/assistant/select", async (route) => {
       selectionBody = route.request().postDataJSON();
-      await route.fulfill({ json: { kind: "import" } });
+      await route.fulfill({ json: { kind: "noCandidate" } });
     });
-    await page.route("**/api/import/text", async (route) => {
-      importBody = route.request().postDataJSON();
-      await route.fulfill({ json: { title: "Saucisses et pommes de terre", category: "SALE", ingredients: [], steps: [] } });
+    await page.route("**/api/assistant/recipe", async (route) => {
+      recipeBody = route.request().postDataJSON();
+      await route.fulfill({ json: { title: "Saucisses et pommes de terre", category: "SALE", ingredients: [{ id: "ingredient-1", label: "saucisses", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire." }] } });
     });
     const field = page.getByLabel("Votre demande");
     await field.fill(longRecipe);
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
-    expect(selectionBody.turns).toHaveLength(1);
-    expect(selectionBody.turns[0].text).toHaveLength(1_200);
-    expect(importBody.text).toBe(longRecipe);
+    expect(selectionBody.request).toHaveLength(2_059);
+    expect(recipeBody.turns).toEqual([{ role: "user", text: longRecipe.slice(0, 1_200) }]);
+    expect(recipeBody.request).toBe(longRecipe);
     await expect(field).toHaveValue(longRecipe);
   });
 
@@ -266,10 +273,10 @@ test.describe("Cookies & Coquillettes v1", () => {
     const longRecipe = ("Saucisses, pommes de terre, poivron et chèvre. ").repeat(53).slice(0, 2_059);
     let recipeBody;
     await page.goto("/");
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", async (route) => {
       recipeBody = route.request().postDataJSON();
-      await route.fulfill({ json: { title: "Saucisses et pommes de terre", category: "SALE", ingredients: [], steps: [] } });
+      await route.fulfill({ json: { title: "Saucisses et pommes de terre", category: "SALE", ingredients: [{ id: "ingredient-1", label: "saucisses", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire." }] } });
     });
     const field = page.getByLabel("Votre demande");
     await field.fill(longRecipe);
@@ -452,7 +459,10 @@ test.describe("Cookies & Coquillettes v1", () => {
   test("Assistant : carte F2, détail, fermeture et aucune écriture IndexedDB", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 844 });
     await page.goto("/");
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "import" } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Soupe express", category: "SALE", ingredients: [{ id: "ingredient-1", label: "oignon", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Mixer." }]
+    } }));
     const field = page.getByLabel("Votre demande");
     await field.fill("Soupe express\n\nIngrédients:\n- 1 oignon\n\nÉtapes:\n1. Mixer.");
     const countStores = () => page.evaluate(async () => {
@@ -481,9 +491,9 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(card).toBeFocused();
     await expectAssistantPreviewGeometry(card);
     await card.press("Enter");
-    await expect(page.getByRole("heading", { name: "Soupe express" })).toBeVisible();
-    await expect(page.locator(".assistant-preview-detail .ingredient-grid")).toContainText("oignon");
-    await expect(page.locator(".assistant-preview-detail .prep-steps-list")).toContainText("Mixer");
+    await expect(page.getByRole("textbox", { name: "Titre de la recette" })).toHaveValue("Soupe express");
+    await expect(page.getByRole("textbox", { name: "Ingrédient" })).toHaveValue("1 oignon");
+    await expect(page.getByRole("textbox", { name: "Texte de l’étape 1" })).toHaveValue("Mixer.");
     await expect(page.getByRole("button", { name: "Sauvegarder", exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toBeVisible();
     expect(await countStores()).toEqual(before);
@@ -521,9 +531,9 @@ test.describe("Cookies & Coquillettes v1", () => {
         request.onerror = () => reject(request.error);
       });
     });
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
-      title: "Crumble pommes", category: "SUCRE", ingredients: [{ id: "pomme", label: "pommes", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Cuire 25 minutes." }]
+      title: "Crumble pommes", category: "SUCRE", ingredients: [{ id: "ingredient-1", label: "pommes", isScalable: true }], steps: [{ id: "step-1", order: 1, text: "Cuire 25 minutes." }]
     } }));
     await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3C/svg%3E" } }));
     await page.getByLabel("Votre demande").fill("un dessert fruité d'automne réconfortant");
@@ -533,7 +543,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(card.locator("img")).toBeVisible();
     await expectAssistantPreviewGeometry(card);
     await card.click();
-    await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Titre de la recette" })).toHaveValue("Crumble pommes");
     await expectAssistantPreviewDetailGeometry(page.locator(".assistant-preview-detail"), ".recipe-detail-image");
     const imageBox = await page.locator(".assistant-preview-detail .recipe-detail-image").boundingBox();
     const actionsBox = await page.locator(".assistant-preview-detail .recipe-detail-header-actions").boundingBox();
@@ -543,7 +553,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByRole("button", { name: "Sauvegarder", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
     await expect(page.locator(".recipe-detail-image")).toBeVisible();
-    await expect(page.locator(".save-success-badge")).toContainText("Recette importée avec son illustration.");
+    await expect(page.locator(".save-success-badge")).toContainText("enregistrée dans votre cahier");
     await expect.poll(savedRecipeImageId).not.toBeFalsy();
     await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toHaveCount(0);
   });
@@ -551,9 +561,9 @@ test.describe("Cookies & Coquillettes v1", () => {
   test("Assistant : une preview desktop avec illustration aligne la carte, le header et l’image", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 844 });
     await page.goto("/");
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
-      title: "Risotto aux champignons", category: "SALE", ingredients: [{ id: "riz", label: "riz", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Cuire doucement." }]
+      title: "Risotto aux champignons", category: "SALE", ingredients: [{ id: "ingredient-1", label: "riz", isScalable: true }], steps: [{ id: "step-1", order: 1, text: "Cuire doucement." }]
     } }));
     await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3C/svg%3E" } }));
     await page.getByLabel("Votre demande").fill("un risotto crémeux");
@@ -561,7 +571,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     const card = page.getByRole("button", { name: /Prévisualisation prête/ });
     await expect(card.locator("img")).toBeVisible();
     await card.click();
-    await expect(page.getByRole("heading", { name: "Risotto aux champignons" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Titre de la recette" })).toHaveValue("Risotto aux champignons");
     await expectAssistantPreviewDetailGeometry(page.locator(".assistant-preview-detail"), ".recipe-detail-image");
   });
 
@@ -569,15 +579,15 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.setViewportSize({ width: 320, height: 844 });
     await page.goto("/");
     await page.route("**/api/assistant/image-intent*", (route) => route.fulfill({ json: { summaries: ["Des légumes frais."] } }));
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
       title: "Gratin de légumes fondants aux herbes du jardin", category: "SALE", ingredients: [
-        { id: "courgette", label: "courgettes longuement émincées", isScalable: true },
-        { id: "tomate", label: "tomates bien mûres en tranches", isScalable: true },
-        { id: "oignon", label: "oignons doux caramélisés", isScalable: true },
-        { id: "basilic", label: "basilic fraîchement ciselé", isScalable: false },
-        { id: "ail", label: "gousses d’ail écrasées", isScalable: false }
-      ], steps: [{ id: "s1", order: 1, text: "Cuire au four." }]
+        { id: "ingredient-1", label: "courgettes longuement émincées", isScalable: true },
+        { id: "ingredient-2", label: "tomates bien mûres en tranches", isScalable: true },
+        { id: "ingredient-3", label: "oignons doux caramélisés", isScalable: true },
+        { id: "ingredient-4", label: "basilic fraîchement ciselé", isScalable: false },
+        { id: "ingredient-5", label: "gousses d’ail écrasées", isScalable: false }
+      ], steps: [{ id: "step-1", order: 1, text: "Cuire au four." }]
     } }));
     await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
@@ -596,8 +606,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     expect(await composer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(previewHeight);
   });
 
-  test("Assistant : candidate Jev sans image conserve l’illustration affichée au premier clic", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+  test("Assistant : refuser une candidate est local, conserve la saisie et bloque sa réapparition", async ({ page }) => {
     await page.goto("/");
     const notebookState = () => page.evaluate(async () => {
       const database = await new Promise((resolve, reject) => {
@@ -606,133 +615,69 @@ test.describe("Cookies & Coquillettes v1", () => {
         request.onerror = () => reject(request.error);
       });
       const transaction = database.transaction(["recipes", "images"], "readonly");
-      const recipes = await new Promise((resolve, reject) => {
-        const request = transaction.objectStore("recipes").getAll();
+      const recipeCount = await new Promise((resolve, reject) => {
+        const request = transaction.objectStore("recipes").count();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const images = await new Promise((resolve, reject) => {
+      const imageCount = await new Promise((resolve, reject) => {
         const request = transaction.objectStore("images").count();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const sorted = recipes.sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
-      const index = sorted.findIndex((recipe) => !recipe.imageId);
-      return { recipeCount: recipes.length, imageCount: images, title: sorted[index]?.title, candidateRef: `candidate-${index + 1}` };
+      return { recipeCount, imageCount };
     });
-    await expect.poll(async () => (await notebookState()).recipeCount).toBe(2);
+    await expect.poll(notebookState).toEqual({ recipeCount: 2, imageCount: 1 });
     const before = await notebookState();
-    expect(before.title).toBeTruthy();
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "candidate", candidateRef: before.candidateRef, reasonCode: "RELEVANT" } }));
-    await page.route("**/api/assistant/recipe", (route) => route.abort("failed"));
-    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3C/svg%3E" } }));
-    await page.getByLabel("Votre demande").fill("une recette du Cahier qui ressemble à celle-ci");
-    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
-    const card = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
-    await expect(card).toBeVisible();
-    await expect(card.locator("img")).toBeVisible();
-    await expectAssistantPreviewGeometry(card);
-    await card.click();
-    await expect(page.getByRole("heading", { name: before.title, exact: true })).toBeVisible();
-    await expect(page.locator(".recipe-detail-image")).toBeVisible();
-    await expect.poll(async () => (await notebookState()).imageCount).toBe(before.imageCount + 1);
-    expect((await notebookState()).recipeCount).toBe(before.recipeCount);
-  });
+    let selections = 0;
+    let recipeGenerations = 0;
+    await page.route("**/api/assistant/select", (route) => {
+      selections += 1;
+      return route.fulfill({ json: { kind: "candidates", candidates: [
+        { candidateRef: "candidate-1", reasonCode: "RELEVANT" },
+        { candidateRef: "candidate-2", reasonCode: "RELEVANT" }
+      ] } });
+    });
+    await page.route("**/api/assistant/recipe", (route) => {
+      recipeGenerations += 1;
+      return route.fulfill({ status: 500, json: { error: "must-not-run" } });
+    });
 
-  test("Assistant : candidate sans image reste consultable si son illustration ne peut pas être conservée", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(async () => {
-      const database = await new Promise((resolve, reject) => {
-        const request = indexedDB.open("cookies-et-coquilettes");
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      const transaction = database.transaction("recipes", "readwrite");
-      const store = transaction.objectStore("recipes");
-      const template = await new Promise((resolve, reject) => {
-        const request = store.getAll();
-        request.onsuccess = () => resolve(request.result[0]);
-        request.onerror = () => reject(request.error);
-      });
-      store.put({ ...template, id: "candidate-media-failure", title: "Candidate sans image", imageId: undefined, favorite: true, updatedAt: "9999-12-31T23:59:59.999Z" });
-      await new Promise((resolve, reject) => { transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); });
-    });
-    const notebookState = () => page.evaluate(async () => {
-      const database = await new Promise((resolve, reject) => {
-        const request = indexedDB.open("cookies-et-coquilettes");
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      const transaction = database.transaction(["recipes", "images"], "readonly");
-      const recipes = await new Promise((resolve, reject) => {
-        const request = transaction.objectStore("recipes").getAll();
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      const candidate = recipes.find((recipe) => recipe.id === "candidate-media-failure");
-      return { candidateImageId: candidate?.imageId, title: "Candidate sans image", candidateRef: "candidate-1" };
-    });
-    const before = await notebookState();
-    expect(before.title).toBeTruthy();
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "candidate", candidateRef: before.candidateRef, reasonCode: "RELEVANT" } }));
-    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "https://images.example.test/candidate.png" } }));
-    await page.route("https://images.example.test/candidate.png", (route) => route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'/>" }));
-    await page.route("**/api/proxy-image", (route) => route.fulfill({ status: 502, json: { error: "unavailable" } }));
-    await page.getByLabel("Votre demande").fill("la recette du Cahier, même sans sa photo");
+    const field = page.getByLabel("Votre demande");
+    await field.fill("une recette du Cahier à préciser");
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
-    const card = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
-    await expect(card.locator("img")).toBeVisible();
-    await card.click();
-    await expect(page.getByRole("heading", { name: before.title, exact: true })).toBeVisible();
-    await expect(page.locator(".message.warning")).toContainText("reste utilisable");
-    await expect.poll(async () => (await notebookState()).candidateImageId).toBeFalsy();
-  });
+    const candidateCards = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
+    await expect(candidateCards).toHaveCount(2);
+    const retainedCardName = await candidateCards.nth(1).getAttribute("aria-label");
+    const retainedTitle = retainedCardName?.match(/ouvrir (.+)$/)?.[1];
+    expect(retainedTitle).toBeTruthy();
+    const cardsDoNotOverlap = await candidateCards.evaluateAll((cards) => {
+      const [first, second] = cards.map((card) => card.getBoundingClientRect());
+      return Boolean(first && second && first.bottom <= second.top);
+    });
+    expect(cardsDoNotOverlap).toBe(true);
+    await page.getByRole("button", { name: /Refuser / }).first().click();
+    await expect(candidateCards).toHaveCount(1);
+    await expect(field).toBeFocused();
+    await expect(field).toHaveValue("une recette du Cahier à préciser");
+    await expect(page.getByRole("status")).toContainText("écartée");
 
-  test("Assistant : deux ouvertures immédiates d’une candidate ne stockent qu’une illustration", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(async () => {
-      const database = await new Promise((resolve, reject) => {
-        const request = indexedDB.open("cookies-et-coquilettes");
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      const transaction = database.transaction("recipes", "readwrite");
-      const store = transaction.objectStore("recipes");
-      const template = await new Promise((resolve, reject) => {
-        const request = store.getAll();
-        request.onsuccess = () => resolve(request.result[0]);
-        request.onerror = () => reject(request.error);
-      });
-      store.put({ ...template, id: "candidate-media-dedup", title: "Candidate dédupliquée", imageId: undefined, favorite: true, updatedAt: "9999-12-31T23:59:59.999Z" });
-      await new Promise((resolve, reject) => { transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); });
-    });
-    const candidate = { title: "Candidate dédupliquée", candidateRef: "candidate-1" };
-    let proxyCalls = 0;
-    let releaseProxy;
-    const proxyReleased = new Promise((resolve) => { releaseProxy = resolve; });
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "candidate", candidateRef: candidate.candidateRef, reasonCode: "RELEVANT" } }));
-    await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "https://images.example.test/deduplicated.png" } }));
-    await page.route("https://images.example.test/deduplicated.png", (route) => route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'/>" }));
-    await page.route("**/api/proxy-image", async (route) => {
-      proxyCalls += 1;
-      await proxyReleased;
-      await route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'/>" });
-    });
-    await page.getByLabel("Votre demande").fill("la candidate sans doublon");
+    await field.fill("une recette du Cahier à préciser, sans lait");
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
-    const card = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
-    await expect(card.locator("img")).toBeVisible();
-    await card.evaluate((element) => { element.click(); element.click(); });
-    await expect.poll(() => proxyCalls).toBe(1);
-    releaseProxy();
-    await expect(page.getByRole("heading", { name: candidate.title, exact: true })).toBeVisible();
+    await expect.poll(() => selections).toBe(2);
+    await expect(candidateCards).toHaveCount(1);
+    await expect(candidateCards).toHaveAttribute("aria-label", retainedCardName);
+    expect(recipeGenerations).toBe(0);
+    await candidateCards.click();
+    await expect(page.getByRole("heading", { name: retainedTitle })).toBeVisible();
+    expect(await notebookState()).toEqual(before);
   });
 
   test("Assistant : l’échec de stockage de l’illustration conserve la recette avec un message honnête", async ({ page }) => {
     await page.goto("/");
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
-      title: "Tarte temporaire", category: "SUCRE", ingredients: [{ id: "pomme", label: "pommes", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Cuire." }]
+      title: "Tarte temporaire", category: "SUCRE", ingredients: [{ id: "ingredient-1", label: "pommes", isScalable: true }], steps: [{ id: "step-1", order: 1, text: "Cuire." }]
     } }));
     await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "https://images.example.test/tarte.png" } }));
     await page.route("https://images.example.test/tarte.png", (route) => route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'/>" }));
@@ -754,9 +699,9 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.locator(".recipe-detail-actions").getByRole("button", { name: "Supprimer" }).click();
     await page.getByRole("button", { name: "Supprimer" }).last().click();
     await expect(page.getByText("Recette supprimée.")).toBeVisible();
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
-      title: "Soupe propre", category: "SALE", ingredients: [{ id: "eau", label: "eau", isScalable: false }], steps: [{ id: "s1", order: 1, text: "Chauffer." }]
+      title: "Soupe propre", category: "SALE", ingredients: [{ id: "ingredient-1", label: "eau", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Chauffer." }]
     } }));
     await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: null } }));
     await page.getByLabel("Votre demande").fill("une soupe");
@@ -766,15 +711,15 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByText("Recette supprimée.")).toHaveCount(0);
   });
 
-  test("Assistant : les entrées concurrentes sont gelées pendant l'import", async ({ page }) => {
+  test("Assistant : les entrées concurrentes sont gelées pendant la génération", async ({ page }) => {
     await page.goto("/");
     let release;
     const gate = new Promise((resolve) => { release = resolve; });
     await page.route("**/api/assistant/image-intent*", (route) => route.fulfill({ json: { summaries: ["Un plat."] } }));
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "import" } }));
-    await page.route("**/api/import/screenshot", async (route) => {
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
+    await page.route("**/api/assistant/recipe", async (route) => {
       await gate;
-      await route.fulfill({ json: { title: "Import", category: "SALE", ingredients: [], steps: [] } });
+      await route.fulfill({ json: { title: "Import", category: "SALE", ingredients: [{ id: "ingredient-1", label: "tomate", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire." }] } });
     });
     await page.getByLabel("Votre demande").fill("texte de contexte");
     await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
@@ -787,37 +732,29 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
   });
 
-  test("Assistant : une URL et une image sont sélectionnées avant leur parse", async ({ page }) => {
+  test("Assistant : une URL est sélectionnée puis génère une preview sans import historique", async ({ page }) => {
     await page.goto("/");
     const calls = [];
-    await page.route("**/api/assistant/select", (route) => { calls.push("select"); return route.fulfill({ json: { kind: "import" } }); });
-    await page.route("**/api/import/url", (route) => { calls.push("url"); return route.fulfill({ json: { title: "URL", category: "SALE", ingredients: [{ id: "i", label: "x", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire" }] } }); });
+    await page.route("**/api/import/**", (route) => { calls.push("import"); return route.abort(); });
+    await page.route("**/api/assistant/select", (route) => { calls.push("select"); return route.fulfill({ json: { kind: "noCandidate" } }); });
+    await page.route("**/api/assistant/recipe", (route) => { calls.push("recipe"); return route.fulfill({ json: { title: "URL", category: "SALE", ingredients: [{ id: "ingredient-1", label: "x", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire" }] } }); });
     await page.getByLabel("Votre demande").fill("https://example.test/recette");
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
-    expect(calls).toEqual(["select", "url"]);
+    expect(calls).toEqual(["select", "recipe"]);
   });
 
-  test("Assistant : une image suit image-intent, sélection puis screenshot, et ne parse pas sans choix import", async ({ page }) => {
+  test("Assistant : une image suit vision, sélection puis génération sans import historique", async ({ page }) => {
     await page.goto("/");
     const calls = [];
     await page.route("**/api/assistant/image-intent*", (route) => { calls.push("image-intent"); return route.fulfill({ json: { summaries: ["Un plat."] } }); });
-    await page.route("**/api/assistant/select", (route) => { calls.push("select"); return route.fulfill({ json: { kind: "import" } }); });
-    await page.route("**/api/import/screenshot", (route) => { calls.push("screenshot"); return route.fulfill({ json: { title: "Photo", category: "SALE", ingredients: [{ id: "i", label: "tomate", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire" }] } }); });
+    await page.route("**/api/import/**", (route) => { calls.push("import"); return route.abort(); });
+    await page.route("**/api/assistant/select", (route) => { calls.push("select"); return route.fulfill({ json: { kind: "noCandidate" } }); });
+    await page.route("**/api/assistant/recipe", (route) => { calls.push("recipe"); return route.fulfill({ json: { title: "Photo", category: "SALE", ingredients: [{ id: "ingredient-1", label: "tomate", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire" }] } }); });
     await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
-    expect(calls).toEqual(["image-intent", "select", "screenshot"]);
-
-    await page.goto("/");
-    const blocked = [];
-    await page.route("**/api/assistant/image-intent*", (route) => { blocked.push("image-intent"); return route.fulfill({ json: { summaries: ["Un plat."] } }); });
-    await page.route("**/api/assistant/select", (route) => { blocked.push("select"); return route.fulfill({ json: { kind: "newRecipe" } }); });
-    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: { title: "Suggestion", category: "SALE", ingredients: [{ id: "i", label: "tomate", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire" }] } }));
-    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
-    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
-    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
-    expect(blocked).toEqual(["image-intent", "select"]);
+    expect(calls).toEqual(["image-intent", "select", "recipe"]);
   });
 
   test("Assistant : quatre photos échouées restent réessayables avec une référence unique", async ({ page }) => {
@@ -854,9 +791,9 @@ test.describe("Cookies & Coquillettes v1", () => {
       analysed.push(route.request().url());
       return route.fulfill({ json: { summaries: [`Photo ${analysed.length} : ingrédients visibles.`] } });
     });
-    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "newRecipe" } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
-      title: "Salade aux quatre photos", category: "SALE", ingredients: [{ id: "riz", label: "riz", isScalable: true }], steps: [{ id: "s1", order: 1, text: "Mélanger le riz." }]
+      title: "Salade aux quatre photos", category: "SALE", ingredients: [{ id: "ingredient-1", label: "riz", isScalable: true }], steps: [{ id: "step-1", order: 1, text: "Mélanger le riz." }]
     } }));
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
@@ -876,30 +813,25 @@ test.describe("Cookies & Coquillettes v1", () => {
     try {
       await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(files);
       const uploaded = [];
-      const imported = [];
       await page.route("**/api/assistant/image-intent*", (route) => {
         uploaded.push({ data: multipartFileBuffer(route.request()), name: route.request().postDataBuffer().toString("latin1").match(/filename="([^"]+)"/)?.[1] });
         return route.fulfill({ json: { summaries: [`Photo ${uploaded.length}.`] } });
       });
-      await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "import" } }));
-      await page.route("**/api/import/screenshot", (route) => {
-        imported.push({ data: multipartFileBuffer(route.request()), name: route.request().postDataBuffer().toString("latin1").match(/filename="([^"]+)"/)?.[1] });
-        return route.fulfill({ json: { title: `Photo ${imported.length}`, category: "SALE", ingredients: [{ id: "i", label: "riz", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire." }] } });
-      });
-      await page.route("**/api/import/reorder-steps", (route) => route.fulfill({ json: { steps: [] } }));
+      let legacyImportCalls = 0;
+      await page.route("**/api/import/**", (route) => { legacyImportCalls += 1; return route.abort(); });
+      await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
+      await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+        title: "Salade aux quatre photos", category: "SALE", ingredients: [{ id: "ingredient-1", label: "riz", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire." }]
+      } }));
       await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
       await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
       expect(uploaded.map(({ name }) => name)).toEqual(["photo-1.jpg", "photo-2.jpg", "photo-3.jpg", "photo-4.jpg"]);
-      expect(imported.map(({ name }) => name)).toEqual(["photo-1.jpg", "photo-2.jpg", "photo-3.jpg", "photo-4.jpg"]);
       expect(uploaded.every(({ data }) => data.length > 0 && data.length <= 4 * 1024 * 1024)).toBe(true);
-      expect(imported.every(({ data }) => data.length > 0 && data.length <= 4 * 1024 * 1024)).toBe(true);
+      expect(legacyImportCalls).toBe(0);
       const expectedColors = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]];
       const visionColors = await imageMarkerColors(page, uploaded.map(({ data }) => data));
-      const importColors = await imageMarkerColors(page, imported.map(({ data }) => data));
       for (const [index, expected] of expectedColors.entries()) {
-        for (const actual of [visionColors[index], importColors[index]]) {
-          expect(actual.every((value, channel) => Math.abs(value - expected[channel]) < 45)).toBe(true);
-        }
+        expect(visionColors[index].every((value, channel) => Math.abs(value - expected[channel]) < 45)).toBe(true);
       }
     } finally { rmSync(fixtureDir, { recursive: true, force: true }); }
   });
@@ -977,31 +909,33 @@ test.describe("Cookies & Coquillettes v1", () => {
     } finally { rmSync(fixtureDir, { recursive: true, force: true }); }
   });
 
-  test("Assistant : une précision affiche le fil sans vignette et reprend tous les tours", async ({ page }) => {
+  test("Assistant : une précision bornée peut créer une preview après un second noCandidate", async ({ page }) => {
     await page.goto("/");
     const selectionBodies = [];
+    let recipeBody;
     await page.route("**/api/assistant/select", async (route) => {
       selectionBodies.push(route.request().postDataJSON());
       await route.fulfill({ json: selectionBodies.length === 1
-        ? { kind: "clarify", question: "Pour combien de personnes ?" }
-        : { kind: "newRecipe" } });
+        ? { kind: "candidates", candidates: [{ candidateRef: "candidate-1", reasonCode: "RELEVANT" }] }
+        : { kind: "noCandidate" } });
     });
-    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
-      title: "Soupe pour deux", category: "SALE", ingredients: [{ id: "i", label: "carotte", isScalable: false }], steps: [{ id: "s", order: 1, text: "Cuire." }]
-    } }));
+    await page.route("**/api/assistant/recipe", (route) => {
+      recipeBody = route.request().postDataJSON();
+      return route.fulfill({ json: {
+      title: "Soupe pour deux", category: "SALE", ingredients: [{ id: "ingredient-1", label: "carotte", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire." }]
+      } });
+    });
     const field = page.getByLabel("Votre demande");
     await field.fill("une soupe réconfortante");
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
-    await expect(page.getByText("Pour combien de personnes ?")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Recette du Cahier trouvée/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toHaveCount(0);
-    await expect(field).toHaveValue("");
     await field.fill("pour deux");
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
     expect(selectionBodies).toHaveLength(2);
-    expect(selectionBodies[1].turns).toEqual([
+    expect(recipeBody.turns).toEqual([
       { role: "user", text: "une soupe réconfortante" },
-      { role: "assistant", text: "Pour combien de personnes ?" },
       { role: "user", text: "pour deux" }
     ]);
   });

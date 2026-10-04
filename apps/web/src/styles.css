@@ -99,8 +99,10 @@ body {
 .assistant-import-progress .p-button { position: static; min-width: 7rem; }
 .assistant-import-error { color: #a62c2b; font-weight: 700; }
 .assistant-preview-card-wrap { position: absolute; z-index: 5; inset: 0; overflow: hidden; border-radius: 1.25rem; animation: assistant-preview-arrive .42s cubic-bezier(.2,.85,.25,1); }
+.assistant-candidate-card-wrap { position: relative; z-index: 1; inset: auto; height: 276px; margin: 0 10px 10px; overflow: hidden; }
 .assistant-preview-card { position: relative; width: 100%; height: 100%; display: grid; grid-template-rows: 132px minmax(0, 1fr); overflow: hidden; padding: 0; border: 0; border-radius: 1.25rem; background: #fffdf9; color: #1d1f1c; cursor: pointer; text-align: left; }
 .assistant-preview-close { position: absolute; z-index: 2; top: 12px; right: 12px; display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 50%; background: rgba(255,253,250,.9); color: #1f4f46; cursor: pointer; }
+.assistant-candidate-refuse:focus-visible { outline: 3px solid #1f4f46; outline-offset: 2px; }
 .assistant-preview-card-hero { position: relative; display: block; min-height: 0; overflow: hidden; background: radial-gradient(circle at 72% 29%,#f6d781 0 9%,transparent 10%),radial-gradient(circle at 38% 49%,#6b9f65 0 21%,transparent 22%),linear-gradient(135deg,#9c5e37,#e8bf75); }
 .assistant-preview-card-image { width: 100%; height: 100%; object-fit: cover; background: #edf4ef; }
 .assistant-preview-card-loading { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: .35rem; color: #1f4f46; font-size: .8rem; font-weight: 800; background: linear-gradient(120deg,#e7f1eb,#fbf5e9,#e7f1eb); background-size:220% 100%; animation: assistant-hero-shimmer 1.5s linear infinite; }
@@ -123,7 +125,7 @@ body {
 .assistant-preview-ingredient-card { cursor: default; }
 .assistant-preview-ingredient-card .ingredient-card-image-wrap { display: grid; place-items: center; color: rgba(31,79,70,.42); font-size: 1.5rem; }
 .assistant-preview-time { margin-inline: 0; }
-@media (prefers-reduced-motion: reduce) { .assistant-preview-card-image--loading *, .assistant-import-progress * { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .assistant-preview-card-wrap, .assistant-preview-card-image--loading *, .assistant-import-progress * { animation: none !important; } }
 .assistant-preview-card-title { color: #1f4f46; font-size: 1.1rem; font-weight: 800; }
 .assistant-preview-detail { position: relative; max-width: 720px; margin: 32px auto; padding: 28px; background: #fffdf9; }
 .assistant-preview-close { position: absolute; top: 12px; right: 12px; min-width: 44px; min-height: 44px; border: 0; border-radius: 50%; background: #edf4ef; color: #1f4f46; cursor: pointer; }
@@ -160,6 +162,11 @@ body {
 /* La carte reste un overlay clipsé ; cette réserve temporaire laisse sa copie et son CTA dans le Compositeur. */
 .assistant-composer--with-preview {
   min-height: clamp(420px, 100vw, 460px);
+}
+
+.assistant-composer--with-candidates {
+  display: flex;
+  flex-direction: column;
 }
 
 .sr-only {
@@ -209,6 +216,14 @@ body {
 }
 
 .assistant-composer--with-attachments .assistant-composer-actions {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  align-self: flex-end;
+  margin: 0 10px 10px;
+}
+
+.assistant-composer--with-candidates .assistant-composer-actions {
   position: relative;
   right: auto;
   bottom: auto;

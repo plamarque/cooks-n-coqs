@@ -98,20 +98,28 @@ test("badge succès : pointer-events none (fiche utilisable)", () => {
   assert.match(css, /\.save-success-badge\s*\{[^}]*pointer-events:\s*none/s);
 });
 
-test("Assistant : une candidate Cahier ouvre son détail sans mutation", () => {
+test("Assistant : candidate Cahier en lecture seule et refus local", () => {
   const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
   const app = readFileSync(appPath, "utf8");
-  const openPreview = app.match(/async function openAssistantPreview\([\s\S]*?\n\}/);
-  assert.ok(openPreview);
-  assert.match(openPreview[0], /assistantCandidateAcceptedId = candidate\.id/);
-  assert.doesNotMatch(openPreview[0], /persistCandidateIllustration|updateRecipe|storeImage/);
+  const openCandidate = app.match(/function openAssistantCandidate\([\s\S]*?\n\}/);
+  assert.ok(openCandidate);
+  assert.doesNotMatch(openCandidate[0], /updateRecipe|storeImage|generateRecipeImage/);
+  const rejectCandidate = app.match(/function rejectAssistantCandidate\([\s\S]*?\n\}/);
+  assert.ok(rejectCandidate);
+  assert.match(rejectCandidate[0], /assistantSession\.rejectCandidate\(candidate\.id\)/);
+  assert.doesNotMatch(rejectCandidate[0], /updateRecipe|storeImage|generateAssistantRecipe/);
+  assert.match(app, /!assistantSession\.isCandidateRejected\(recipe\.id\)/);
+  const prepareRequest = app.match(/async function prepareAssistantRequest\([\s\S]*?\n\}/);
+  assert.ok(prepareRequest);
+  assert.match(prepareRequest[0], /assistantCandidatePreviews\.value = \[\];/);
   const savePreview = app.match(/async function saveAssistantPreview\([\s\S]*?\n\}/);
   assert.ok(savePreview);
   assert.match(savePreview[0], /await persistAssistantPreview/);
   assert.doesNotMatch(savePreview[0], /hydrateStepMediaFromDraft/);
   assert.doesNotMatch(savePreview[0], /db\.images\.delete/);
   assert.match(savePreview[0], /detailRecipeOverride\.value = saved\.recipe/);
-  assert.match(app, /seule la conservation de son illustration a échoué/);
+  assert.match(app, /Refuser \$\{candidate\.title\}/);
+  assert.match(app, /assistant-composer--with-candidates/);
 });
 
 test("Assistant : la preview est éditable en mémoire avant Sauvegarder", () => {

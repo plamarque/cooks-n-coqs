@@ -56,8 +56,7 @@ import {
   dexieRecipeService,
   getImageBlobUrl,
   storeImageFromFile,
-  storeImageFromUrl,
-  storeImageFromUrlWithResult
+  storeImageFromUrl
 } from "./services/recipe-service";
 import { saveAssistantPreview as persistAssistantPreview } from "./services/preview-save-service";
 import {
@@ -213,9 +212,6 @@ const ASSISTANT_STARTER_LABELS: Record<(typeof ASSISTANT_STARTERS)[number], stri
 };
 let assistantSpeechSession: SpeechRecognitionSession | null = null;
 let detailReturnView: "ASSISTANT" | "LIST" = "LIST";
-let assistantCandidateGenerationId = 0;
-let assistantCandidateImagePersistence: { key: string; promise: Promise<void> } | null = null;
-let assistantCandidateAcceptedId: string | null = null;
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const recipeBookFileInputRef = ref<HTMLInputElement | null>(null);
@@ -1172,9 +1168,10 @@ async function prepareAssistantRequest(): Promise<void> {
     // cancellation button focusable until the session takes over.
     assistantPhase.value = assistantSession.phase === "idle" ? "analyzing" : assistantSession.phase;
     assistantPreview.value = null;
-    ++assistantCandidateGenerationId;
-    assistantCandidateAcceptedId = null;
     assistantCandidatePreview.value = null;
+    // Un import F2 remplace la séance : ne pas laisser une ancienne carte Cahier
+    // agir sur ce nouveau contexte local.
+    assistantCandidatePreviews.value = [];
     assistantError.value = null;
     nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-import-progress button")?.focus());
     const preview = await importPromise;
@@ -1282,15 +1279,24 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
     const revalidated = result.candidateRefs.map((candidateRef) => candidateMap.get(candidateRef))
       .map((recipe) => recipe && currentRecipes.get(recipe.id))
       .filter((recipe): recipe is Recipe => recipe !== undefined);
-    const found = revalidated.filter((recipe) => candidateMeetsLiteralConstraints(request, recipe));
+    const found = revalidated.filter((recipe) =>
+      candidateMeetsLiteralConstraints(request, recipe) && !assistantSession.isCandidateRejected(recipe.id)
+    );
     if (!found.length) {
-      assistantSession.error = revalidated.length
-        ? "Aucune recette proposée ne respecte toutes vos contraintes. Réessayez en les assouplissant."
-        : "Cette recette n’est plus disponible. Réessayez votre demande.";
-      assistantSession.phase = "error";
+      if (revalidated.some((recipe) => assistantSession.isCandidateRejected(recipe.id))) {
+        assistantSession.phase = "idle";
+        assistantCandidatePreview.value = null;
+        assistantCandidatePreviews.value = [];
+        assistantAnnouncement.value = "Aucune nouvelle recette du Cahier à proposer. Précisez votre demande ou réessayez.";
+        nextTick(() => focusAssistantComposer());
+      } else {
+        assistantSession.error = revalidated.length
+          ? "Aucune recette proposée ne respecte toutes vos contraintes. Réessayez en les assouplissant."
+          : "Cette recette n’est plus disponible. Réessayez votre demande.";
+        assistantSession.phase = "error";
+      }
       return null;
     }
-    assistantCandidateAcceptedId = null;
     assistantCandidatePreviews.value = found;
     assistantCandidatePreview.value = found[0];
     assistantPreviewImageUrl.value = null;
@@ -1326,7 +1332,6 @@ async function openAssistantPreview(): Promise<void> {
     const candidate = assistantCandidatePreview.value;
     openDetail(candidate, "ASSISTANT");
     detailRecipeOverride.value = candidate;
-    assistantCandidateAcceptedId = candidate.id;
     return;
   }
   if (!assistantPreview.value) return;
@@ -1338,15 +1343,23 @@ function openAssistantCandidate(candidate: Recipe): void {
   assistantCandidatePreview.value = candidate;
   openDetail(candidate, "ASSISTANT");
   detailRecipeOverride.value = candidate;
-  assistantCandidateAcceptedId = candidate.id;
+}
+
+function rejectAssistantCandidate(candidate: Recipe): void {
+  if (!assistantSession.rejectCandidate(candidate.id)) return;
+  const remaining = assistantCandidatePreviews.value.filter(({ id }) => id !== candidate.id);
+  assistantCandidatePreviews.value = remaining;
+  assistantCandidatePreview.value = remaining[0] ?? null;
+  assistantSession.phase = remaining.length ? "ready" : "idle";
+  assistantPhase.value = assistantSession.phase;
+  assistantAnnouncement.value = `« ${candidate.title} » écartée. Précisez votre demande ou essayez une autre formulation.`;
+  focusAssistantComposer();
 }
 
 async function closeAssistantPreview(): Promise<void> {
   if (assistantPreviewSaving.value) return;
   const confirmed = await requestConfirmation({ header: "Fermer ce résultat ?", message: "Votre saisie restera dans le Compositeur.", acceptLabel: "Fermer", rejectLabel: "Garder", acceptSeverity: "danger" });
   if (!confirmed) return;
-  ++assistantCandidateGenerationId;
-  assistantCandidateAcceptedId = null;
   assistantSession.closePreview();
   assistantPreview.value = null;
   assistantCandidatePreview.value = null;
@@ -1423,39 +1436,6 @@ function addAssistantPreviewStepMedium(step: ParsedRecipeDraft["steps"][number],
 
 function removeAssistantPreviewStepMedium(step: ParsedRecipeDraft["steps"][number], index: number): void {
   step.media?.splice(index, 1);
-}
-
-async function persistCandidateIllustration(candidate: Recipe, imageUrl: string): Promise<void> {
-  const key = `${candidate.id}\u0000${imageUrl}`;
-  if (assistantCandidateImagePersistence?.key === key) return assistantCandidateImagePersistence.promise;
-  const promise = (async () => {
-    assistantAnnouncement.value = "Conservation de l’illustration de la recette du Cahier…";
-    const stored = await storeImageFromUrlWithResult(imageUrl);
-    if (!stored.imageId) {
-      feedbackType.value = "warning";
-      feedback.value = "La recette du Cahier reste utilisable ; son illustration temporaire n’a pas pu être enregistrée.";
-      return;
-    }
-    const imageId = stored.imageId;
-    const isCurrent = () => assistantCandidatePreview.value?.id === candidate.id && selectedRecipeId.value === candidate.id && assistantCandidateAcceptedId === candidate.id;
-    if (!isCurrent()) { await db.images.delete(imageId); return; }
-    try {
-      await dexieRecipeService.updateRecipe(candidate.id, { imageId });
-      if (!isCurrent()) { await dexieRecipeService.updateRecipe(candidate.id, { imageId: undefined }); await db.images.delete(imageId); return; }
-      const enriched = { ...candidate, imageId };
-      assistantCandidatePreview.value = enriched;
-      detailRecipeOverride.value = enriched;
-      await refresh();
-      assistantAnnouncement.value = "Illustration conservée dans votre Cahier.";
-    } catch {
-      try { await dexieRecipeService.updateRecipe(candidate.id, { imageId: undefined }); } catch { /* état détail déjà utilisable */ }
-      await db.images.delete(imageId);
-      feedbackType.value = "warning";
-      feedback.value = "La recette du Cahier reste utilisable ; l’enregistrement de son illustration a échoué.";
-    }
-  })();
-  assistantCandidateImagePersistence = { key, promise };
-  try { await promise; } finally { if (assistantCandidateImagePersistence?.key === key) assistantCandidateImagePersistence = null; }
 }
 
 function onAssistantKeydown(event: KeyboardEvent): void {
@@ -3135,7 +3115,8 @@ onUnmounted(() => {
           class="assistant-composer"
           :class="{
             'assistant-composer--with-attachments': assistantAttachments.length > 0,
-            'assistant-composer--with-preview': assistantPreview || assistantCandidatePreview
+            'assistant-composer--with-candidates': assistantCandidatePreviews.length > 0,
+            'assistant-composer--with-preview': assistantPreview || assistantCandidatePreviews.length
           }"
         >
           <label class="sr-only" for="assistant-composer-text">Votre demande</label>
@@ -3210,7 +3191,7 @@ onUnmounted(() => {
           <p id="assistant-composer-status" class="assistant-live sr-only" role="status" aria-live="polite">
             {{ assistantAnnouncement }}
           </p>
-          <div v-for="candidate in assistantCandidatePreviews" :key="candidate.id" class="assistant-preview-card-wrap">
+          <div v-for="candidate in assistantCandidatePreviews" :key="candidate.id" class="assistant-preview-card-wrap assistant-candidate-card-wrap">
           <button type="button" class="assistant-preview-card" :aria-label="`Recette du Cahier trouvée — ouvrir ${candidate.title}`" @click="openAssistantCandidate(candidate)">
             <span class="assistant-preview-card-hero">
               <RecipeImage v-if="candidate.imageId" :image-id="candidate.imageId" alt="" img-class="assistant-preview-card-image" />
@@ -3219,6 +3200,7 @@ onUnmounted(() => {
             <span class="assistant-preview-card-copy"><span class="assistant-preview-card-status">Dans votre Cahier · Correspond à votre demande</span><span class="assistant-preview-card-title">{{ candidate.title }}</span><span class="assistant-preview-card-meta">{{ assistantPreviewCategoryLabel(candidate.category) }} · {{ candidate.ingredients.length }} ingrédients</span></span>
             <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
           </button>
+          <button type="button" class="assistant-preview-close assistant-candidate-refuse" :aria-label="`Refuser ${candidate.title}`" title="Écarter cette recette" @click="rejectAssistantCandidate(candidate)"><i class="pi pi-times" aria-hidden="true" /></button>
           </div>
           <div v-if="assistantPreview" class="assistant-preview-card-wrap">
           <button type="button" class="assistant-preview-card" :aria-label="assistantCandidatePreview ? 'Recette du Cahier trouvée — ouvrir la recette' : 'Prévisualisation prête — ouvrir la recette'" @click="openAssistantPreview" @keydown.enter.prevent="openAssistantPreview" @keydown.space.prevent="openAssistantPreview">
