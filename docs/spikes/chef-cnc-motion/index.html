@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chef C&amp;C — storyboards de mouvement</title>
+    <style>
+      :root {
+        --green: #1f4f46;
+        --ink: #21342e;
+        --cream: #f8f4ec;
+        --paper: #fffdf9;
+        --gold: #e2a13b;
+        --muted: #63756e;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--cream); color: var(--ink); font: 16px/1.45 Manrope, ui-rounded, system-ui, sans-serif; }
+      main { max-width: 1160px; margin: auto; padding: 48px 24px 76px; }
+      .eyebrow { margin: 0 0 8px; color: #9a6d22; font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+      h1 { max-width: 780px; margin: 0; color: var(--green); font: 700 clamp(2.25rem, 6vw, 4.55rem)/.98 Georgia, serif; letter-spacing: -.045em; }
+      .intro { max-width: 720px; margin: 20px 0 0; color: #52665e; font-size: 1.06rem; }
+      .toolbar { display: flex; align-items: center; gap: 16px; margin: 30px 0; padding: 14px 16px; border: 1px solid #e4dbcc; border-radius: 16px; background: #fffaf1; }
+      .toolbar p { flex: 1; margin: 0; color: #52665e; font-size: .87rem; }
+      button { border: 0; border-radius: 999px; background: #e5f0e9; color: var(--green); padding: 10px 14px; font: inherit; font-size: .82rem; font-weight: 800; cursor: pointer; }
+      button:hover { background: #d5e8dc; }
+      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+      .card { overflow: hidden; border: 1px solid #e7dfd1; border-radius: 24px; background: var(--paper); box-shadow: 0 8px 22px rgba(31,79,70,.05); }
+      .stage { position: relative; display: grid; min-height: 276px; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 50% 92%, #eadfca 0 13%, transparent 14%), linear-gradient(135deg, #fffdf9, #f7f0e4); }
+      .viewport { width: 207px; height: 276px; overflow: hidden; }
+      .strip { display: block; width: 100%; height: 100%; background-position: 0 0; background-repeat: no-repeat; background-size: 400% 200%; filter: drop-shadow(0 8px 5px rgba(31, 79, 70, .12)); animation-fill-mode: forwards; animation-iteration-count: 1; animation-timing-function: steps(1, end); }
+      .rest .strip { --rest-duration:11.6s; background-image: url('assets/repos-storyboard-v2.png'); transform-origin:50% 92%; filter:none; animation-name:rest, rest-breath; animation-duration:var(--rest-duration), var(--rest-duration); animation-timing-function:steps(1, end), ease-in-out; }
+      .listen .strip { background-image: url('assets/ecoute-storyboard-v2.png'); animation-name: listen; animation-duration: 2.8s; }
+      .think .strip { background-image: url('assets/reflexion-storyboard-v2.png'); animation-name: think; animation-duration: 3.2s; }
+      .propose .strip { background-image: url('assets/proposition-storyboard-v2.png'); animation-name: propose; animation-duration: 2.6s; }
+      .success .strip { background-image: url('assets/reussite-storyboard-v2.png'); animation-name: success; animation-duration: 2.4s; }
+      .question .strip { background-image: url('assets/question-storyboard-v2.png'); animation-name: question; animation-duration: 3s; }
+      @keyframes rest { 0%,88% { background-position:0 0 } 89%,89.6% { background-position:33.333% 100% } 89.7%,91% { background-position:66.666% 100% } 91.1%,100% { background-position:100% 100% } }
+      @keyframes rest-breath { 0%,47.4%,52.6%,100% { transform:scaleY(1) } 49.4%,50.6% { transform:scaleY(1.01) } }
+      @keyframes listen { 0%,10% { background-position:0 0 } 11%,20% { background-position:33.333% 0 } 21%,30% { background-position:66.666% 0 } 31%,40% { background-position:100% 0 } 41%,60% { background-position:0 100% } 61%,74% { background-position:33.333% 100% } 75%,88% { background-position:66.666% 100% } 89%,100% { background-position:100% 100% } }
+      @keyframes think { 0%,11% { background-position:0 0 } 12%,22% { background-position:33.333% 0 } 23%,34% { background-position:66.666% 0 } 35%,46% { background-position:100% 0 } 47%,58% { background-position:0 100% } 59%,76% { background-position:33.333% 100% } 77%,88% { background-position:66.666% 100% } 89%,100% { background-position:100% 100% } }
+      @keyframes propose { 0%,10% { background-position:0 0 } 11%,20% { background-position:33.333% 0 } 21%,30% { background-position:66.666% 0 } 31%,40% { background-position:100% 0 } 41%,58% { background-position:0 100% } 59%,74% { background-position:33.333% 100% } 75%,87% { background-position:66.666% 100% } 88%,100% { background-position:100% 100% } }
+      @keyframes success { 0%,10% { background-position:0 0 } 11%,20% { background-position:33.333% 0 } 21%,30% { background-position:66.666% 0 } 31%,40% { background-position:100% 0 } 41%,55% { background-position:0 100% } 56%,70% { background-position:33.333% 100% } 71%,84% { background-position:66.666% 100% } 85%,100% { background-position:100% 100% } }
+      @keyframes question { 0%,10% { background-position:0 0 } 11%,20% { background-position:33.333% 0 } 21%,30% { background-position:66.666% 0 } 31%,40% { background-position:100% 0 } 41%,58% { background-position:0 100% } 59%,74% { background-position:33.333% 100% } 75%,87% { background-position:66.666% 100% } 88%,100% { background-position:100% 100% } }
+      .content { padding: 18px 19px 20px; }
+      .meta { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+      .tag { color: #316451; font-size: .68rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+      .duration { color: #78857e; font-size: .74rem; }
+      h2 { margin: 0; font-size: 1.22rem; letter-spacing: -.025em; }
+      .when { min-height: 45px; margin: 7px 0 14px; color: var(--muted); font-size: .85rem; }
+      .replay { padding: 8px 11px; background: transparent; color: #386652; box-shadow: inset 0 0 0 1px #cce0d4; }
+      .replay:hover { background: #eff7f1; }
+      .legend { display: grid; grid-template-columns: .75fr 1.25fr; gap: 24px; align-items: center; margin-top: 42px; padding: 26px; border-radius: 24px; background: var(--green); color: var(--paper); }
+      .legend h2 { font: 700 1.7rem/1.05 Georgia, serif; }.legend p { margin: 10px 0 0; color: #d7e2dc; }.legend ul { margin: 0; padding-left: 20px; color: #e8eee9; font-size: .9rem; }.legend li + li { margin-top: 8px; }
+      .limits { margin-top: 28px; padding: 20px 24px; border-radius: 18px; background: #f0eadf; }.limits h2 { font-family: Georgia, serif; }.limits ul { margin: 10px 0 0; padding-left: 20px; }.limits li + li { margin-top: 6px; }
+      .reduced .strip { animation: none !important; background-position: 100% 100%; }
+      .reduced .stage::after { content: "pose fixe · mouvement réduit"; position: absolute; bottom: 10px; right: 12px; color: #587169; font-size: .67rem; font-weight: 800; }
+      @media (prefers-reduced-motion: reduce) { .strip { animation: none !important; background-position:100% 100%; } }
+      @media (max-width: 840px) { main { padding: 34px 16px 56px; }.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.legend { grid-template-columns: 1fr; }.toolbar { align-items: start; flex-direction: column; } }
+      @media (max-width: 510px) { .grid { grid-template-columns: 1fr; }.card { max-width: 370px; width: 100%; margin-inline: auto; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Spike visuel autonome · Chef C&amp;C</p>
+      <h1>Le Chef retenu, en six séquences à animer.</h1>
+      <p class="intro">Cette reprise utilise exactement le compagnon incarné choisi dans l’exploration UX : visage doré, enveloppe vert profond, toque crème, tablier ivoire et cuillère. Chaque carte joue désormais huit keyframes : les départs, apogées et retours ont leurs poses intermédiaires.</p>
+      <div class="toolbar"><p>Chaque séquence se joue une fois pour ne pas faire sauter la dernière pose vers la première. Utilise « Rejouer » pour l’inspecter ; la pose fixe reste lisible en mouvement réduit.</p><button id="motion" type="button" aria-pressed="false">Réduire le mouvement</button></div>
+
+      <section class="grid" aria-label="Six états du Chef C et C">
+        <article class="card rest"><div class="stage"><div class="viewport"><span class="strip" role="img" aria-label="Chef au repos : pose immobile, souffle vertical de un pour cent, puis bref clignement isolé."></span></div></div><div class="content"><div class="meta"><span class="tag">Présence calme</span><span class="duration">9–14 s</span></div><h2>Repos</h2><p class="when">Pose immobile, souffle vertical de 1 % pendant 600 ms, puis clignement rare séparé.</p><button class="replay" type="button">Rejouer</button></div></article>
+        <article class="card listen"><div class="stage"><div class="viewport"><span class="strip" role="img" aria-label="Huit keyframes du Chef qui écoute : regard, inclinaison légère et maintien attentif."></span></div></div><div class="content"><div class="meta"><span class="tag">Accusé de réception</span><span class="duration">2,8 s</span></div><h2>Écoute</h2><p class="when">Après une demande envoyée, une photo ou une dictée finalisée.</p><button class="replay" type="button">Rejouer</button></div></article>
+        <article class="card think"><div class="stage"><div class="viewport"><span class="strip" role="img" aria-label="Huit keyframes du Chef qui réfléchit : regard en haut, tête puis main près du visage."></span></div></div><div class="content"><div class="meta"><span class="tag">Analyse réelle</span><span class="duration">3,2 s</span></div><h2>Réflexion</h2><p class="when">Courte recherche ou analyse ; jamais une attente indéfinie.</p><button class="replay" type="button">Rejouer</button></div></article>
+        <article class="card propose"><div class="stage"><div class="viewport"><span class="strip" role="img" aria-label="Huit keyframes du Chef qui propose : regard vers la personne, cuillère avancée, étoile discrète."></span></div></div><div class="content"><div class="meta"><span class="tag">Réponse actionnable</span><span class="duration">2,6 s</span></div><h2>Proposition</h2><p class="when">Une recette, une substitution, une variante ou le prochain geste.</p><button class="replay" type="button">Rejouer</button></div></article>
+        <article class="card success"><div class="stage"><div class="viewport"><span class="strip" role="img" aria-label="Huit keyframes du Chef qui réussit : sourire, petit rebond, deux étincelles, réception douce."></span></div></div><div class="content"><div class="meta"><span class="tag">Action confirmée</span><span class="duration">2,4 s · une fois</span></div><h2>Réussite</h2><p class="when">Après une action confirmée, puis retour immédiat au repos.</p><button class="replay" type="button">Rejouer</button></div></article>
+        <article class="card question"><div class="stage"><div class="viewport"><span class="strip" role="img" aria-label="Huit keyframes du Chef qui pose une question : regard, tête inclinée, paume ouverte et point d'interrogation."></span></div></div><div class="content"><div class="meta"><span class="tag">Précision nécessaire</span><span class="duration">3 s</span></div><h2>Question</h2><p class="when">Précision ou photo nécessaire, ou deux voies réellement nettes.</p><button class="replay" type="button">Rejouer</button></div></article>
+      </section>
+
+      <section class="legend"><div><p class="eyebrow" style="color:#f3c57a">Contrat visible</p><h2>Le geste fait le sens ; le signe le ponctue.</h2></div><ul><li>Le regard précède la tête et la main : il donne l’intention avant le mouvement.</li><li>Les signes sont réservés aux états actifs : aucun au Repos ; étoile, étincelles et <span aria-label="point d'interrogation">?</span> ne prennent jamais le dessus.</li><li>Une séquence est interrompable : elle doit pouvoir rejoindre tout de suite l’état suivant.</li></ul></section>
+
+      <section class="limits"><h2>Limites à ne pas masquer</h2><ul><li>Cette page joue huit <em>keyframes</em> illustrées par état : elle devient plus proche du rythme visé, mais reste une prévisualisation de chorégraphie, pas une animation finale fluide.</li><li>Les fonds crème font partie des storyboards. Les exports de production devront être réellement détourés et conserver des marges de débordement.</li><li>Les sources restent des images aplaties. Pour un mouvement naturel, le futur asset doit respecter le contrat en calques : corps/tablier, tête/enveloppe, yeux et paupières, sourcils, bras, cuillère et toque.</li><li>Le contrat complet repris de l’exploration UX est disponible dans <code>CHEF-MOTION-SPEC.md</code>, à côté de cette page. Aucun flux Assistant ou écran produit n’est modifié.</li></ul></section>
+    </main>
+    <script>
+      const root = document.body;
+      const toggle = document.querySelector('#motion');
+      const restStrip = document.querySelector('.rest .strip');
+      const chooseRestDuration = () => restStrip.style.setProperty('--rest-duration', `${(9 + Math.random() * 5).toFixed(2)}s`);
+      chooseRestDuration();
+      toggle.addEventListener('click', () => {
+        const reduced = root.classList.toggle('reduced');
+        toggle.textContent = reduced ? 'Activer le mouvement' : 'Réduire le mouvement';
+        toggle.setAttribute('aria-pressed', String(reduced));
+      });
+      document.querySelectorAll('.replay').forEach((button) => {
+        button.addEventListener('click', () => {
+          const strip = button.closest('.card').querySelector('.strip');
+          if (strip === restStrip) chooseRestDuration();
+          strip.style.animation = 'none';
+          requestAnimationFrame(() => { strip.style.animation = ''; });
+        });
+      });
+    </script>
+  </body>
+</html>
