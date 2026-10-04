@@ -65,6 +65,17 @@ signalé). Les descendants ignorés d’un dossier confirmé ne sont jamais copi
 créé, ne pas refaire le handoff : l’examiner puis lancer `story-worktree:prepare` depuis
 ce worktree.
 
+### Clôturer une story
+
+Une demande explicite telle que « clôturons » autorise la clôture locale complète,
+sans devoir lister `commit` puis `merge` : Codex vérifie l’état, exécute les contrôles
+pertinents, committe les changements de la story, merge dans `main`, vérifie `main`, puis
+retire le worktree et la branche locale intégrés. Il ne traite pas ce mot comme un ordre
+de suppression aveugle : conflit, changements non liés, test en échec, travail non mergé
+ou processus actif doivent être signalés avant toute action. `done` seul reste une occasion
+de proposer la clôture, pas de l’exécuter. Push et déploiement restent des autorisations
+séparées.
+
 ### BMAD Loop
 
 Le bootstrap manuel n’initialise pas BMAD Loop : une story manuelle utilise les
