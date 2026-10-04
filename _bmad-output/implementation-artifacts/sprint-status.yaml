@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-13-2026 04:57
-last_updated: 10-04-2026 18:05
+last_updated: 10-05-2026 00:07
 project: cooks-n-coqs
 project_key: NOKEY
 tracking_system: file-system
@@ -53,7 +53,7 @@ development_status:
   epic-3-retrospective: optional
 
   epic-4: backlog
-  4-1-démarrer-et-clôturer-une-conversation-assistant: backlog
+  4-1-démarrer-et-clôturer-une-conversation-assistant: done
   4-2-retrouver-le-dernier-échange-assistant: backlog
   4-3-garder-les-messages-riches-dans-le-fil: backlog
   4-4-préserver-le-fil-en-cas-d-interruption: backlog
