@@ -46,6 +46,25 @@ npm run story-worktree:prepare -- /Users/patrice/GitHub/cooks-n-coqs
 La commande copie seulement le `.env` local du checkout `main`, exécute `npm ci`
 et rejoue les vérifications BMAD.
 
+### Isolation tardive d'une séance
+
+Si une séance a commencé dans `main` et doit être isolée, faire confirmer explicitement
+la courte liste des chemins liés avant toute commande. Depuis `main`, lancer ensuite :
+
+```bash
+npm run story-worktree:handoff -- <story-key> <slug> -- <chemin-confirmé>...
+```
+
+La commande crée un worktree depuis le `HEAD` validé, applique seulement les différences
+suivies confirmées (staged ou non), les suppressions et les nouveaux fichiers non ignorés,
+puis copie le `.env` local autorisé, exécute `npm ci` et vérifie BMAD. Le checkout source
+n’est ni déplacé, ni stashed, ni modifié. Une sélection vide, un chemin inchangé ou ignoré
+est refusé avant création ; si la création, le transfert ou la préparation échoue, le
+worktree et la branche créés par la commande sont retirés (ou l’échec de ce nettoyage est
+signalé). Les descendants ignorés d’un dossier confirmé ne sont jamais copiés. Pour un worktree Codex déjà
+créé, ne pas refaire le handoff : l’examiner puis lancer `story-worktree:prepare` depuis
+ce worktree.
+
 ### BMAD Loop
 
 Le bootstrap manuel n’initialise pas BMAD Loop : une story manuelle utilise les
