@@ -44,7 +44,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 | `step-timer-service` | Détection de durée de timer d'étape (sémantique IA + fallback) | `apps/web/src/services/step-timer-service.ts` |
 | `assistant-composer` | Validation locale, starters, raccourci et pièce jointe éphémère de l’accueil Assistant | `apps/web/src/utils/assistant-composer.ts` |
 | `assistant-session` | `AbortController`, `requestId`, annulation, exclusions mémoire de candidates et phases `searching` / `creating` : seul un `noCandidate` revalidé mène à un draft éphémère ; une liste vide après refus local ne le simule jamais, les réponses tardives sont ignorées et aucune issue ne persiste une recette | `apps/web/src/utils/assistant-session.ts` |
-| `chef-session` | Cycle du fil Chef, contexte hôte, annulation et invalidation locale des réponses tardives | À introduire côté `apps/web` |
+| `chef-session` | Cycle local du fil Chef : création au premier envoi, tours ordonnés, synchronisation et clôture sans effacement | `apps/web/src/utils/chef-session.ts` |
 | `chef-profile` | Préférences, apprentissages confiancés et paramètres de foyer locaux, distincts du Cahier | À introduire côté `apps/web` |
 | `chef-tools` | Validation et exécution côté client de demandes d'outils typées et minimisées | À introduire côté `apps/web` |
 | `chef-api` | Capacité IA stateless : réponse typée ou demande d'outil, sans persistance de données personnelles | À introduire côté `apps/bff` |
@@ -166,7 +166,7 @@ Tables minimales :
 - `images`
 - `ingredientImages` (images d'ingrédients, clé = id normalisé du label)
 - `cookingStepImages` (illustrations d'étapes en mode cuisine, cache local)
-- données Chef locales : journal de conversations et profil ; leur schéma Dexie détaillé est défini par les stories qui les introduisent
+- `chefConversations` : journal Chef minimal v4 (`id`, `createdAt`, `closedAt`, tours texte ordonnés), distinct de `recipes` et des médias ; profil et données riches restent définis par leurs stories
 
 Index minimaux :
 - `category`

@@ -74,6 +74,7 @@ import {
   generateRecipeImage
 } from "./services/import-service";
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, routeAssistantImport, type AssistantPreview } from "./utils/assistant-session";
+import { ChefSession } from "./utils/chef-session";
 import { createNoCandidateAssistantPreview } from "./utils/assistant-no-candidate";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
 import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, resolveAssistantProgressPhotoUrl, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
@@ -107,6 +108,9 @@ import {
 type ViewMode = "ASSISTANT" | "ASSISTANT_PREVIEW" | "LIST" | "DETAIL" | "FORM" | "ADD_CHOICE";
 type FormMode = "CREATE" | "EDIT";
 type ImportProgressType = "url" | "text" | "screenshot" | "file" | "share";
+type AssistantThreadCard =
+  | { id: string; turnCount: number; kind: "preview"; preview: AssistantPreview; imageUrl: string | null; imageUnavailable: boolean }
+  | { id: string; turnCount: number; kind: "candidate"; candidate: Recipe };
 
 interface IngredientInput {
   id: string;
@@ -186,6 +190,7 @@ const assistantPreviewImageUnavailable = ref(false);
 const assistantPreviewSaving = ref(false);
 const assistantAnnouncement = ref("");
 const assistantTextareaRef = ref<HTMLTextAreaElement | null>(null);
+const assistantThreadRef = ref<HTMLElement | null>(null);
 const assistantCameraInputRef = ref<HTMLInputElement | null>(null);
 const assistantGalleryInputRef = ref<HTMLInputElement | null>(null);
 const assistantPhotoMenuOpen = ref(false);
@@ -193,10 +198,13 @@ const assistantPhotoButtonRef = ref<HTMLElement | null>(null);
 const assistantCarouselRef = ref<HTMLElement | null>(null);
 const assistantListening = ref(false);
 const assistantSession = new AssistantSession();
+const chefSession = new ChefSession();
 const assistantPhase = ref(assistantSession.phase);
 const assistantPreview = ref<AssistantPreview | null>(null);
 const assistantCandidatePreview = ref<Recipe | null>(null);
 const assistantCandidatePreviews = ref<Recipe[]>([]);
+const assistantThreadCards = ref<AssistantThreadCard[]>([]);
+const assistantCardsAfterTurn = (turnCount: number) => assistantThreadCards.value.filter((card) => card.turnCount === turnCount);
 const assistantError = ref<string | null>(null);
 const assistantTurns = ref(assistantSession.turns);
 const assistantQuestion = ref<string | null>(null);
@@ -205,6 +213,24 @@ const assistantQuestion = ref<string | null>(null);
 const assistantPreparing = ref(false);
 let assistantPreparationId = 0;
 const assistantBusy = computed(() => assistantPreparing.value || ["importing", "analyzing", "searching", "creating"].includes(assistantPhase.value));
+
+function revealLatestAssistantEvent(): void {
+  void nextTick(() => {
+    const thread = assistantThreadRef.value;
+    const conversation = thread?.querySelector<HTMLOListElement>(".assistant-conversation");
+    const target = thread?.querySelector<HTMLElement>(".assistant-conversation-progress")
+      ?? conversation?.lastElementChild as HTMLElement | null;
+    if (!target) return;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    // `nearest` peut laisser l'état de lecture hors viewport sous le Composer
+    // sticky. Le centrage rend chaque nouvelle étape de traitement visible.
+    target.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
+  });
+}
+
+watch([assistantTurns, assistantPhase], () => {
+  if (assistantTurns.value.length) revealLatestAssistantEvent();
+});
 const ASSISTANT_STARTER_LABELS: Record<(typeof ASSISTANT_STARTERS)[number], string> = {
   "J'ai envie de cuisiner quelque chose de rapide ce soir.": "Rapide ce soir",
   "Voici une recette à préparer :": "Préparer une recette",
@@ -1043,9 +1069,61 @@ function focusAssistantComposer(): void {
   void nextTick(() => assistantTextareaRef.value?.focus());
 }
 
+async function withinAssistantDeadline<T>(operation: Promise<T>, label: string, timeoutMs = 12_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`assistant_stage:${label}`)), timeoutMs); })
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 function openAssistant(): void {
   clearMessages();
   viewMode.value = "ASSISTANT";
+  focusAssistantComposer();
+}
+
+async function persistChefConversation(): Promise<void> {
+  const record = chefSession.active ? chefSession.sync(assistantSession.turns) : chefSession.begin(assistantSession.turns);
+  if (record) await db.chefConversations.put(record);
+}
+
+async function startNewChefConversation(): Promise<void> {
+  const active = chefSession.active;
+  if (!active) return;
+  // Empêcher toute réponse tardive avant l'écriture, sans perdre le fil si elle échoue.
+  assistantPreparationId += 1;
+  assistantPreparing.value = false;
+  stopAssistantDictation(false);
+  assistantSession.invalidate();
+  const closed = { ...active, closedAt: new Date().toISOString() };
+  try {
+    await db.chefConversations.put(closed);
+  } catch {
+    assistantPhase.value = assistantSession.phase;
+    assistantAnnouncement.value = "Impossible de clôturer cette conversation localement. Votre échange est conservé.";
+    return;
+  }
+  chefSession.close(new Date(closed.closedAt));
+  assistantSession.resetConversation();
+  assistantTurns.value = assistantSession.turns;
+  assistantText.value = "";
+  assistantAttachments.value.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
+  assistantAttachments.value = [];
+  assistantPreview.value = null;
+  assistantPreviewImageUrl.value = null;
+  assistantPreviewImageUnavailable.value = false;
+  assistantImageProgress.value = null;
+  assistantCandidatePreview.value = null;
+  assistantCandidatePreviews.value = [];
+  assistantThreadCards.value = [];
+  assistantError.value = null;
+  assistantQuestion.value = null;
+  assistantAnnouncement.value = "Nouvelle conversation prête.";
   focusAssistantComposer();
 }
 
@@ -1069,6 +1147,11 @@ function clearAssistantAttachment(index: number): void {
   assistantAttachments.value.splice(index, 1);
   assistantAnnouncement.value = "Image retirée.";
   focusAssistantComposer();
+}
+
+function clearSentAssistantAttachments(): void {
+  assistantAttachments.value.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
+  assistantAttachments.value = [];
 }
 
 function addAssistantAttachments(files: readonly File[]): void {
@@ -1164,29 +1247,66 @@ async function prepareAssistantRequest(): Promise<void> {
     const importPromise = !assistantAttachments.value.length && Boolean(tryParseRecipeShareF2Text(assistantText.value, { sourceType: "TEXT" }))
       ? assistantSession.import(assistantText.value, null, assistantImportAdapter)
       : prepareAssistantTextRequest(preparationId);
+    // resolveText ajoute le tour utilisateur avant sa première attente réseau :
+    // persister ici garantit qu'un départ ou une annulation ne crée pas de fil vide
+    // tout en conservant l'intention effectivement envoyée.
+    if (assistantSession.turns.length) {
+      await persistChefConversation();
+      // Le message est désormais un tour du fil : le Compositeur redevient
+      // disponible pour la réponse suivante, sans dupliquer la demande.
+      assistantText.value = "";
+      assistantTurns.value = [...assistantSession.turns];
+      revealLatestAssistantEvent();
+    }
     // Compression may still be running: keep the overlay mounted and its
     // cancellation button focusable until the session takes over.
     assistantPhase.value = assistantSession.phase === "idle" ? "analyzing" : assistantSession.phase;
-    assistantPreview.value = null;
-    assistantCandidatePreview.value = null;
-    // Un import F2 remplace la séance : ne pas laisser une ancienne carte Cahier
-    // agir sur ce nouveau contexte local.
-    assistantCandidatePreviews.value = [];
+    // Une carte déjà proposée reste dans le fil pendant le tour suivant. Seul
+    // l'import F2 ouvre un autre flux et ne doit pas conserver ses cartes.
+    if (!assistantAttachments.value.length && Boolean(tryParseRecipeShareF2Text(assistantText.value, { sourceType: "TEXT" }))) {
+      assistantPreview.value = null;
+      assistantCandidatePreview.value = null;
+      assistantCandidatePreviews.value = [];
+      assistantThreadCards.value = [];
+    }
     assistantError.value = null;
     nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-import-progress button")?.focus());
     const preview = await importPromise;
     if (preparationId !== assistantPreparationId) return;
     assistantPhase.value = assistantSession.phase;
     assistantPreview.value = assistantSession.preview;
+    if (preview) {
+      if (!assistantThreadCards.value.some((card) => card.kind === "preview" && card.preview.requestId === preview.requestId)) {
+        assistantThreadCards.value.push({ id: crypto.randomUUID(), turnCount: assistantSession.turns.length, kind: "preview", preview, imageUrl: null, imageUnavailable: false });
+      }
+    }
     assistantError.value = assistantSession.error;
+    assistantTurns.value = [...assistantSession.turns];
+    // Après un traitement abouti, les images appartiennent au tour déjà
+    // envoyé (ou à sa preview), pas au prochain message du Compositeur.
+    // En cas d'erreur elles restent disponibles pour un nouvel essai.
+    if (assistantSession.phase !== "error") clearSentAssistantAttachments();
+    if (assistantSession.turns.length) {
+      try {
+        await persistChefConversation();
+      } catch {
+        assistantError.value = "Impossible d’enregistrer cette conversation localement.";
+        assistantAnnouncement.value = assistantError.value;
+      }
+    }
     if (preview) {
     assistantPreviewImageUrl.value = null;
     assistantPreviewImageUnavailable.value = false;
     const requestId = preview.requestId;
     void generateRecipeImage(preview.draft).then((imageUrl) => {
+      const card = assistantThreadCards.value.find((candidate) => candidate.kind === "preview" && candidate.preview.requestId === requestId);
+      if (imageUrl && card?.kind === "preview") card.imageUrl = imageUrl;
+      else if (card?.kind === "preview") card.imageUnavailable = true;
       if (imageUrl && assistantPreview.value?.requestId === requestId) assistantPreviewImageUrl.value = imageUrl;
       else if (assistantPreview.value?.requestId === requestId) { assistantPreviewImageUnavailable.value = true; assistantAnnouncement.value = "Prévisualisation prête sans illustration."; }
     }).catch(() => {
+      const card = assistantThreadCards.value.find((candidate) => candidate.kind === "preview" && candidate.preview.requestId === requestId);
+      if (card?.kind === "preview") card.imageUnavailable = true;
       if (assistantPreview.value?.requestId === requestId) { assistantPreviewImageUnavailable.value = true; assistantAnnouncement.value = "Prévisualisation prête sans illustration."; }
     });
     assistantAnnouncement.value = "Prévisualisation prête. Ouvrez la carte pour la consulter.";
@@ -1208,7 +1328,6 @@ async function prepareAssistantRequest(): Promise<void> {
 
 async function prepareAssistantTextRequest(preparationId: number): Promise<AssistantPreview | null> {
   assistantCandidatePreview.value = null;
-  assistantCandidatePreviews.value = [];
   // Une réponse utilisateur ferme la question en attente sans effacer le fil affiché.
   if (assistantSession.question) assistantSession.question = null;
   const inputText = assistantText.value.trim();
@@ -1227,7 +1346,9 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
     resolve: async (text, signal, progress) => {
       let stage = "cahier";
       try {
-        const notebookSnapshot = await buildNotebookSnapshot();
+        progress("searching");
+        assistantPhase.value = assistantSession.phase;
+        const notebookSnapshot = await withinAssistantDeadline(buildNotebookSnapshot(), "cahier");
         const candidates = notebookSnapshot.candidates;
         for (const candidate of candidates) {
           const recipe = notebookSnapshot.resolve(candidate.candidateRef);
@@ -1238,14 +1359,12 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
         const visualSummaries = route === "image" ? await summarizeAssistantImages(attachments, inputText, signal, (progress) => { assistantImageProgress.value = progress; }) : [];
         const selectionRequest = buildAssistantSelectionRequest(text, visualSummaries);
         stage = "decision";
-        progress("searching");
-        assistantPhase.value = assistantSession.phase;
-        const choice = await selectNotebookRecipe(selectionRequest, candidates, signal);
+        const choice = await withinAssistantDeadline(selectNotebookRecipe(selectionRequest, candidates, signal), "decision");
         if (choice.kind === "candidates") return { kind: "candidates" as const, candidateRefs: choice.candidates.map(({ candidateRef }) => candidateRef) };
         if (choice.kind === "noCandidate") {
           generationRequest = selectionRequest;
           stage = "generation";
-          const preview = await createNoCandidateAssistantPreview({
+          const preview = await withinAssistantDeadline(createNoCandidateAssistantPreview({
             route,
             selectionRequest: generationRequest,
             sourceFiles: originalSourceFiles,
@@ -1253,7 +1372,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
             signal,
             creating: () => progress("creating"),
             generate: generateAssistantRecipe
-          });
+          }), "generation", 25_000);
           return { kind: "draft" as const, ...preview };
         }
         throw new Error("selection unavailable");
@@ -1297,18 +1416,22 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
       }
       return null;
     }
-    assistantCandidatePreviews.value = found;
+    assistantCandidatePreviews.value = [...assistantCandidatePreviews.value, ...found.filter((recipe) => !assistantCandidatePreviews.value.some(({ id }) => id === recipe.id))];
     assistantCandidatePreview.value = found[0];
-    assistantPreviewImageUrl.value = null;
-    assistantPreviewImageUnavailable.value = !found[0].imageId;
     assistantSession.phase = "ready";
+    assistantSession.addChefTurn(`J’ai trouvé ${found.length > 1 ? "quelques recettes" : "une recette"} dans votre Cahier.`);
+    for (const candidate of found) {
+      assistantThreadCards.value.push({ id: crypto.randomUUID(), turnCount: assistantSession.turns.length, kind: "candidate", candidate });
+    }
     assistantPhase.value = "ready";
     assistantAnnouncement.value = "Recette du Cahier trouvée. Ouvrez la carte pour la consulter.";
   }
   if (result?.kind === "noCandidate") {
     assistantCandidatePreview.value = null;
-    assistantCandidatePreviews.value = [];
     assistantAnnouncement.value = "Aucune recette de votre Cahier ne correspond suffisamment à votre demande.";
+  }
+  if (result?.kind === "draft") {
+    assistantSession.addChefTurn("J’ai préparé une proposition à relire avant de la sauvegarder.");
   }
   return assistantSession.preview;
 }
@@ -1325,7 +1448,7 @@ function cancelAssistantImport(): void {
   focusAssistantComposer();
 }
 
-async function openAssistantPreview(): Promise<void> {
+async function openAssistantPreview(preview = assistantPreview.value, imageUrl = assistantPreviewImageUrl.value, imageUnavailable = assistantPreviewImageUnavailable.value): Promise<void> {
   // Une preview est une nouvelle action : aucun retour d'une suppression passée.
   clearMessages();
   if (assistantCandidatePreview.value) {
@@ -1334,7 +1457,10 @@ async function openAssistantPreview(): Promise<void> {
     detailRecipeOverride.value = candidate;
     return;
   }
-  if (!assistantPreview.value) return;
+  if (!preview) return;
+  assistantPreview.value = preview;
+  assistantPreviewImageUrl.value = imageUrl;
+  assistantPreviewImageUnavailable.value = imageUnavailable;
   viewMode.value = "ASSISTANT_PREVIEW";
 }
 
@@ -1345,33 +1471,13 @@ function openAssistantCandidate(candidate: Recipe): void {
   detailRecipeOverride.value = candidate;
 }
 
-function rejectAssistantCandidate(candidate: Recipe): void {
-  if (!assistantSession.rejectCandidate(candidate.id)) return;
-  const remaining = assistantCandidatePreviews.value.filter(({ id }) => id !== candidate.id);
-  assistantCandidatePreviews.value = remaining;
-  assistantCandidatePreview.value = remaining[0] ?? null;
-  assistantSession.phase = remaining.length ? "ready" : "idle";
-  assistantPhase.value = assistantSession.phase;
-  assistantAnnouncement.value = `« ${candidate.title} » écartée. Précisez votre demande ou essayez une autre formulation.`;
-  focusAssistantComposer();
-}
 
 async function closeAssistantPreview(): Promise<void> {
   if (assistantPreviewSaving.value) return;
-  const confirmed = await requestConfirmation({ header: "Fermer ce résultat ?", message: "Votre saisie restera dans le Compositeur.", acceptLabel: "Fermer", rejectLabel: "Garder", acceptSeverity: "danger" });
-  if (!confirmed) return;
-  assistantSession.closePreview();
-  assistantPreview.value = null;
-  assistantCandidatePreview.value = null;
-  assistantCandidatePreviews.value = [];
-  assistantPreviewImageUrl.value = null;
-  assistantPreviewImageUnavailable.value = false;
-  assistantPhase.value = assistantSession.phase;
-  assistantError.value = null;
-  assistantTurns.value = assistantSession.turns;
-  assistantQuestion.value = null;
+  // Le retour depuis le détail n'efface jamais une carte du fil : elle est un
+  // événement de conversation, pas une fenêtre superposée à fermer.
   viewMode.value = "ASSISTANT";
-  assistantAnnouncement.value = "Résultat fermé. Votre saisie est conservée.";
+  assistantAnnouncement.value = "Retour à votre conversation.";
   nextTick(() => focusAssistantComposer());
 }
 
@@ -3099,24 +3205,52 @@ onUnmounted(() => {
           <i class="pi pi-book" aria-hidden="true" />
           Cahier
         </button>
+        <button v-if="assistantTurns.length" type="button" class="assistant-new-conversation" :disabled="assistantBusy" @click="startNewChefConversation">
+          Nouvelle recette
+        </button>
       </header>
 
-      <div class="assistant-intro">
+      <div v-if="!assistantTurns.length" class="assistant-intro">
         <h1 id="assistant-title">On mange quoi&nbsp;?</h1>
       </div>
 
-      <section class="assistant-composer-section">
-        <ol v-if="assistantTurns.length" class="assistant-conversation" aria-label="Échange avec l’Assistant">
-          <li v-for="(turn, index) in assistantTurns" :key="`${turn.role}-${index}-${turn.text}`" :class="`assistant-conversation-turn assistant-conversation-turn--${turn.role}`">
-            {{ turn.text }}
-          </li>
-        </ol>
+      <section class="assistant-composer-section" :class="{ 'assistant-composer-section--conversation': assistantTurns.length }">
+        <div v-if="assistantTurns.length" ref="assistantThreadRef" class="assistant-thread">
+          <ol class="assistant-conversation" aria-label="Échange avec l’Assistant">
+            <template v-for="(turn, index) in assistantTurns" :key="`${turn.role}-${index}-${turn.text}`">
+              <li :class="`assistant-conversation-turn assistant-conversation-turn--${turn.role}`">{{ turn.text }}</li>
+              <li v-for="card in assistantCardsAfterTurn(index + 1)" :key="card.id" class="assistant-conversation-card">
+                <div class="assistant-preview-card-wrap assistant-thread-card-wrap">
+                  <template v-if="card.kind === 'preview'">
+                    <button type="button" class="assistant-preview-card" :aria-label="`Prévisualisation prête — ouvrir ${card.preview.draft.title}`" @click="openAssistantPreview(card.preview, card.imageUrl, card.imageUnavailable)">
+                      <span class="assistant-preview-card-hero" :class="{ 'is-loading': !card.imageUrl && !card.imageUnavailable }"><img v-if="card.imageUrl" class="assistant-preview-card-image" :src="card.imageUrl" alt="" /><span v-else-if="!card.imageUnavailable" class="assistant-preview-card-loading"><span class="assistant-preview-card-loading-mark" aria-hidden="true"><ProgressSpinner /><img src="/favicon.svg" alt="" /></span><span>Je prépare l’illustration…</span></span><span v-else class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span></span>
+                      <span class="assistant-preview-card-copy"><span class="assistant-preview-card-status">Recette sur mesure</span><span class="assistant-preview-card-title">{{ card.preview.draft.title }}</span><span class="assistant-preview-card-meta">{{ assistantPreviewCategoryLabel(card.preview.draft.category) }} · {{ card.preview.draft.ingredients.length }} ingrédients</span></span>
+                      <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button type="button" class="assistant-preview-card" :aria-label="`Recette du Cahier trouvée — ouvrir ${card.candidate.title}`" @click="openAssistantCandidate(card.candidate)">
+                      <span class="assistant-preview-card-hero"><RecipeImage v-if="card.candidate.imageId" :image-id="card.candidate.imageId" alt="" img-class="assistant-preview-card-image" /><span v-else class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span></span>
+                      <span class="assistant-preview-card-copy"><span class="assistant-preview-card-status">Dans votre Cahier · Correspond à votre demande</span><span class="assistant-preview-card-title">{{ card.candidate.title }}</span><span class="assistant-preview-card-meta">{{ assistantPreviewCategoryLabel(card.candidate.category) }} · {{ card.candidate.ingredients.length }} ingrédients</span></span>
+                      <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
+                    </button>
+                  </template>
+                </div>
+              </li>
+            </template>
+            <li v-if="['importing', 'analyzing', 'searching', 'creating'].includes(assistantPhase)" class="assistant-conversation-progress">
+              <div class="assistant-import-progress" role="status" aria-live="polite">
+                <span class="assistant-import-progress-mark" aria-hidden="true"><ProgressSpinner /><img :class="{ 'assistant-import-progress-photo': assistantProgressPhotoUrl }" :src="assistantProgressPhotoUrl ?? '/favicon.svg'" alt="" /></span>
+                <span class="assistant-import-progress-label">{{ assistantPhase === 'searching' ? 'Je cherche dans votre Cahier' : assistantPhase === 'creating' ? 'Je crée votre recette' : assistantPhase === 'analyzing' ? (assistantImageProgress ? `${assistantImageProgress.phase === 'preparing' ? 'Préparation' : 'Lecture'} de la photo ${assistantImageProgress.current}/${assistantImageProgress.total}` : (assistantAttachments.length ? 'J’analyse vos photos' : 'J’analyse votre demande')) : (assistantAttachments.length ? 'Je lis vos photos pour reconstituer la recette' : 'J’analyse votre recette') }}</span>
+              </div>
+            </li>
+          </ol>
+        </div>
         <div
           class="assistant-composer"
           :class="{
             'assistant-composer--with-attachments': assistantAttachments.length > 0,
-            'assistant-composer--with-candidates': assistantCandidatePreviews.length > 0,
-            'assistant-composer--with-preview': assistantPreview || assistantCandidatePreviews.length
+            'assistant-composer--with-preview': assistantPreview
           }"
         >
           <label class="sr-only" for="assistant-composer-text">Votre demande</label>
@@ -3166,7 +3300,8 @@ onUnmounted(() => {
               :disabled="assistantBusy"
               @click="toggleAssistantDictation"
             />
-            <Button :aria-label="assistantBusy ? 'Envoi en cours' : 'Envoyer la demande'" :icon="assistantBusy ? 'pi pi-spinner pi-spin' : 'pi pi-arrow-up'" class="assistant-icon-action assistant-submit" :class="{ 'is-submitting': assistantBusy }" :disabled="assistantBusy" @click="prepareAssistantRequest" />
+            <Button v-if="assistantBusy" aria-label="Annuler la demande" icon="pi pi-times" class="assistant-icon-action assistant-submit assistant-cancel-submit" @click="cancelAssistantImport" />
+            <Button v-else aria-label="Envoyer la demande" icon="pi pi-arrow-up" class="assistant-icon-action assistant-submit" @click="prepareAssistantRequest" />
           </div>
           <input
             ref="assistantCameraInputRef"
@@ -3191,54 +3326,11 @@ onUnmounted(() => {
           <p id="assistant-composer-status" class="assistant-live sr-only" role="status" aria-live="polite">
             {{ assistantAnnouncement }}
           </p>
-          <div v-for="candidate in assistantCandidatePreviews" :key="candidate.id" class="assistant-preview-card-wrap assistant-candidate-card-wrap">
-          <button type="button" class="assistant-preview-card" :aria-label="`Recette du Cahier trouvée — ouvrir ${candidate.title}`" @click="openAssistantCandidate(candidate)">
-            <span class="assistant-preview-card-hero">
-              <RecipeImage v-if="candidate.imageId" :image-id="candidate.imageId" alt="" img-class="assistant-preview-card-image" />
-              <span v-else class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span>
-            </span>
-            <span class="assistant-preview-card-copy"><span class="assistant-preview-card-status">Dans votre Cahier · Correspond à votre demande</span><span class="assistant-preview-card-title">{{ candidate.title }}</span><span class="assistant-preview-card-meta">{{ assistantPreviewCategoryLabel(candidate.category) }} · {{ candidate.ingredients.length }} ingrédients</span></span>
-            <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
-          </button>
-          <button type="button" class="assistant-preview-close assistant-candidate-refuse" :aria-label="`Refuser ${candidate.title}`" title="Écarter cette recette" @click="rejectAssistantCandidate(candidate)"><i class="pi pi-times" aria-hidden="true" /></button>
-          </div>
-          <div v-if="assistantPreview" class="assistant-preview-card-wrap">
-          <button type="button" class="assistant-preview-card" :aria-label="assistantCandidatePreview ? 'Recette du Cahier trouvée — ouvrir la recette' : 'Prévisualisation prête — ouvrir la recette'" @click="openAssistantPreview" @keydown.enter.prevent="openAssistantPreview" @keydown.space.prevent="openAssistantPreview">
-            <span class="assistant-preview-card-hero" :class="{ 'is-loading': (assistantPreview || assistantCandidatePreview) && !assistantPreviewImageUrl && !assistantPreviewImageUnavailable }">
-              <RecipeImage v-if="assistantCandidatePreview?.imageId" :image-id="assistantCandidatePreview.imageId" alt="" img-class="assistant-preview-card-image" />
-              <img v-else-if="assistantPreviewImageUrl" class="assistant-preview-card-image" :src="assistantPreviewImageUrl" alt="" />
-              <span v-else-if="(assistantPreview || assistantCandidatePreview) && !assistantPreviewImageUnavailable" class="assistant-preview-card-loading">
-                <span class="assistant-preview-card-loading-mark" aria-hidden="true"><ProgressSpinner /><img src="/favicon.svg" alt="" /></span>
-                <span>Je prépare l’illustration…</span>
-              </span>
-              <span v-else class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span>
-            </span>
-            <span class="assistant-preview-card-copy">
-              <span class="assistant-preview-card-status">{{ assistantCandidatePreview ? 'Dans votre Cahier' : 'Recette sur mesure' }}</span>
-              <span class="assistant-preview-card-title">{{ assistantCandidatePreview?.title ?? assistantPreview?.draft.title }}</span>
-              <span class="assistant-preview-card-meta">{{ assistantCandidatePreview ? assistantPreviewCategoryLabel(assistantCandidatePreview.category) + ' · ' + assistantCandidatePreview.ingredients.length + ' ingrédients' : assistantPreview ? assistantPreviewCategoryLabel(assistantPreview.draft.category) + ' · ' + assistantPreview.draft.ingredients.length + ' ingrédients' : '' }}</span>
-              <span class="assistant-preview-card-ingredients">
-                <span v-for="ingredient in (assistantCandidatePreview?.ingredients ?? assistantPreview?.draft.ingredients ?? []).slice(0, 3)" :key="ingredient.id">{{ ingredient.label }}</span>
-                <span v-if="(assistantCandidatePreview?.ingredients ?? assistantPreview?.draft.ingredients ?? []).length > 3" class="assistant-preview-card-ingredients-more">+ {{ (assistantCandidatePreview?.ingredients ?? assistantPreview?.draft.ingredients ?? []).length - 3 }} ingrédients</span>
-              </span>
-            </span>
-            <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
-          </button>
-          <button type="button" class="assistant-preview-close" aria-label="Fermer ce résultat" @click.stop="closeAssistantPreview"><i class="pi pi-times" aria-hidden="true" /></button>
-          </div>
-          <div v-if="['importing', 'analyzing', 'searching', 'creating'].includes(assistantPhase)" class="assistant-import-progress" role="status" aria-live="polite">
-            <span class="assistant-import-progress-mark" aria-hidden="true">
-              <ProgressSpinner />
-              <img :class="{ 'assistant-import-progress-photo': assistantProgressPhotoUrl }" :src="assistantProgressPhotoUrl ?? '/favicon.svg'" alt="" />
-            </span>
-            <span class="assistant-import-progress-label">{{ assistantPhase === 'searching' ? 'Je cherche dans votre Cahier' : assistantPhase === 'creating' ? 'Je crée votre recette' : assistantPhase === 'analyzing' ? (assistantImageProgress ? `${assistantImageProgress.phase === 'preparing' ? 'Préparation' : 'Lecture'} de la photo ${assistantImageProgress.current}/${assistantImageProgress.total}` : (assistantAttachments.length ? 'J’analyse vos photos' : 'J’analyse votre demande')) : (assistantAttachments.length ? 'Je lis vos photos pour reconstituer la recette' : 'J’analyse votre recette') }}</span>
-            <Button label="Annuler" severity="secondary" @click="cancelAssistantImport" />
-          </div>
         </div>
         <p v-if="assistantError" class="assistant-import-error" role="alert">{{ assistantError }}</p>
       </section>
 
-      <section class="assistant-starters" aria-label="Suggestions de demandes">
+      <section v-if="!assistantTurns.length" class="assistant-starters" aria-label="Suggestions de demandes">
         <div class="assistant-starter-list">
           <button
             v-for="starter in ASSISTANT_STARTERS"
@@ -3254,7 +3346,7 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <section class="assistant-discovery" aria-labelledby="assistant-discovery-title">
+      <section v-if="!assistantTurns.length" class="assistant-discovery" aria-labelledby="assistant-discovery-title">
         <div class="assistant-section-heading">
           <h2 id="assistant-discovery-title">À découvrir dans votre Cahier</h2>
           <div class="assistant-carousel-controls">

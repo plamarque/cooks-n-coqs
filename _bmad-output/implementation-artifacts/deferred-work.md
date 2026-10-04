@@ -7,3 +7,18 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-1-clore-recherche-cahier.md`
   summary: Mettre à jour l'attente du test de benchmark qui exige encore le statut `awaiting-operator` malgré la décision humaine désormais consignée.
   evidence: `npm run test:unit` échoue dans `apps/bff/test/image-benchmark.test.ts` car le document versionné contient la clôture validée, hors périmètre de la correction 2.1.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-demarrer-et-cloturer-une-conversation-assistant.md`
+  summary: Enrichir le contrat BFF du Chef avec une représentation bornée des recettes proposées et écartées dans le fil actif.
+  evidence: Le modèle reçoit aujourd'hui au plus cinq tours texte pour la génération, mais ni les cartes recettes ni leur état de rejet ; une représentation texte ou JSON lui permettrait d'éviter une proposition déjà refusée sans transmettre le HTML.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-demarrer-et-cloturer-une-conversation-assistant.md`
+  summary: Ouvrir une recette générée en lecture seule depuis le fil, avec une action explicite pour passer à l'édition avant sauvegarde.
+  evidence: La prévisualisation générée réutilise actuellement le formulaire d'édition ; le parcours souhaité distingue consultation de la proposition et modification volontaire.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-demarrer-et-cloturer-une-conversation-assistant.md`
+  summary: Faire demander une précision au Chef lorsqu'une demande est ambiguë, hors cuisine ou insuffisante pour proposer une recette.
+  evidence: « pourquoi les éléphants ? » a été routé vers un `noCandidate`, puis a déclenché une mousse au chocolat ; l'absence de recette du Cahier ne suffit pas à établir une intention de génération culinaire.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-demarrer-et-cloturer-une-conversation-assistant.md`
+  summary: Reconnaître une demande de modification d'une recette générée dans le fil et créer une variante de cette recette plutôt qu'une nouvelle recette sans rapport.
+  evidence: Après « Mousse au chocolat noir », « avec de l'orange amère » a généré des crêpes Suzette ; le contrat actuel ne fournit ni la recette proposée ni l'intention de la modifier au routeur/générateur.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-demarrer-et-cloturer-une-conversation-assistant.md`
+  summary: Afficher le temps de préparation sur les vignettes de recettes lorsque cette donnée est disponible.
+  evidence: Les vignettes du fil n'affichent aujourd'hui que la catégorie et le nombre d'ingrédients, ce qui ne permet pas d'évaluer immédiatement l'effort requis.

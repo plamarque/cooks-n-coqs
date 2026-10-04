@@ -38,6 +38,12 @@ test("session Assistant : dispatch réel image, URL puis texte", async () => {
   ]);
 });
 
+test("session Assistant : un import envoyé forme un tour utilisateur puis Chef", async () => {
+  const session = new AssistantSession();
+  await session.import("https://example.test/recette", null, { importImage: async () => draft, importUrl: async () => draft, importText: async () => draft });
+  assert.deepEqual(session.turns.map(({ role }) => role), ["user", "assistant"]);
+});
+
 test("session Assistant : cancel abort réellement le signal de l'adaptateur", async () => {
   let receivedSignal: AbortSignal | undefined;
   const session = new AssistantSession();
@@ -64,6 +70,16 @@ test("session Assistant : annulation ignore le résultat tardif", async () => {
   session.cancel(); resolve(draft);
   assert.equal(await importing, null);
   assert.equal(session.preview, null);
+});
+
+test("session Assistant : invalidate ignore le résultat tardif sans effacer le fil", async () => {
+  let resolve!: (value: typeof draft) => void;
+  const pending = new Promise<typeof draft>((done) => { resolve = done; });
+  const session = new AssistantSession();
+  const importing = session.import("Soupe", null, { importImage: async () => draft, importUrl: async () => draft, importText: async () => pending });
+  session.invalidate(); resolve(draft);
+  assert.equal(await importing, null);
+  assert.deepEqual(session.turns.map(({ role }) => role), ["user"]);
 });
 
 test("session Assistant : fermeture détruit la preview", async () => {
@@ -147,6 +163,17 @@ test("session Assistant : une candidate refusée reste exclue jusqu’à la fin 
   session.rejectCandidate("cahier-1");
   session.closePreview();
   assert.equal(session.isCandidateRejected("cahier-1"), false);
+});
+
+test("session Assistant : l’écartement conserve la carte dans le fil et ajoute la relance Chef", () => {
+  const session = new AssistantSession();
+  session.beginConversation("une soupe");
+  session.addChefTurn("J’ai trouvé une recette dans votre Cahier.");
+  assert.equal(session.rejectCandidate("cahier-1"), true);
+  session.addChefTurn("D’accord, je garde cette piste de côté. Dites-moi ce qui vous conviendrait mieux.");
+  assert.equal(session.isCandidateRejected("cahier-1"), true);
+  assert.deepEqual(session.turns.map(({ role }) => role), ["user", "assistant", "assistant"]);
+  assert.match(session.turns.at(-1)?.text ?? "", /garde cette piste de côté/);
 });
 
 test("session Assistant : la projection réseau borne le fil sans tronquer son affichage", () => {

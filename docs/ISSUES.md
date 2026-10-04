@@ -17,3 +17,4 @@
 - Cache BFF pour images d'ingrédients générées : mutualiser les images entre utilisateurs pour limiter les appels DALL-E ; impact architecture (stockage serveur, ex. fichier ou Redis) — à réfléchir plus tard.
 - Assistant — rendre lisible une recette ou une demande longue collée dans le Compositeur (paragraphes, titres, listes), sans altérer le texte transmis à l’import ou au modèle.
 - Assistant — afficher la durée totale de préparation/cuisson sur la vignette de prévisualisation, en complément de la catégorie et du nombre d’ingrédients.
+- Assistant — les recettes générées placent parfois quantité et unité dans le libellé de l’ingrédient (ex. « 600 g de ris de veau », « 1 l de lait »), au lieu de renseigner les champs structurés séparément. L’import sait déjà les distinguer. À investiguer hors story 4.1 : contrat/prompt de génération BFF puis mapping du draft ; ajouter une régression de recette générée avec quantités et unités.

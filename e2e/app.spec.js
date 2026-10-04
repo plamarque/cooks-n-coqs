@@ -246,6 +246,22 @@ test.describe("Cookies & Coquillettes v1", () => {
     expect(legacyImportCalls).toBe(0);
   });
 
+  test("Chef : le premier envoi ouvre un fil et Nouvelle recette le clôt sans créer de fil vide", async ({ page }) => {
+    await page.goto("/");
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: { title: "Soupe", category: "SALE", ingredients: [], steps: [{ id: "step-1", order: 1, text: "Cuire." }] } }));
+    await page.getByLabel("Votre demande").fill("Une soupe rapide");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Nouvelle recette" })).toBeVisible();
+    await expect(page.locator(".assistant-conversation-turn--user")).toContainText("Une soupe rapide");
+    await expect(page.locator(".assistant-conversation-turn--assistant")).toContainText(/proposition/i);
+    await page.getByRole("button", { name: "Nouvelle recette" }).click();
+    await expect(page.getByRole("button", { name: "Nouvelle recette" })).toHaveCount(0);
+    await expect(page.getByLabel("Votre demande")).toHaveValue("");
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
+    await expect(page.locator(".notebook-header .assistant-nav")).toBeFocused();
+  });
+
   test("Assistant : une recette texte longue garde sa source complète et projette un fil valide", async ({ page }) => {
     const longRecipe = ("Saucisses, pommes de terre, poivron et chèvre. ").repeat(53).slice(0, 2_059);
     let selectionBody;
@@ -606,7 +622,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     expect(await composer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(previewHeight);
   });
 
-  test("Assistant : refuser une candidate est local, conserve la saisie et bloque sa réapparition", async ({ page }) => {
+  test("Assistant : les candidates du Cahier restent des propositions du fil", async ({ page }) => {
     await page.goto("/");
     const notebookState = () => page.evaluate(async () => {
       const database = await new Promise((resolve, reject) => {
@@ -648,28 +664,23 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     const candidateCards = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
     await expect(candidateCards).toHaveCount(2);
-    const retainedCardName = await candidateCards.nth(1).getAttribute("aria-label");
-    const retainedTitle = retainedCardName?.match(/ouvrir (.+)$/)?.[1];
+    const candidateName = await candidateCards.nth(1).getAttribute("aria-label");
+    const candidateTitle = candidateName?.match(/ouvrir (.+)$/)?.[1];
     expect(retainedTitle).toBeTruthy();
     const cardsDoNotOverlap = await candidateCards.evaluateAll((cards) => {
       const [first, second] = cards.map((card) => card.getBoundingClientRect());
       return Boolean(first && second && first.bottom <= second.top);
     });
     expect(cardsDoNotOverlap).toBe(true);
-    await page.getByRole("button", { name: /Refuser / }).first().click();
-    await expect(candidateCards).toHaveCount(1);
-    await expect(field).toBeFocused();
-    await expect(field).toHaveValue("une recette du Cahier à préciser");
-    await expect(page.getByRole("status")).toContainText("écartée");
-
-    await field.fill("une recette du Cahier à préciser, sans lait");
-    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
-    await expect.poll(() => selections).toBe(2);
-    await expect(candidateCards).toHaveCount(1);
-    await expect(candidateCards).toHaveAttribute("aria-label", retainedCardName);
-    expect(recipeGenerations).toBe(0);
-    await candidateCards.click();
-    await expect(page.getByRole("heading", { name: retainedTitle })).toBeVisible();
+    const candidateIsInConversation = await candidateCards.first().evaluate((card) => {
+      const candidate = card.closest(".assistant-conversation-card")?.getBoundingClientRect();
+      const composer = document.querySelector(".assistant-composer")?.getBoundingClientRect();
+      return Boolean(candidate && composer && candidate.bottom <= composer.top);
+    });
+    expect(candidateIsInConversation).toBe(true);
+    await expect(page.getByRole("button", { name: /Pas cette recette/ })).toHaveCount(0);
+    await candidateCards.nth(1).click();
+    await expect(page.getByRole("heading", { name: candidateTitle })).toBeVisible();
     expect(await notebookState()).toEqual(before);
   });
 

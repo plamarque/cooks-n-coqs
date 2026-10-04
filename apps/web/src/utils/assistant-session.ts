@@ -85,6 +85,10 @@ export class AssistantSession {
     this.turns.push({ role: "user", text: text.trim() });
   }
 
+  addChefTurn(text: string): void {
+    this.turns.push({ role: "assistant", text });
+  }
+
   showClarification(question: string): void {
     this.question = question;
     this.turns.push({ role: "assistant", text: question });
@@ -119,6 +123,7 @@ export class AssistantSession {
     this.controller = controller;
     this.phase = "importing";
     this.error = null;
+    this.beginConversation(text || (attachment ? "Image jointe à analyser" : ""));
     const route = routeAssistantImport(text, attachment ? [attachment] : []);
     try {
       const draft = route === "image" && attachment
@@ -129,6 +134,7 @@ export class AssistantSession {
       if (controller.signal.aborted || requestId !== this.requestId) return null;
       const preview = { requestId, draft, source: draft.source, sourceFiles: attachment ? [attachment] : [] };
       this.preview = preview;
+      this.addChefTurn("J’ai préparé une prévisualisation de cette recette.");
       this.phase = "ready";
       return preview;
     } catch (error) {
@@ -203,6 +209,14 @@ export class AssistantSession {
     ++this.requestId;
     if (this.phase === "importing" || this.phase === "analyzing" || this.phase === "searching" || this.phase === "creating") this.phase = "idle";
     this.resetConversation();
+  }
+
+  /** Invalide une réponse distante sans effacer les tours tant qu'une écriture locale n'est pas confirmée. */
+  invalidate(): void {
+    this.controller?.abort();
+    this.controller = null;
+    ++this.requestId;
+    if (this.phase === "importing" || this.phase === "analyzing" || this.phase === "searching" || this.phase === "creating") this.phase = "idle";
   }
 
   closePreview(): void {

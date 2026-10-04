@@ -11,7 +11,14 @@ import {
 import { db } from "../storage/db";
 import { deleteCookingStepImagesForRecipe } from "./cooking-step-image-service";
 
-const BFF_URL = import.meta.env?.VITE_BFF_URL || "http://localhost:8787";
+function defaultBffUrl(): string {
+  if (typeof window !== "undefined" && window.location.hostname.endsWith(".ts.net")) {
+    return `https://${window.location.hostname}:8443`;
+  }
+  return "http://localhost:8787";
+}
+
+const BFF_URL = import.meta.env?.VITE_BFF_URL || defaultBffUrl();
 
 export type ImageStorageResult =
   | { imageId: string }
@@ -20,6 +27,16 @@ export type ImageStorageResult =
 export type PreparedImageResult =
   | { blob: Blob }
   | { blob: undefined; issue: "fetch" | "invalid-image" };
+
+/** Une ressource déjà servie par l’application ne transite jamais par le BFF. */
+export function shouldProxyImageUrl(url: string, pageOrigin: string | undefined = typeof window === "undefined" ? undefined : window.location.origin): boolean {
+  if (!/^https?:\/\//i.test(url) || isGeneratedImageFromConfiguredBff(url)) return false;
+  try {
+    return !pageOrigin || new URL(url).origin !== pageOrigin;
+  } catch {
+    return true;
+  }
+}
 
 function isGeneratedImageFromConfiguredBff(url: string): boolean {
   try {
@@ -34,12 +51,11 @@ function isGeneratedImageFromConfiguredBff(url: string): boolean {
 /** Télécharge une illustration sans encore modifier IndexedDB. */
 export async function prepareImageFromUrl(url: string): Promise<PreparedImageResult> {
   try {
-    const isExternal = url.startsWith("http://") || url.startsWith("https://");
-    const isBffGeneratedImage = isGeneratedImageFromConfiguredBff(url);
-    const fetchUrl = isExternal && !isBffGeneratedImage
+    const proxyExternalImage = shouldProxyImageUrl(url);
+    const fetchUrl = proxyExternalImage
       ? `${BFF_URL}/api/proxy-image`
       : url;
-    const fetchOpts: RequestInit = isExternal && !isBffGeneratedImage
+    const fetchOpts: RequestInit = proxyExternalImage
       ? {
           method: "POST",
           headers: { "Content-Type": "application/json" },
