@@ -132,9 +132,26 @@ async function decodeTransferImage(file: File): Promise<{ source: CanvasImageSou
   }
 }
 
+async function hasSupportedImageSignature(file: File): Promise<boolean> {
+  try {
+    const bytes = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    const isJpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const isPng = bytes.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((value, index) => bytes[index] === value);
+    const isWebp = bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
+    return isJpeg || isPng || isWebp;
+  } catch {
+    return false;
+  }
+}
+
 export async function compressImageForTransfer(file: File, maxBytes?: number): Promise<File> {
   if (file.type && !file.type.startsWith("image/")) {
     if (maxBytes) throw new ImageTransferPreparationError("conversion", file.size);
+    return file;
+  }
+  // Le BFF accepte déjà ces formats sous la limite. Les décoder avant de les
+  // transmettre n'apporte rien et peut échouer sur certains navigateurs mobiles.
+  if (maxBytes && file.size <= maxBytes && ["image/jpeg", "image/png", "image/webp"].includes(file.type.toLowerCase()) && await hasSupportedImageSignature(file)) {
     return file;
   }
   let decoded: Awaited<ReturnType<typeof decodeTransferImage>> | undefined;
@@ -144,7 +161,6 @@ export async function compressImageForTransfer(file: File, maxBytes?: number): P
     if (!decoded.width || !decoded.height) throw new ImageTransferPreparationError("conversion", file.size);
     // JPEG/PNG/WebP are accepted by vision as-is. Other browser-decodable
     // formats (notably HEIC) must become JPEG even when their file is small.
-    if (maxBytes && file.size <= maxBytes && ["image/jpeg", "image/png", "image/webp"].includes(file.type.toLowerCase())) return file;
     canvas = document.createElement("canvas");
     const longest = Math.max(decoded.width, decoded.height);
     const scale = Math.min(1, 1600 / longest);

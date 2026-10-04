@@ -50,10 +50,10 @@ test("compression bornée : réduit dimensions et qualité jusqu'au plafond, pui
   } finally { mock.restore(); }
 });
 
-test("compression bornée : un petit fichier est transmis sans dégradation", async () => {
+test("compression bornée : un JPEG/PNG/WebP léger est transmis sans décodage", async () => {
   const mock = installCanvas([1000]);
-  const original = new File(["pixels"], "petite.png", { type: "image/png" });
-  try { assert.equal(await compressImageForTransfer(original, 4 * 1024 * 1024), original); assert.equal(mock.closed, 1); assert.equal(mock.calls, 0); }
+  const original = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "petite.png", { type: "image/png" });
+  try { assert.equal(await compressImageForTransfer(original, 4 * 1024 * 1024), original); assert.equal(mock.closed, 0); assert.equal(mock.calls, 0); }
   finally { mock.restore(); }
 });
 
