@@ -29,19 +29,19 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-13-2026 04:57
-last_updated: 10-05-2026 00:07
+last_updated: 10-05-2026 12:00
 project: cooks-n-coqs
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 development_status:
-  epic-1: in-progress
+  epic-1: done
   1-1-accueil-assistant-et-compositeur-accessible: done
   1-2-importer-une-recette-apportée-en-prévisualisation-annulable: done
-  1-3-sauvegarder-atomiquement-une-prévisualisation: in-progress
+  1-3-sauvegarder-atomiquement-une-prévisualisation: done
   epic-1-retrospective: optional
 
-  epic-2: in-progress
+  epic-2: done
   2-1-trouver-une-recette-pertinente-dans-le-cahier: done
   2-2-prévisualiser-une-recette-sur-mesure-après-absence-de-candid: done
   epic-2-retrospective: optional
@@ -52,9 +52,9 @@ development_status:
   3-3-migrer-les-modèles-image-avec-repli-contrôlé: backlog
   epic-3-retrospective: optional
 
-  epic-4: backlog
+  epic-4: in-progress
   4-1-démarrer-et-clôturer-une-conversation-assistant: done
-  4-2-retrouver-le-dernier-échange-assistant: backlog
+  4-2-retrouver-le-dernier-échange-assistant: done
   4-3-garder-les-messages-riches-dans-le-fil: backlog
   4-4-préserver-le-fil-en-cas-d-interruption: backlog
   4-5-donner-un-conseil-culinaire-orienté-et-honnête: backlog
