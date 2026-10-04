@@ -76,7 +76,7 @@ import {
 } from "./services/import-service";
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, routeAssistantImport, type AssistantPreview } from "./utils/assistant-session";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
-import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
+import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, resolveAssistantProgressPhotoUrl, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
   getCookingStepImageBlobUrl,
@@ -236,6 +236,11 @@ const clipboardBusy = ref(false);
 const importSourceType = ref<ImportProgressType | null>(null);
 const photoImportProgress = ref<{ phase: "preparing" | "reading" | "reordering"; current: number; total: number } | null>(null);
 const assistantImageProgress = ref<{ phase: "preparing" | "reading"; current: number; total: number } | null>(null);
+const assistantProgressPhotoUrl = computed(() => resolveAssistantProgressPhotoUrl(
+  assistantPhase.value,
+  assistantImageProgress.value,
+  assistantAttachments.value.map(({ previewUrl }) => previewUrl)
+));
 const imageGenerating = ref(false);
 const imageReextracting = ref(false);
 const recipeIdWithPendingImage = ref<string | null>(null);
@@ -1211,6 +1216,8 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
   const inputText = assistantText.value.trim();
   const attachments = await prepareAssistantImages(assistantAttachments.value.map(({ file }) => file), () => preparationId === assistantPreparationId && assistantPreparing.value, (progress) => { assistantImageProgress.value = progress; });
   if (!attachments || preparationId !== assistantPreparationId || !assistantPreparing.value) return null;
+  // La préparation est finie : l'étape Cahier qui suit ne traite plus une photo précise.
+  assistantImageProgress.value = null;
   const route = routeAssistantImport(inputText, attachments);
   const request = route === "image"
     ? (inputText || (attachments.length > 1 ? "Images jointes à analyser" : "Image jointe à analyser"))
@@ -3201,7 +3208,7 @@ onUnmounted(() => {
           <div v-if="['importing', 'analyzing', 'searching', 'creating'].includes(assistantPhase)" class="assistant-import-progress" role="status" aria-live="polite">
             <span class="assistant-import-progress-mark" aria-hidden="true">
               <ProgressSpinner />
-              <img src="/favicon.svg" alt="" />
+              <img :class="{ 'assistant-import-progress-photo': assistantProgressPhotoUrl }" :src="assistantProgressPhotoUrl ?? '/favicon.svg'" alt="" />
             </span>
             <span class="assistant-import-progress-label">{{ assistantPhase === 'searching' ? 'Je cherche dans votre Cahier' : assistantPhase === 'creating' ? 'Je crée votre recette' : assistantPhase === 'analyzing' ? (assistantImageProgress ? `${assistantImageProgress.phase === 'preparing' ? 'Préparation' : 'Lecture'} de la photo ${assistantImageProgress.current}/${assistantImageProgress.total}` : (assistantAttachments.length ? 'J’analyse vos photos' : 'J’analyse votre demande')) : (assistantAttachments.length ? 'Je lis vos photos pour reconstituer la recette' : 'J’analyse votre recette') }}</span>
             <Button label="Annuler" severity="secondary" @click="cancelAssistantImport" />

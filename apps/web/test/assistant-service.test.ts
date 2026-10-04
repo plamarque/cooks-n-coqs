@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ASSISTANT_IMAGE_CONTEXT_MAX_LENGTH, ASSISTANT_SELECTION_REQUEST_MAX_LENGTH, AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, selectNotebookRecipe, summarizeAssistantImages, truncateAssistantImageContext } from "../src/services/assistant-service";
+import { ASSISTANT_IMAGE_CONTEXT_MAX_LENGTH, ASSISTANT_SELECTION_REQUEST_MAX_LENGTH, AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, resolveAssistantProgressPhotoUrl, selectNotebookRecipe, summarizeAssistantImages, truncateAssistantImageContext } from "../src/services/assistant-service";
+
+test("la vignette de progression suit la photo lue, puis laisse place au logo", () => {
+  const previews = ["blob:photo-1", "blob:photo-2"];
+  assert.equal(resolveAssistantProgressPhotoUrl("analyzing", { phase: "preparing", current: 1, total: 2 }, previews), "blob:photo-1");
+  assert.equal(resolveAssistantProgressPhotoUrl("analyzing", { phase: "reading", current: 2, total: 2 }, previews), "blob:photo-2");
+  assert.equal(resolveAssistantProgressPhotoUrl("searching", { phase: "reading", current: 2, total: 2 }, previews), null);
+  assert.equal(resolveAssistantProgressPhotoUrl("analyzing", { phase: "reading", current: 3, total: 2 }, previews), null);
+});
 
 test("requête Jev : reste bornée et conserve prioritairement tous les résumés visuels", () => {
   const summaries = Array.from({ length: 5 }, (_, index) => `photo-${index}-${"v".repeat(230)}`);

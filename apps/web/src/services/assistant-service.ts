@@ -22,6 +22,12 @@ export class AssistantImageRequestError extends Error {
 }
 export type AssistantImageProgress = { phase: "preparing" | "reading"; current: number; total: number; durationMs?: number };
 
+/** La vignette est affichée seulement pendant l'étape qui traite une photo précise. */
+export function resolveAssistantProgressPhotoUrl(phase: string, progress: AssistantImageProgress | null, previewUrls: readonly string[]): string | null {
+  if (phase !== "analyzing" || !progress) return null;
+  return previewUrls[progress.current - 1] ?? null;
+}
+
 function traceImageRequest(category: AssistantImageRequestError["category"] | "ok", reference: string, imageIndex: number, originalBytes: number, resultBytes: number | undefined, durationMs: number, status?: number): void {
   // Aucune donnée de photo, demande ou réponse IA n'est journalisée.
   console.info("assistant_image_diagnostic", { category, reference, imageIndex, originalBytes, resultBytes, durationMs, status });
