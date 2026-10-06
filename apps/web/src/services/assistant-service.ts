@@ -1,4 +1,4 @@
-import { decodeAssistantDraftWireV1, isNotebookSelectionRequestV1, isNotebookSelectionWireV1, NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH, type AssistantConversationTurnV1, type NotebookCandidateWireV1, type NotebookSelectionWireV1, type ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
+import { decodeAssistantDraftWireV1, isChefAdviceRequestV1, isChefAdviceWireV1, isNotebookSelectionRequestV1, isNotebookSelectionWireV1, NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH, type AssistantConversationTurnV1, type ChefAdviceRequestV1, type ChefAdviceWireV1, type NotebookCandidateWireV1, type NotebookSelectionWireV1, type ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
 import { compressImageForTransfer, ImageTransferPreparationError } from "./import-service";
 
 function defaultBffUrl(): string {
@@ -101,6 +101,22 @@ export async function generateAssistantRecipe(request: string, signal: AbortSign
   const draft = decodeAssistantDraftWireV1(wire);
   if (!draft) throw new AssistantRecipeRequestError("invalid");
   return draft;
+}
+
+export async function requestChefAdvice(input: ChefAdviceRequestV1, signal: AbortSignal): Promise<ChefAdviceWireV1> {
+  if (!isChefAdviceRequestV1(input)) throw new AssistantRecipeRequestError("invalid");
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/assistant/advice`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal });
+  } catch (error) {
+    if ((error as Error).name === "AbortError") throw error;
+    throw new AssistantRecipeRequestError("unavailable");
+  }
+  if (!response.ok) throw new AssistantRecipeRequestError("unavailable");
+  let wire: unknown;
+  try { wire = await response.json(); } catch { throw new AssistantRecipeRequestError("invalid"); }
+  if (!isChefAdviceWireV1(wire)) throw new AssistantRecipeRequestError("invalid");
+  return wire;
 }
 
 export async function summarizeAssistantImage(file: File, contextText: string, signal: AbortSignal): Promise<string> {

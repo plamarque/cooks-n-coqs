@@ -12,6 +12,10 @@
     "./notebook-selection": {
       "types": "./src/notebook-selection.d.ts",
       "default": "./src/notebook-selection.js"
+    },
+    "./chef-advice": {
+      "types": "./src/chef-advice.d.ts",
+      "default": "./src/chef-advice.js"
     }
   }
 }

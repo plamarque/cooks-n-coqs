@@ -104,6 +104,25 @@ test("session Assistant : annulation interrompt sélection et génération texte
   void pending;
 });
 
+test("session Assistant : un conseil tardif après annulation n’ajoute ni preview ni tour Chef", async () => {
+  let resolve!: (value: { kind: "advice" }) => void;
+  const session = new AssistantSession();
+  const pending = session.resolveText("Ma sauce est trop épaisse", { resolve: async () => new Promise((done) => { resolve = done; }) });
+  session.invalidate();
+  resolve({ kind: "advice" });
+  assert.equal(await pending, null);
+  assert.equal(session.preview, null);
+  assert.deepEqual(session.turns.map(({ role }) => role), ["user"]);
+});
+
+test("session Assistant : le résultat conseil ne crée pas de recette ou preview", async () => {
+  const session = new AssistantSession();
+  const result = await session.resolveText("Ma sauce est trop épaisse", { resolve: async () => ({ kind: "advice" }) });
+  assert.equal(result?.kind, "advice");
+  assert.equal(session.preview, null);
+  assert.equal(session.phase, "idle");
+});
+
 test("session Assistant : une demande libre progresse d'analyse à recherche puis création", async () => {
   const session = new AssistantSession();
   const phases: string[] = [];

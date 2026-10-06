@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ASSISTANT_IMAGE_CONTEXT_MAX_LENGTH, ASSISTANT_SELECTION_REQUEST_MAX_LENGTH, AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, resolveAssistantProgressPhotoUrl, selectNotebookRecipe, summarizeAssistantImages, truncateAssistantImageContext } from "../src/services/assistant-service";
+import { ASSISTANT_IMAGE_CONTEXT_MAX_LENGTH, ASSISTANT_SELECTION_REQUEST_MAX_LENGTH, AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, requestChefAdvice, resolveAssistantProgressPhotoUrl, selectNotebookRecipe, summarizeAssistantImages, truncateAssistantImageContext } from "../src/services/assistant-service";
 
 test("la vignette de progression suit la photo lue, puis laisse place au logo", () => {
   const previews = ["blob:photo-1", "blob:photo-2"];
@@ -75,6 +75,20 @@ test("génération Assistant : une indisponibilité ne produit pas de brouillon"
   globalThis.fetch = async () => new Response(JSON.stringify({ error: "UPSTREAM_UNAVAILABLE" }), { status: 503 });
   try {
     await assert.rejects(generateAssistantRecipe("Soupe", new AbortController().signal), /assistant_recipe:unavailable/);
+  } finally { globalThis.fetch = previous; }
+});
+
+test("conseil Chef : transmet seulement le wire minimal et rejette une réponse inconnue", async () => {
+  const previous = globalThis.fetch;
+  let body = "";
+  globalThis.fetch = async (_url, init) => {
+    body = String(init?.body);
+    return new Response(JSON.stringify({ kind: "invented" }), { status: 200 });
+  };
+  try {
+    await assert.rejects(requestChefAdvice({ request: "Ma sauce est trop épaisse" }, new AbortController().signal), /assistant_recipe:invalid/);
+    assert.match(body, /Ma sauce est trop épaisse/);
+    assert.doesNotMatch(body, /history|profile|candidates/);
   } finally { globalThis.fetch = previous; }
 });
 

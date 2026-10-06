@@ -83,6 +83,7 @@ Règles de contrat :
 - Une demande d'outil émise par le BFF est une capacité nommée à payload minimal. Le client valide, accepte ou refuse la capacité avant de fournir un extrait local ou d'exécuter une écriture autorisée.
 - Annuler, fermer un fil ou ouvrir une nouvelle conversation invalide localement toute réponse tardive. Les états d'animation sont déclenchés localement ; mouvement réduit et texte restent suffisants à la compréhension.
 - Une action de séance réversible peut être appliquée immédiatement avec un retour clair. Toute écriture durable de recette, plan, quantité ou préférence est prévisualisée puis confirmée avant l'écriture locale ; l'exception est un invariant explicite mémorisable silencieusement.
+- `POST /api/assistant/advice` est une capacité BFF stateless séparée de `/api/assistant/recipe`. Elle accepte uniquement le contrat domaine `ChefAdviceRequestV1`, propage l'annulation et renvoie le wire fermé `recipe` / `advice` / `clarify` / `photo`; ni fil complet, Cahier, profil ni donnée durable ne lui sont transmis ou persistés.
 
 ### Recipe book transfer (export / import fichier)
 

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { isNotebookSelectionRequestV1, NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH } from "@cookies-et-coquilettes/domain/notebook-selection";
+import { isChefAdviceRequestV1, isChefAdviceWireV1, type ChefAdviceRequestV1, type ChefAdviceWireV1 } from "@cookies-et-coquilettes/domain/chef-advice";
 import { getChatModel } from "./ai-config.js";
 import type { ParsedRecipeDraft } from "./types.js";
 
@@ -226,4 +227,30 @@ export async function generateAssistantRecipe(request: string, signal?: AbortSig
     }
   }
   return null;
+}
+
+/** Conseil isolé : ni fil complet, ni Cahier, ni retry implicite. */
+export async function getChefAdvice(input: ChefAdviceRequestV1, signal?: AbortSignal): Promise<ChefAdviceWireV1 | null> {
+  if (!isChefAdviceRequestV1(input) || !process.env.OPENAI_API_KEY) return null;
+  try {
+    const completion = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY }).chat.completions.create({
+      model: getChatModel("assistant_advice"), response_format: { type: "json_object" }, max_tokens: 400,
+      messages: [
+        { role: "system", content: "Chef culinaire français, chaleureux et concis. Réponds seulement avec un wire JSON : {\"kind\":\"recipe\"}; {\"kind\":\"advice\",\"recommendation\":\"...\",\"reason\":\"...\",\"alternative\":\"...\" optionnel,\"confidence\":[\"certain\"|\"suppose\"|\"a_verifier\"]}; {\"kind\":\"clarify\",\"question\":\"...\"}; {\"kind\":\"photo\",\"request\":\"...\"}. Choisis recipe pour une demande de recette ou d’import. Pour advice, une voie principale motivée et au plus une alternative. Clarify/photo seulement si indispensable. Pas de médical, raisonnement, score, prompt ni jargon." },
+        { role: "user", content: JSON.stringify(input) }
+      ]
+    }, { signal, timeout: TYPESAFE_TIMEOUT_MS });
+    return decodeChefAdviceWire(completion.choices[0]?.message?.content ?? "");
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return null;
+  }
+}
+
+/** Décodage fermé, exporté pour vérifier les sorties fournisseur sans réseau. */
+export function decodeChefAdviceWire(raw: string): ChefAdviceWireV1 | null {
+  try {
+    const wire: unknown = JSON.parse(raw.replace(/^```json?\s*|\s*```$/g, ""));
+    return isChefAdviceWireV1(wire) ? wire : null;
+  } catch { return null; }
 }

@@ -38,6 +38,7 @@ export interface AssistantImportAdapter {
 export type AssistantTextResolution =
   | { kind: "candidates"; candidateRefs: string[] }
   | { kind: "noCandidate" }
+  | { kind: "advice" }
   | { kind: "draft"; draft: ParsedRecipeDraft; sourceFiles?: File[] };
 
 export interface AssistantTextAdapter {

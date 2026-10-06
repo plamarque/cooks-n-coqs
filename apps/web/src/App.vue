@@ -79,7 +79,7 @@ import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForN
 import { ChefSession } from "./utils/chef-session";
 import { createNoCandidateAssistantPreview } from "./utils/assistant-no-candidate";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
-import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, resolveAssistantProgressPhotoUrl, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
+import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, resolveAssistantProgressPhotoUrl, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
   getCookingStepImageBlobUrl,
@@ -1426,8 +1426,21 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
   const candidateMap = new Map<string, Recipe>();
   const result = await assistantSession.resolveText(request, {
     resolve: async (text, signal, progress) => {
-      let stage = "cahier";
+      let stage = "conseil";
       try {
+        const advice = await requestChefAdvice({ request: text }, signal);
+        if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+        if (advice.kind !== "recipe") {
+          const confidence = advice.kind === "advice" && advice.confidence.length
+            ? `\nRepères : ${advice.confidence.map((item) => item === "certain" ? "certain" : item === "suppose" ? "supposé" : "à vérifier").join(", ")}.`
+            : "";
+          const reply = advice.kind === "advice"
+            ? `${advice.recommendation}\n${advice.reason}${advice.alternative ? `\nAutre piste : ${advice.alternative}` : ""}${confidence}`
+            : advice.kind === "clarify" ? advice.question : advice.request;
+          if (advice.kind === "clarify" || advice.kind === "photo") assistantSession.showClarification(reply);
+          else assistantSession.addChefTurn(reply);
+          return { kind: "advice" as const };
+        }
         progress("searching");
         assistantPhase.value = assistantSession.phase;
         const notebookSnapshot = await withinAssistantDeadline(buildNotebookSnapshot(), "cahier");
@@ -1475,6 +1488,11 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
     return null;
   }
   assistantImageProgress.value = null;
+  if (result?.kind === "advice") {
+    assistantSession.phase = "idle";
+    assistantAnnouncement.value = "Le Chef vous a répondu.";
+    return null;
+  }
   if (result?.kind === "candidates") {
     const currentRecipes = new Map((await dexieRecipeService.listRecipes()).map((recipe) => [recipe.id, recipe]));
     const revalidated = result.candidateRefs.map((candidateRef) => candidateMap.get(candidateRef))

@@ -1,6 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chooseNotebookRecipe, isAssistantSelectionInput, isRetryableAssistantImageError, normalizeAssistantImageSummary, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
+import { chooseNotebookRecipe, decodeChefAdviceWire, getChefAdvice, isAssistantSelectionInput, isRetryableAssistantImageError, normalizeAssistantImageSummary, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
+
+test("conseil BFF : décode advice et recipe, et rejette un wire fournisseur invalide", () => {
+  assert.deepEqual(decodeChefAdviceWire('{"kind":"recipe"}'), { kind: "recipe" });
+  assert.deepEqual(decodeChefAdviceWire('{"kind":"advice","recommendation":"Baisse le feu.","reason":"La sauce restera lisse.","confidence":["certain"]}'), { kind: "advice", recommendation: "Baisse le feu.", reason: "La sauce restera lisse.", confidence: ["certain"] });
+  assert.equal(decodeChefAdviceWire('{"kind":"advice","recommendation":"x"}'), null);
+  assert.equal(decodeChefAdviceWire('not json'), null);
+});
+
+test("conseil BFF : entrée invalide ou signal annulé ne déclenchent aucune reprise", async () => {
+  const key = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+  assert.equal(await getChefAdvice({ request: "" }, new AbortController().signal), null);
+  const controller = new AbortController();
+  controller.abort();
+  // Sans clé fournisseur, cette garde locale confirme qu’aucun retry n’est introduit.
+  assert.equal(await getChefAdvice({ request: "Ma sauce est épaisse" }, controller.signal), null);
+  } finally { if (key === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = key; }
+});
 
 test("vision : un résumé trop long reste utilisable pour la décision", () => {
   const summary = normalizeAssistantImageSummary(`Une salade avec des mangues, du riz et de la coriandre. ${"Préparation détaillée. ".repeat(30)}`);

@@ -76,6 +76,16 @@ test("assistant recipe HTTP: invalide, trop grand, sans recette et succès", asy
   });
 });
 
+test("assistant advice HTTP: wire fermé, route isolée et indisponibilité", async () => {
+  await withServer(async (base) => {
+    assert.equal((await post(base, "/api/assistant/advice", { request: "x", history: [] })).status, 400);
+    assistantDependencies.advice = async () => ({ kind: "advice", recommendation: "Baisse le feu.", reason: "La sauce ne tranchera pas.", confidence: ["certain"] });
+    assert.deepEqual(await (await post(base, "/api/assistant/advice", { request: "Ma sauce bout" })).json(), { kind: "advice", recommendation: "Baisse le feu.", reason: "La sauce ne tranchera pas.", confidence: ["certain"] });
+    assistantDependencies.advice = async () => null;
+    assert.equal((await post(base, "/api/assistant/advice", { request: "Ma sauce bout" })).status, 503);
+  });
+});
+
 test("assistant image intents HTTP: plusieurs images temporaires, bornées et image-only", async () => {
   await withServer(async (base) => {
     let simultaneous = 0;
