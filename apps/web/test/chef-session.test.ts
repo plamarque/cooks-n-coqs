@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ChefSession } from "../src/utils/chef-session";
+import { restoreAssistantPreview, snapshotAssistantPreview } from "../src/utils/assistant-session";
 import { selectLastResumableChefConversation } from "../src/storage/db";
 
 test("ChefSession ne crée un fil qu'au premier envoi et le clôture sans l'effacer", () => {
@@ -46,4 +47,40 @@ test("le dernier journal reprenable est le plus récent valide et les lignes inv
 test("la reprise distingue aucun fil d'un journal illisible", () => {
   assert.deepEqual(selectLastResumableChefConversation([]), { kind: "none" });
   assert.deepEqual(selectLastResumableChefConversation([{ id: "broken", createdAt: "invalid", turns: [] }]), { kind: "unavailable" });
+});
+
+test("la reprise refuse une preview riche dont le draft ne peut pas être ouvert", () => {
+  const malformed = {
+    id: "broken-preview", createdAt: "2026-10-05T10:00:00.000Z", turns: [{
+      role: "assistant" as const, text: "Voici une recette.",
+      cards: [{ kind: "preview" as const, preview: { draft: { title: "Sans ingrédients", category: "SALE" } } }]
+    }]
+  };
+  assert.equal(new ChefSession().hydrate(malformed), null);
+});
+
+test("un fil riche conserve les références dans leur ordre sans sérialiser les File", () => {
+  const preview = {
+    requestId: 8,
+    draft: { title: "Soupe", category: "SALE" as const, ingredients: [], steps: [] },
+    source: undefined,
+    sourceFiles: [{} as File]
+  };
+  const snapshot = snapshotAssistantPreview(preview);
+  const source = {
+    id: "chef-rich", createdAt: "2026-10-05T10:00:00.000Z", turns: [{
+      id: "turn-1", role: "user" as const, text: "Avec ces photos",
+      attachments: [{ assetId: "asset-2", order: 1, mimeType: "image/jpeg" }, { assetId: "asset-1", order: 0, mimeType: "image/jpeg" }],
+      cards: [{ kind: "preview" as const, preview: snapshot }, { kind: "candidate" as const, recipeId: "recipe-1" }]
+    }]
+  };
+  const hydrated = new ChefSession().hydrate(source);
+  assert.deepEqual(hydrated?.turns[0].attachments?.map(({ assetId }) => assetId), ["asset-2", "asset-1"]);
+  assert.equal(hydrated?.turns[0].cards?.[1].kind, "candidate");
+  if (hydrated?.turns[0].cards?.[0]?.kind === "preview") hydrated.turns[0].cards[0].preview.draft.title = "Modifiée";
+  assert.equal(snapshot.draft.title, "Soupe");
+  const restored = restoreAssistantPreview(snapshot, 9);
+  assert.equal(restored.draft.title, "Soupe");
+  assert.deepEqual(restored.sourceFiles, []);
+  assert.equal("sourceFiles" in snapshot, false);
 });

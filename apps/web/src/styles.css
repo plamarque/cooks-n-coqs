@@ -456,6 +456,30 @@ body {
   background: #fffdf9;
 }
 
+.assistant-conversation-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  margin: -.15rem 0 .55rem;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant-conversation-attachments .assistant-attachment-preview {
+  width: 4.2rem;
+  height: 4.2rem;
+  border: 1px solid #d5e4db;
+}
+
+.assistant-attachment-unavailable {
+  max-width: 18rem;
+  padding: .45rem .6rem;
+  border-radius: .55rem;
+  background: #f5f0e9;
+  color: #725b48;
+  font-size: .85rem;
+}
+
 .assistant-attachment > span {
   min-width: 0;
   overflow: hidden;

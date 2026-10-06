@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, toRaw, watch } from "vue";
 import Button from "primevue/button";
 import Card from "primevue/card";
 import ConfirmDialog from "primevue/confirmdialog";
@@ -15,10 +15,12 @@ import type {
   RecipeCategory,
   RecipeFilters,
   ShareImportPayload,
-  InstructionStep
+  InstructionStep,
+  AssistantConversationTurnV1
 } from "@cookies-et-coquilettes/domain";
 import { isRecipeValidForSave } from "@cookies-et-coquilettes/domain";
 import RecipeImage from "./components/RecipeImage.vue";
+import ChefConversationAttachment from "./components/ChefConversationAttachment.vue";
 import IngredientImage from "./components/IngredientImage.vue";
 import IngredientDetailModal from "./components/IngredientDetailModal.vue";
 import StepMentionedIngredientIcons from "./components/StepMentionedIngredientIcons.vue";
@@ -65,7 +67,7 @@ import {
   RecipeBookImportError
 } from "./services/recipe-book-transfer-service";
 import { rehydrateRecipeMediaAfterArchiveImport } from "./services/recipe-book-rehydrate-after-import";
-import { db, type ChefConversationResume } from "./storage/db";
+import { db, storeChefConversationAssets, type ChefConversationResume } from "./storage/db";
 import { browserCookingModeService } from "./services/cooking-mode-service";
 import {
   bffImportService,
@@ -73,7 +75,7 @@ import {
   generateCookingStepImage,
   generateRecipeImage
 } from "./services/import-service";
-import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, routeAssistantImport, type AssistantPreview } from "./utils/assistant-session";
+import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, restoreAssistantPreview, routeAssistantImport, snapshotAssistantPreview, type AssistantPreview } from "./utils/assistant-session";
 import { ChefSession } from "./utils/chef-session";
 import { createNoCandidateAssistantPreview } from "./utils/assistant-no-candidate";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
@@ -110,7 +112,8 @@ type FormMode = "CREATE" | "EDIT";
 type ImportProgressType = "url" | "text" | "screenshot" | "file" | "share";
 type AssistantThreadCard =
   | { id: string; turnCount: number; kind: "preview"; preview: AssistantPreview; imageUrl: string | null; imageUnavailable: boolean }
-  | { id: string; turnCount: number; kind: "candidate"; candidate: Recipe };
+  | { id: string; turnCount: number; kind: "candidate"; candidate: Recipe }
+  | { id: string; turnCount: number; kind: "candidate-unavailable"; recipeId: string };
 
 interface IngredientInput {
   id: string;
@@ -1109,8 +1112,12 @@ async function discoverChefConversation(): Promise<void> {
 
 function resumeChefConversation(): void {
   const resume = assistantResumeConversation.value;
-  if (!resume || resume.kind !== "available" || assistantBusy.value) return;
-  const hydrated = chefSession.hydrate(resume.conversation);
+  // La carte n'est présente que sans tour actif. Reprendre ce journal local ne
+  // dépend donc pas d'un indicateur transitoire d'une requête déjà invalidée.
+  if (!resume || resume.kind !== "available") return;
+  // La carte de reprise est un `ref` Vue profond : transmettre son objet brut
+  // évite de sérialiser un Proxy lorsque les tours portent un snapshot riche.
+  const hydrated = chefSession.hydrate(toRaw(resume.conversation));
   if (!hydrated) {
     assistantResumeUnavailable.value = true;
     assistantResumeConversation.value = null;
@@ -1118,12 +1125,25 @@ function resumeChefConversation(): void {
     return;
   }
   assistantSession.hydrateConversation(hydrated.turns);
+  const restoredCards: AssistantThreadCard[] = hydrated.turns.flatMap((turn, index): AssistantThreadCard[] => (turn.cards ?? []).flatMap((card): AssistantThreadCard[] => {
+    if (card.kind === "preview") {
+      const preview = restoreAssistantPreview(card.preview, index + 1);
+      return [{ id: crypto.randomUUID(), turnCount: index + 1, kind: "preview" as const, preview, imageUrl: null, imageUnavailable: true }];
+    }
+    const candidate = recipes.value.find((recipe) => recipe.id === card.recipeId);
+    return candidate ? [{ id: crypto.randomUUID(), turnCount: index + 1, kind: "candidate" as const, candidate }] : [{ id: crypto.randomUUID(), turnCount: index + 1, kind: "candidate-unavailable" as const, recipeId: card.recipeId }];
+  }));
+  assistantThreadCards.value = restoredCards;
   assistantTurns.value = [...assistantSession.turns];
   assistantResumeConversation.value = null;
   assistantResumeUnavailable.value = false;
   assistantAnnouncement.value = "Conversation reprise.";
   revealLatestAssistantEvent();
   focusAssistantComposer();
+}
+
+function orderedChefAttachments(attachments: NonNullable<AssistantConversationTurnV1["attachments"]>): AssistantConversationTurnV1["attachments"] {
+  return [...attachments].sort((left, right) => left.order - right.order);
 }
 
 function declineChefConversationResume(): void {
@@ -1133,9 +1153,14 @@ function declineChefConversationResume(): void {
   focusAssistantComposer();
 }
 
-async function persistChefConversation(): Promise<void> {
+async function persistChefConversation(files: readonly File[] = [], attachmentTurnId?: string): Promise<void> {
   const record = chefSession.active ? chefSession.sync(assistantSession.turns) : chefSession.begin(assistantSession.turns);
-  if (record) await db.chefConversations.put(record);
+  if (!record) return;
+  if (files.length && attachmentTurnId) {
+    const persisted = await storeChefConversationAssets(record, attachmentTurnId, files);
+    chefSession.hydrate(persisted);
+    assistantSession.replaceConversationTurns(persisted.turns);
+  } else await db.chefConversations.put(record);
 }
 
 async function startNewChefConversation(): Promise<void> {
@@ -1281,6 +1306,13 @@ async function prepareAssistantRequest(): Promise<void> {
   }
   assistantPreparing.value = true;
   const preparationId = ++assistantPreparationId;
+  // `prepareAssistantTextRequest` prépare les images avant de créer le tour.
+  // Garder ces File jusqu'à la persistance finale évite de vider le Compositeur
+  // avant d'avoir écrit les blobs privés du fil.
+  const sentAttachmentFiles = assistantAttachments.value.map(({ file }) => file);
+  let sentAttachmentsPersisted = false;
+  const turnsBeforeRequest = assistantSession.turns.length;
+  let sentUserTurnId: string | undefined;
   // Rend le feedback avant la compression locale, qui peut être perceptible
   // sur un téléphone avec plusieurs photos.
   assistantPhase.value = "analyzing";
@@ -1297,7 +1329,9 @@ async function prepareAssistantRequest(): Promise<void> {
     // persister ici garantit qu'un départ ou une annulation ne crée pas de fil vide
     // tout en conservant l'intention effectivement envoyée.
     if (assistantSession.turns.length) {
-      await persistChefConversation();
+      sentUserTurnId = assistantSession.turns[turnsBeforeRequest]?.id;
+      await persistChefConversation(sentAttachmentFiles, sentUserTurnId);
+      sentAttachmentsPersisted = sentAttachmentFiles.length > 0;
       // Le message est désormais un tour du fil : le Compositeur redevient
       // disponible pour la réponse suivante, sans dupliquer la demande.
       assistantText.value = "";
@@ -1322,6 +1356,7 @@ async function prepareAssistantRequest(): Promise<void> {
     assistantPhase.value = assistantSession.phase;
     assistantPreview.value = assistantSession.preview;
     if (preview) {
+      assistantSession.attachCardToLatestTurn({ kind: "preview", preview: snapshotAssistantPreview(preview) });
       if (!assistantThreadCards.value.some((card) => card.kind === "preview" && card.preview.requestId === preview.requestId)) {
         assistantThreadCards.value.push({ id: crypto.randomUUID(), turnCount: assistantSession.turns.length, kind: "preview", preview, imageUrl: null, imageUnavailable: false });
       }
@@ -1334,7 +1369,8 @@ async function prepareAssistantRequest(): Promise<void> {
     if (assistantSession.phase !== "error") clearSentAssistantAttachments();
     if (assistantSession.turns.length) {
       try {
-        await persistChefConversation();
+        sentUserTurnId ??= assistantSession.turns[turnsBeforeRequest]?.id;
+        await persistChefConversation(sentAttachmentsPersisted ? [] : sentAttachmentFiles, sentUserTurnId);
       } catch {
         assistantError.value = "Impossible d’enregistrer cette conversation localement.";
         assistantAnnouncement.value = assistantError.value;
@@ -1467,6 +1503,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
     assistantSession.phase = "ready";
     assistantSession.addChefTurn(`J’ai trouvé ${found.length > 1 ? "quelques recettes" : "une recette"} dans votre Cahier.`);
     for (const candidate of found) {
+      assistantSession.attachCardToLatestTurn({ kind: "candidate", recipeId: candidate.id });
       assistantThreadCards.value.push({ id: crypto.randomUUID(), turnCount: assistantSession.turns.length, kind: "candidate", candidate });
     }
     assistantPhase.value = "ready";
@@ -3279,6 +3316,9 @@ onUnmounted(() => {
           <ol class="assistant-conversation" aria-label="Échange avec l’Assistant">
             <template v-for="(turn, index) in assistantTurns" :key="`${turn.role}-${index}-${turn.text}`">
               <li :class="`assistant-conversation-turn assistant-conversation-turn--${turn.role}`">{{ turn.text }}</li>
+              <li v-if="turn.attachments?.length" class="assistant-conversation-attachments" :aria-label="`${turn.attachments.length} photo(s) jointe(s)`">
+                <ChefConversationAttachment v-for="attachment in orderedChefAttachments(turn.attachments)" :key="attachment.assetId" :asset-id="attachment.assetId" :label="attachment.name ?? 'Photo jointe'" />
+              </li>
               <li v-for="card in assistantCardsAfterTurn(index + 1)" :key="card.id" class="assistant-conversation-card">
                 <div class="assistant-preview-card-wrap assistant-thread-card-wrap">
                   <template v-if="card.kind === 'preview'">
@@ -3288,12 +3328,18 @@ onUnmounted(() => {
                       <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
                     </button>
                   </template>
-                  <template v-else>
+                  <template v-else-if="card.kind === 'candidate'">
                     <button type="button" class="assistant-preview-card" :aria-label="`Recette du Cahier trouvée — ouvrir ${card.candidate.title}`" @click="openAssistantCandidate(card.candidate)">
                       <span class="assistant-preview-card-hero"><RecipeImage v-if="card.candidate.imageId" :image-id="card.candidate.imageId" alt="" img-class="assistant-preview-card-image" /><span v-else class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span></span>
                       <span class="assistant-preview-card-copy"><span class="assistant-preview-card-status">Dans votre Cahier · Correspond à votre demande</span><span class="assistant-preview-card-title">{{ card.candidate.title }}</span><span class="assistant-preview-card-meta">{{ assistantPreviewCategoryLabel(card.candidate.category) }} · {{ card.candidate.ingredients.length }} ingrédients</span></span>
                       <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
                     </button>
+                  </template>
+                  <template v-else>
+                    <div class="assistant-preview-card" role="status" aria-label="Recette indisponible dans votre Cahier">
+                      <span class="assistant-preview-card-hero"><span class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span></span>
+                      <span class="assistant-preview-card-copy"><span class="assistant-preview-card-status">Recette indisponible</span><span class="assistant-preview-card-title">Cette recette n’est plus disponible dans votre Cahier.</span></span>
+                    </div>
                   </template>
                 </div>
               </li>

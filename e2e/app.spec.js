@@ -267,6 +267,57 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.locator(".assistant-conversation-turn--assistant")).toContainText(/proposition/i);
   });
 
+  test("Chef : une photo envoyée reste attachée au fil après reprise locale", async ({ page }) => {
+    await page.goto("/");
+    await page.route("**/api/assistant/image-intent*", (route) => route.fulfill({ json: { summaries: ["Des légumes."] } }));
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Soupe de légumes", category: "SALE", ingredients: [{ id: "ingredient-1", label: "légumes", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire." }]
+    } }));
+    await page.locator(".assistant-home input[type='file'][multiple]").setInputFiles(path.join(process.cwd(), "e2e", "fixtures", "test-image.png"));
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête/ })).toBeVisible();
+    const persisted = await page.evaluate(async () => new Promise((resolve, reject) => {
+      const request = indexedDB.open("cookies-et-coquilettes");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const database = request.result;
+        const transaction = database.transaction(["chefConversationAssets", "chefConversations"], "readonly");
+        const assets = transaction.objectStore("chefConversationAssets").getAll();
+        const conversations = transaction.objectStore("chefConversations").getAll();
+        transaction.oncomplete = () => { database.close(); resolve({ assets: assets.result.filter((asset) => asset.blob instanceof Blob && asset.blob.size > 0).length, attachmentRefs: conversations.result.flatMap((conversation) => conversation.turns).flatMap((turn) => turn.attachments ?? []).length }); };
+        transaction.onerror = () => reject(transaction.error);
+      };
+    }));
+    expect(persisted).toEqual({ assets: 1, attachmentRefs: 1 });
+    await expect(page.getByRole("button", { name: "Nouvelle recette" })).toBeEnabled();
+    await page.getByRole("button", { name: "Nouvelle recette" }).click();
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
+    await page.locator(".notebook-header .assistant-nav").click();
+    await expect(page.locator(".assistant-resume-card")).toContainText("dernier échange");
+    await page.getByRole("button", { name: "Reprendre" }).click();
+    await expect(page.locator(".assistant-conversation-attachments img")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête — ouvrir Soupe de légumes/ })).toBeVisible();
+    await page.evaluate(async () => new Promise((resolve, reject) => {
+      const request = indexedDB.open("cookies-et-coquilettes");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const database = request.result;
+        const transaction = database.transaction("chefConversationAssets", "readwrite");
+        const assets = transaction.objectStore("chefConversationAssets");
+        const get = assets.getAllKeys();
+        get.onerror = () => reject(get.error);
+        get.onsuccess = () => get.result.forEach((key) => assets.delete(key));
+        transaction.onerror = () => reject(transaction.error);
+        transaction.oncomplete = () => { database.close(); resolve(); };
+      };
+    }));
+    await page.reload();
+    await page.getByRole("button", { name: "Reprendre" }).click();
+    await expect(page.locator(".assistant-attachment-unavailable")).toContainText("Photo indisponible localement");
+    await expect(page.locator(".assistant-conversation-attachments img")).toHaveCount(0);
+  });
+
   test("Chef : sans fil, aucune reprise inactive ; journal illisible, repli sans perte de saisie", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("button", { name: "Reprendre" })).toHaveCount(0);
@@ -695,7 +746,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(candidateCards).toHaveCount(2);
     const candidateName = await candidateCards.nth(1).getAttribute("aria-label");
     const candidateTitle = candidateName?.match(/ouvrir (.+)$/)?.[1];
-    expect(retainedTitle).toBeTruthy();
+    expect(candidateTitle).toBeTruthy();
     const cardsDoNotOverlap = await candidateCards.evaluateAll((cards) => {
       const [first, second] = cards.map((card) => card.getBoundingClientRect());
       return Boolean(first && second && first.bottom <= second.top);
@@ -708,7 +759,14 @@ test.describe("Cookies & Coquillettes v1", () => {
     });
     expect(candidateIsInConversation).toBe(true);
     await expect(page.getByRole("button", { name: /Pas cette recette/ })).toHaveCount(0);
-    await candidateCards.nth(1).click();
+    await page.getByRole("button", { name: "Nouvelle recette" }).click();
+    await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
+    await page.locator(".notebook-header .assistant-nav").click();
+    await expect(page.locator(".assistant-resume-card")).toContainText("dernier échange");
+    await page.getByRole("button", { name: "Reprendre" }).click();
+    const resumedCandidateCards = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
+    await expect(resumedCandidateCards).toHaveCount(2);
+    await resumedCandidateCards.nth(1).click();
     await expect(page.getByRole("heading", { name: candidateTitle })).toBeVisible();
     expect(await notebookState()).toEqual(before);
   });

@@ -1,4 +1,4 @@
-import type { AssistantConversationTurnV1, ImportSource, ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
+import type { AssistantConversationTurnV1, AssistantPreviewSnapshot, ImportSource, ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
 import { AssistantImageRequestError } from "../services/assistant-service";
 
 export type AssistantImportRoute = "image" | "url" | "text";
@@ -9,6 +9,24 @@ export interface AssistantPreview {
   draft: ParsedRecipeDraft;
   source: ImportSource | undefined;
   sourceFiles: File[];
+}
+
+/** Frontière explicite live -> persistant : aucun File, Proxy Vue ou blob URL. */
+export function snapshotAssistantPreview(preview: AssistantPreview): AssistantPreviewSnapshot {
+  return {
+    draft: structuredClone(preview.draft),
+    ...(preview.source ? { source: structuredClone(preview.source) } : {})
+  };
+}
+
+/** La reprise recrée un état éditable sans prétendre restaurer les File source. */
+export function restoreAssistantPreview(snapshot: AssistantPreviewSnapshot, requestId: number): AssistantPreview {
+  return {
+    requestId,
+    draft: structuredClone(snapshot.draft),
+    source: snapshot.source ? structuredClone(snapshot.source) : undefined,
+    sourceFiles: []
+  };
 }
 
 export interface AssistantImportAdapter {
@@ -82,11 +100,11 @@ export class AssistantSession {
 
   beginConversation(text: string): void {
     this.question = null;
-    this.turns.push({ role: "user", text: text.trim() });
+    this.turns.push({ id: crypto.randomUUID(), role: "user", text: text.trim() });
   }
 
   addChefTurn(text: string): void {
-    this.turns.push({ role: "assistant", text });
+    this.turns.push({ id: crypto.randomUUID(), role: "assistant", text });
   }
 
   showClarification(question: string): void {
@@ -106,9 +124,21 @@ export class AssistantSession {
   hydrateConversation(turns: readonly AssistantConversationTurnV1[]): void {
     this.resetConversation();
     this.preview = null;
-    this.turns = turns.map((turn) => ({ ...turn }));
+    this.turns = turns.map((turn) => structuredClone(turn));
+    // Les previews restaurées reçoivent un identifiant dérivé de leur position
+    // dans le fil : la prochaine requête doit nécessairement le dépasser.
+    this.requestId = Math.max(this.requestId, this.turns.length);
     this.phase = "idle";
     this.error = null;
+  }
+
+  replaceConversationTurns(turns: readonly AssistantConversationTurnV1[]): void {
+    this.turns = turns.map((turn) => structuredClone(turn));
+  }
+
+  attachCardToLatestTurn(card: NonNullable<AssistantConversationTurnV1["cards"]>[number]): void {
+    const latest = this.turns.at(-1);
+    if (latest) latest.cards = [...(latest.cards ?? []), structuredClone(card)];
   }
 
   rejectCandidate(candidateId: string): boolean {

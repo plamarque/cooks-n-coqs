@@ -151,9 +151,35 @@ export interface NotebookSelectionRequestV1 {
 export interface AssistantConversationTurnV1 {
   role: "user" | "assistant";
   text: string;
+  /**
+   * Identifiant local optionnel. Les anciens journaux texte n'en ont pas ; les
+   * nouveaux s'en servent pour rattacher des assets IndexedDB au bon tour.
+   */
+  id?: string;
+  attachments?: ChefConversationAssetRef[];
+  cards?: ChefConversationCard[];
 }
 
-/** Journal local minimal d'un échange Chef, sans preview ni pièce jointe. */
+/** Référence sérialisable à un blob du journal Chef (jamais une URL blob). */
+export interface ChefConversationAssetRef {
+  assetId: string;
+  order: number;
+  name?: string;
+  mimeType: string;
+}
+
+/** Snapshot persistant de la preview : le contenu du draft, sans File ni URL objet. */
+export interface AssistantPreviewSnapshot {
+  draft: ParsedRecipeDraft;
+  source?: ImportSource;
+}
+
+/** Une carte est soit une preview locale, soit la référence d'une Recipe du Cahier. */
+export type ChefConversationCard =
+  | { kind: "preview"; preview: AssistantPreviewSnapshot }
+  | { kind: "candidate"; recipeId: string };
+
+/** Journal local Chef. Les champs riches restent facultatifs pour lire v4. */
 export interface ChefConversation {
   id: string;
   createdAt: string;
@@ -169,8 +195,47 @@ export function isChefConversation(value: unknown): value is ChefConversation {
   return Array.isArray(conversation.turns) && conversation.turns.length > 0 && conversation.turns.every((turn) => {
     if (!turn || typeof turn !== "object") return false;
     const candidate = turn as Record<string, unknown>;
-    return (candidate.role === "user" || candidate.role === "assistant") && typeof candidate.text === "string" && candidate.text.trim().length > 0;
+    if (!((candidate.role === "user" || candidate.role === "assistant") && typeof candidate.text === "string" && candidate.text.trim().length > 0)) return false;
+    if (candidate.id !== undefined && (typeof candidate.id !== "string" || !candidate.id)) return false;
+    if (candidate.attachments !== undefined && (!Array.isArray(candidate.attachments) || !candidate.attachments.every(isChefConversationAssetRef))) return false;
+    return candidate.cards === undefined || (Array.isArray(candidate.cards) && candidate.cards.every(isChefConversationCard));
   });
+}
+
+function isChefConversationAssetRef(value: unknown): value is ChefConversationAssetRef {
+  if (!value || typeof value !== "object") return false;
+  const asset = value as Record<string, unknown>;
+  return typeof asset.assetId === "string" && !!asset.assetId && typeof asset.order === "number" && Number.isInteger(asset.order) && asset.order >= 0
+    && typeof asset.mimeType === "string" && !!asset.mimeType
+    && (asset.name === undefined || typeof asset.name === "string");
+}
+
+function isChefConversationCard(value: unknown): value is ChefConversationCard {
+  if (!value || typeof value !== "object") return false;
+  const card = value as Record<string, unknown>;
+  if (card.kind === "candidate") return typeof card.recipeId === "string" && !!card.recipeId;
+  if (card.kind !== "preview" || !card.preview || typeof card.preview !== "object") return false;
+  const preview = card.preview as Record<string, unknown>;
+  return isAssistantPreviewDraft(preview.draft)
+    && (preview.source === undefined || isImportSource(preview.source));
+}
+
+/** Les snapshots de preview sont relus par le formulaire : valider les champs qu'il déréférence. */
+function isAssistantPreviewDraft(value: unknown): value is ParsedRecipeDraft {
+  if (!value || typeof value !== "object") return false;
+  const draft = value as Record<string, unknown>;
+  return typeof draft.title === "string" && !!draft.title.trim()
+    && (draft.category === "SUCRE" || draft.category === "SALE")
+    && Array.isArray(draft.ingredients)
+    && Array.isArray(draft.steps);
+}
+
+function isImportSource(value: unknown): value is ImportSource {
+  if (!value || typeof value !== "object") return false;
+  const source = value as Record<string, unknown>;
+  return (source.type === "MANUAL" || source.type === "SHARE" || source.type === "URL" || source.type === "SCREENSHOT" || source.type === "TEXT")
+    && typeof source.capturedAt === "string" && !Number.isNaN(Date.parse(source.capturedAt))
+    && (source.url === undefined || typeof source.url === "string");
 }
 
 export type NotebookSelectionWireV1 =

@@ -145,6 +145,16 @@ l’alternative immédiate. Le Cahier conserve ses parcours v1 nommés : créati
 `.zip`, édition et partage. Les traitements Assistant, prévisualisations et sauvegardes explicites
 seront introduits par leurs stories dédiées sans modifier ces contrats v1.
 
+## Continuité riche des fils Chef (story 4.3)
+
+Un fil Chef local peut conserver, dans l'ordre de ses tours, des références à des
+photos locales, une `AssistantPreview` sérialisée et une référence vers une
+recette existante du Cahier. La preview reste éditable et ne crée jamais de
+`Recipe` avant `Sauvegarder`; la carte Cahier ouvre sa recette source en lecture
+seule. Les blobs de conversation sont stockés dans un espace IndexedDB dédié,
+jamais dans les médias d'une recette. Un asset ou une recette manquant reste
+signalé lisiblement sans fetch, génération ni appel BFF.
+
 ## Import Assistant éphémère (story 1.2)
 
 Depuis le seul Compositeur Assistant, une image est prioritaire sur une URL HTTP(S), elle-même prioritaire sur le texte (dont F2). L'import réemploie le parseur existant mais produit une prévisualisation en mémoire, annulable : ni recette, ni fichier, ni état Assistant n'est écrit dans IndexedDB, l'URL ou `sessionStorage`. Annuler ou fermer détruit la prévisualisation et ignore les réponses tardives tout en conservant texte, curseur et image dans le Compositeur. La sauvegarde explicite est hors de cette story ; les flux v1 `parse → create → détail` restent inchangés.
