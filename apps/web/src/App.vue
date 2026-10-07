@@ -1310,6 +1310,7 @@ async function prepareAssistantRequest(): Promise<void> {
   // Garder ces File jusqu'à la persistance finale évite de vider le Compositeur
   // avant d'avoir écrit les blobs privés du fil.
   const sentAttachmentFiles = assistantAttachments.value.map(({ file }) => file);
+  const sentAssistantText = assistantText.value;
   let sentAttachmentsPersisted = false;
   const turnsBeforeRequest = assistantSession.turns.length;
   let sentUserTurnId: string | undefined;
@@ -1366,7 +1367,16 @@ async function prepareAssistantRequest(): Promise<void> {
     // Après un traitement abouti, les images appartiennent au tour déjà
     // envoyé (ou à sa preview), pas au prochain message du Compositeur.
     // En cas d'erreur elles restent disponibles pour un nouvel essai.
-    if (assistantSession.phase !== "error") clearSentAssistantAttachments();
+    if (assistantSession.phase !== "error") {
+      // L'intention a rejoint le fil, y compris lorsqu'elle aboutit à un
+      // conseil plutôt qu'à une prévisualisation de recette.
+      assistantText.value = "";
+      clearSentAssistantAttachments();
+    } else {
+      // `resolveText` retire le tour échoué pour ne pas le dupliquer au
+      // prochain essai : remettre la saisie tient la promesse du message.
+      assistantText.value = sentAssistantText;
+    }
     if (assistantSession.turns.length) {
       try {
         sentUserTurnId ??= assistantSession.turns[turnsBeforeRequest]?.id;
@@ -1424,11 +1434,56 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
     : inputText;
   let generationRequest = request;
   const candidateMap = new Map<string, Recipe>();
+  // Projection éphémère et fermée : aucun id local, URL blob, profil ou
+  // pièce jointe originale ne quitte l'appareil. Chaque vignette devient une
+  // data-image bornée, y compris celle d'une preview quand elle est disponible.
+  const toBoundedThumbnail = async (blob: Blob, signal: AbortSignal): Promise<string | undefined> => {
+    if (!/image\/(?:jpeg|png|webp)/.test(blob.type) || blob.size > 100_000) return undefined;
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      const abort = () => { reader.abort(); reject(signal.reason ?? new DOMException("Aborted", "AbortError")); };
+      if (signal.aborted) return abort();
+      reader.onload = () => { signal.removeEventListener("abort", abort); resolve(typeof reader.result === "string" && /^data:image\/(?:jpeg|png|webp);base64,/i.test(reader.result) ? reader.result : undefined); };
+      reader.onerror = () => { signal.removeEventListener("abort", abort); resolve(undefined); };
+      signal.addEventListener("abort", abort, { once: true });
+      reader.readAsDataURL(blob);
+    });
+  };
+  const projectChefAdviceContext = async (signal: AbortSignal) => ({
+    turns: await Promise.all(assistantSession.turns.map(async (turn, turnIndex) => ({
+      role: turn.role,
+      text: turn.text,
+      ...(turn.cards?.length ? { cards: (await Promise.all(turn.cards.map(async (card) => {
+        const candidateRecipe = card.kind === "candidate" ? await db.recipes.get(card.recipeId) : undefined;
+        const draft = card.kind === "preview" ? card.preview.draft : candidateRecipe;
+        if (!draft) return null;
+        const imageId = candidateRecipe?.imageId;
+        const image = imageId ? await db.images.get(imageId) : undefined;
+        let thumbnail = image ? await toBoundedThumbnail(image.blob, signal) : undefined;
+        if (!thumbnail && card.kind === "preview") {
+          const previewCard = assistantThreadCards.value.find((threadCard): threadCard is Extract<typeof assistantThreadCards.value[number], { kind: "preview" }> => threadCard.kind === "preview" && threadCard.turnCount === turnIndex + 1 && threadCard.preview.draft.title === draft.title);
+          if (previewCard?.imageUrl && !previewCard.imageUrl.startsWith("blob:")) {
+            try {
+              const response = await fetch(previewCard.imageUrl, { signal });
+              const bytes = Number(response.headers.get("content-length"));
+              if (response.ok && (!Number.isFinite(bytes) || bytes <= 100_000)) thumbnail = await toBoundedThumbnail(await response.blob(), signal);
+            } catch (error) { if (signal.aborted) throw error; }
+          }
+        }
+        return {
+          title: draft.title,
+          ingredients: draft.ingredients.map((ingredient) => ingredient.label),
+          steps: draft.steps.map((step) => step.text),
+          ...(thumbnail ? { thumbnail } : {})
+        };
+      }))).filter((card): card is { title: string; ingredients: string[]; steps: string[] } => card !== null) } : {})
+    })))
+  });
   const result = await assistantSession.resolveText(request, {
     resolve: async (text, signal, progress) => {
       let stage = "conseil";
       try {
-        const advice = await requestChefAdvice({ request: text }, signal);
+        const advice = await requestChefAdvice({ request: text, context: await projectChefAdviceContext(signal) }, signal);
         if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
         if (advice.kind !== "recipe") {
           const confidence = advice.kind === "advice" && advice.confidence.length

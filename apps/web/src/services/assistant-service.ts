@@ -10,7 +10,11 @@ function defaultBffUrl(): string {
   return "http://localhost:8787";
 }
 
-const API_BASE_URL = import.meta.env?.VITE_BFF_URL || defaultBffUrl();
+// Sur l'URL HTTPS Tailscale, Vite relaie /api vers le BFF local. Garder les
+// requêtes sur la même origine évite qu'un navigateur mobile doive joindre le
+// second port HTTPS et faire un prévol CORS.
+const API_BASE_URL = import.meta.env?.VITE_BFF_URL
+  || (typeof window !== "undefined" && window.location.hostname.endsWith(".ts.net") ? "" : defaultBffUrl());
 export const ASSISTANT_SELECTION_REQUEST_MAX_LENGTH = NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH;
 export const ASSISTANT_IMAGE_CONTEXT_MAX_LENGTH = 1_200;
 

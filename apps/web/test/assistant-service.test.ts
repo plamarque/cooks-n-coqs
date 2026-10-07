@@ -92,6 +92,23 @@ test("conseil Chef : transmet seulement le wire minimal et rejette une réponse 
   } finally { globalThis.fetch = previous; }
 });
 
+test("conseil Chef : transporte le fil complet projeté sans identifiant ou blob local", async () => {
+  const previous = globalThis.fetch;
+  let body = "";
+  globalThis.fetch = async (_url, init) => {
+    body = String(init?.body);
+    return new Response(JSON.stringify({ kind: "advice", recommendation: "Cuire au Cookeo.", reason: "Le fil indique déjà l'échine et les cèpes.", confidence: ["certain"] }), { status: 200 });
+  };
+  try {
+    const context = { turns: [{ role: "user" as const, text: "porc" }, { role: "assistant" as const, text: "Prenons une échine aux cèpes.", cards: [{ title: "Échine aux cèpes", ingredients: ["porc", "cèpes"], steps: ["Mijoter"], thumbnail: "data:image/png;base64,AA==" }] }, { role: "user" as const, text: "au Cookeo" }] };
+    const result = await requestChefAdvice({ request: "au Cookeo", context }, new AbortController().signal);
+    assert.equal(result.kind, "advice");
+    assert.match(body, /Échine aux cèpes/);
+    assert.match(body, /data:image\/png/);
+    assert.doesNotMatch(body, /blob:|recipeId|profile/);
+  } finally { globalThis.fetch = previous; }
+});
+
 test("analyse images : chaque binaire part séparément vers l'endpoint vision temporaire", async () => {
   const previous = globalThis.fetch;
   const urls: string[] = [];

@@ -1,7 +1,11 @@
 export const CHEF_ADVICE_REQUEST_MAX_LENGTH = 2_600;
+export const CHEF_ADVICE_THUMBNAIL_MAX_LENGTH = 140_000;
+export const CHEF_ADVICE_CONTEXT_TOTAL_MAX_LENGTH = 400_000;
 
 export type ChefAdviceConfidence = "certain" | "suppose" | "a_verifier";
-export type ChefAdviceRequestV1 = { request: string; context?: { recipeTitle?: string; stepText?: string; servings?: number; ingredients?: string[] } };
+export type ChefAdviceCardV1 = { title: string; ingredients: string[]; steps: string[]; thumbnail?: string };
+export type ChefAdviceTurnV1 = { role: "user" | "assistant"; text: string; cards?: ChefAdviceCardV1[] };
+export type ChefAdviceRequestV1 = { request: string; context?: { recipeTitle?: string; stepText?: string; servings?: number; ingredients?: string[]; turns?: ChefAdviceTurnV1[] } };
 export type ChefAdviceWireV1 =
   | { kind: "recipe" }
   | { kind: "advice"; recommendation: string; reason: string; alternative?: string; confidence: ChefAdviceConfidence[] }
@@ -9,6 +13,24 @@ export type ChefAdviceWireV1 =
   | { kind: "photo"; request: string };
 
 const text = (value: unknown, max: number): value is string => typeof value === "string" && !!value.trim() && value.trim().length <= max;
+function isCard(value: unknown): value is ChefAdviceCardV1 {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const card = value as Record<string, unknown>;
+  return Object.keys(card).every((key) => ["title", "ingredients", "steps", "thumbnail"].includes(key))
+    && text(card.title, 180) && Array.isArray(card.ingredients) && card.ingredients.length <= 40 && card.ingredients.every((item) => text(item, 180))
+    && Array.isArray(card.steps) && card.steps.length <= 30 && card.steps.every((item) => text(item, 2_000))
+    && (card.thumbnail === undefined || typeof card.thumbnail === "string" && /^data:image\/(?:jpeg|png|webp);base64,[a-z0-9+/=]+$/i.test(card.thumbnail) && card.thumbnail.length <= CHEF_ADVICE_THUMBNAIL_MAX_LENGTH);
+}
+function isTurn(value: unknown): value is ChefAdviceTurnV1 {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const turn = value as Record<string, unknown>;
+  return Object.keys(turn).every((key) => ["role", "text", "cards"].includes(key))
+    && (turn.role === "user" || turn.role === "assistant") && text(turn.text, CHEF_ADVICE_CONTEXT_TOTAL_MAX_LENGTH)
+    && (turn.cards === undefined || Array.isArray(turn.cards) && turn.cards.every(isCard));
+}
+function contextLength(turns: readonly ChefAdviceTurnV1[]): number {
+  return new TextEncoder().encode(JSON.stringify(turns)).byteLength;
+}
 export function isChefAdviceRequestV1(value: unknown): value is ChefAdviceRequestV1 {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Record<string, unknown>;
@@ -16,11 +38,12 @@ export function isChefAdviceRequestV1(value: unknown): value is ChefAdviceReques
   if (candidate.context === undefined) return true;
   if (!candidate.context || typeof candidate.context !== "object" || Array.isArray(candidate.context)) return false;
   const context = candidate.context as Record<string, unknown>;
-  return Object.keys(context).every((key) => ["recipeTitle", "stepText", "servings", "ingredients"].includes(key))
+  return Object.keys(context).every((key) => ["recipeTitle", "stepText", "servings", "ingredients", "turns"].includes(key))
     && (context.recipeTitle === undefined || text(context.recipeTitle, 180))
     && (context.stepText === undefined || text(context.stepText, 2_000))
     && (context.servings === undefined || typeof context.servings === "number" && Number.isInteger(context.servings) && context.servings > 0 && context.servings <= 100)
-    && (context.ingredients === undefined || Array.isArray(context.ingredients) && context.ingredients.length <= 40 && context.ingredients.every((item) => text(item, 180)));
+    && (context.ingredients === undefined || Array.isArray(context.ingredients) && context.ingredients.length <= 40 && context.ingredients.every((item) => text(item, 180)))
+    && (context.turns === undefined || Array.isArray(context.turns) && context.turns.every(isTurn) && contextLength(context.turns) <= CHEF_ADVICE_CONTEXT_TOTAL_MAX_LENGTH);
 }
 export function isChefAdviceWireV1(value: unknown): value is ChefAdviceWireV1 {
   if (!value || typeof value !== "object") return false;

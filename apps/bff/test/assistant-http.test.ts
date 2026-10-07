@@ -79,8 +79,12 @@ test("assistant recipe HTTP: invalide, trop grand, sans recette et succès", asy
 test("assistant advice HTTP: wire fermé, route isolée et indisponibilité", async () => {
   await withServer(async (base) => {
     assert.equal((await post(base, "/api/assistant/advice", { request: "x", history: [] })).status, 400);
-    assistantDependencies.advice = async () => ({ kind: "advice", recommendation: "Baisse le feu.", reason: "La sauce ne tranchera pas.", confidence: ["certain"] });
-    assert.deepEqual(await (await post(base, "/api/assistant/advice", { request: "Ma sauce bout" })).json(), { kind: "advice", recommendation: "Baisse le feu.", reason: "La sauce ne tranchera pas.", confidence: ["certain"] });
+    let received: unknown;
+    assistantDependencies.advice = async (input) => { received = input; return { kind: "advice", recommendation: "Mijote l'échine avec les cèpes au Cookeo.", reason: "Le fil confirme déjà la viande, les champignons et l'appareil.", confidence: ["certain"] }; };
+    const context = { turns: [{ role: "user", text: "porc" }, { role: "assistant", text: "Avec des cèpes ?" }, { role: "user", text: "échine et cèpes", cards: [{ title: "Échine aux cèpes", ingredients: ["porc", "cèpes"], steps: ["Mijoter"] }] }, { role: "user", text: "au Cookeo" }] };
+    assert.deepEqual(await (await post(base, "/api/assistant/advice", { request: "au Cookeo", context })).json(), { kind: "advice", recommendation: "Mijote l'échine avec les cèpes au Cookeo.", reason: "Le fil confirme déjà la viande, les champignons et l'appareil.", confidence: ["certain"] });
+    assert.deepEqual(received, { request: "au Cookeo", context });
+    assert.equal((await post(base, "/api/assistant/advice", { request: "x", context: { turns: [{ role: "user", text: "x", id: "local" }] } })).status, 400);
     assistantDependencies.advice = async () => null;
     assert.equal((await post(base, "/api/assistant/advice", { request: "Ma sauce bout" })).status, 503);
   });

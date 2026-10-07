@@ -1,12 +1,47 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chooseNotebookRecipe, decodeChefAdviceWire, getChefAdvice, isAssistantSelectionInput, isRetryableAssistantImageError, normalizeAssistantImageSummary, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
+import { buildChefAdviceUserContent, CHEF_ADVICE_SYSTEM_PROMPT, chooseNotebookRecipe, decodeChefAdviceWire, getChefAdvice, isAssistantSelectionInput, isRetryableAssistantImageError, normalizeAssistantImageSummary, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
 
 test("conseil BFF : décode advice et recipe, et rejette un wire fournisseur invalide", () => {
   assert.deepEqual(decodeChefAdviceWire('{"kind":"recipe"}'), { kind: "recipe" });
   assert.deepEqual(decodeChefAdviceWire('{"kind":"advice","recommendation":"Baisse le feu.","reason":"La sauce restera lisse.","confidence":["certain"]}'), { kind: "advice", recommendation: "Baisse le feu.", reason: "La sauce restera lisse.", confidence: ["certain"] });
   assert.equal(decodeChefAdviceWire('{"kind":"advice","recommendation":"x"}'), null);
   assert.equal(decodeChefAdviceWire('not json'), null);
+});
+
+test("conseil BFF : les vignettes quittent le JSON texte pour des parties image low-detail", () => {
+  const content = buildChefAdviceUserContent({ request: "au Cookeo", context: { turns: [{ role: "user", text: "échine aux cèpes", cards: [{ title: "Échine", ingredients: ["porc", "cèpes"], steps: ["Mijoter"], thumbnail: "data:image/png;base64,AA==" }] }] } });
+  assert.deepEqual(content.slice(1), [{ type: "image_url", image_url: { url: "data:image/png;base64,AA==", detail: "low" } }]);
+  assert.doesNotMatch(content[0].text, /data:image/);
+  assert.match(content[0].text, /thumbnailRef.*image-1/);
+  assert.match(content[0].text, /échine aux cèpes/);
+});
+
+test("conseil BFF : une précision après question reçoit une recommandation sans nouvelle question", () => {
+  assert.match(CHEF_ADVICE_SYSTEM_PROMPT, /réponse courte à ta question précédente/i);
+  assert.match(CHEF_ADVICE_SYSTEM_PROMPT, /toujours advice/i);
+  assert.match(CHEF_ADVICE_SYSTEM_PROMPT, /sans crème/i);
+});
+
+test("conseil BFF : transmet réellement les parties image au fournisseur", async () => {
+  const key = process.env.OPENAI_API_KEY;
+  const previous = globalThis.fetch;
+  let payload: { messages?: Array<{ content?: unknown }> } | undefined;
+  process.env.OPENAI_API_KEY = "openai-test";
+  globalThis.fetch = async (_url, init) => {
+    payload = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ kind: "advice", recommendation: "Cookeo.", reason: "Le fil le demande.", confidence: ["certain"] }) } }] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const result = await getChefAdvice({ request: "au Cookeo", context: { turns: [{ role: "assistant", text: "Échine aux cèpes", cards: [{ title: "Échine", ingredients: ["porc"], steps: ["Mijoter"], thumbnail: "data:image/png;base64,AA==" }] }] } });
+    assert.equal(result?.kind, "advice");
+    const content = payload?.messages?.[1]?.content as Array<{ type: string; image_url?: { detail?: string } }>;
+    assert.equal(content[0]?.type, "text");
+    assert.deepEqual(content[1], { type: "image_url", image_url: { url: "data:image/png;base64,AA==", detail: "low" } });
+  } finally {
+    globalThis.fetch = previous;
+    if (key === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = key;
+  }
 });
 
 test("conseil BFF : entrée invalide ou signal annulé ne déclenchent aucune reprise", async () => {

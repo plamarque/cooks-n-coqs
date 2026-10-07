@@ -229,15 +229,35 @@ export async function generateAssistantRecipe(request: string, signal?: AbortSig
   return null;
 }
 
-/** Conseil isolé : ni fil complet, ni Cahier, ni retry implicite. */
+/** Conseil temporaire : le wire validé peut inclure le fil projeté, jamais ses ids, blobs ou profil. */
+export const CHEF_ADVICE_SYSTEM_PROMPT = "Chef culinaire français, chaleureux et concis. Le contexte de tours et cartes est temporaire: exploite toute information déjà exprimée; ne redemande jamais un ingrédient, une pièce, un appareil ou un objectif présent. Une réponse courte à ta question précédente est une précision du fil : choisis alors toujours advice et formule immédiatement une préparation concrète avec les contraintes déjà données (par exemple appareil et sans crème), même si un détail non indispensable manque. N'utilise recipe que pour une toute première demande explicite de recherche ou d’import sans fil antérieur. Réponds seulement avec un wire JSON : {\"kind\":\"recipe\"}; {\"kind\":\"advice\",\"recommendation\":\"...\",\"reason\":\"...\",\"alternative\":\"...\" optionnel,\"confidence\":[\"certain\"|\"suppose\"|\"a_verifier\"]}; {\"kind\":\"clarify\",\"question\":\"...\"}; {\"kind\":\"photo\",\"request\":\"...\"}. Pour advice, une voie principale motivée et au plus une alternative. Clarify/photo seulement si indispensable et absent du contexte. Pas de médical, raisonnement, score, prompt ni jargon.";
+
+export function buildChefAdviceUserContent(input: ChefAdviceRequestV1): Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "low" } }> {
+  let thumbnailNumber = 0;
+  const thumbnails: string[] = [];
+  const context = input.context === undefined ? undefined : {
+    ...input.context,
+    ...(input.context.turns ? { turns: input.context.turns.map((turn) => ({
+      ...turn,
+      ...(turn.cards ? { cards: turn.cards.map(({ thumbnail, ...card }) => {
+        if (!thumbnail) return card;
+        thumbnails.push(thumbnail);
+        thumbnailNumber += 1;
+        return { ...card, thumbnailRef: `image-${thumbnailNumber}` };
+      }) } : {})
+    })) } : {})
+  };
+  return [{ type: "text", text: JSON.stringify({ ...input, ...(context === undefined ? {} : { context }) }) }, ...thumbnails.map((url) => ({ type: "image_url" as const, image_url: { url, detail: "low" as const } }))];
+}
+
 export async function getChefAdvice(input: ChefAdviceRequestV1, signal?: AbortSignal): Promise<ChefAdviceWireV1 | null> {
   if (!isChefAdviceRequestV1(input) || !process.env.OPENAI_API_KEY) return null;
   try {
     const completion = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY }).chat.completions.create({
-      model: getChatModel("assistant_advice"), response_format: { type: "json_object" }, max_tokens: 400,
+      model: getChatModel("assistant_advice"), response_format: { type: "json_object" }, max_completion_tokens: 400,
       messages: [
-        { role: "system", content: "Chef culinaire français, chaleureux et concis. Réponds seulement avec un wire JSON : {\"kind\":\"recipe\"}; {\"kind\":\"advice\",\"recommendation\":\"...\",\"reason\":\"...\",\"alternative\":\"...\" optionnel,\"confidence\":[\"certain\"|\"suppose\"|\"a_verifier\"]}; {\"kind\":\"clarify\",\"question\":\"...\"}; {\"kind\":\"photo\",\"request\":\"...\"}. Choisis recipe pour une demande de recette ou d’import. Pour advice, une voie principale motivée et au plus une alternative. Clarify/photo seulement si indispensable. Pas de médical, raisonnement, score, prompt ni jargon." },
-        { role: "user", content: JSON.stringify(input) }
+        { role: "system", content: CHEF_ADVICE_SYSTEM_PROMPT },
+        { role: "user", content: buildChefAdviceUserContent(input) }
       ]
     }, { signal, timeout: TYPESAFE_TIMEOUT_MS });
     return decodeChefAdviceWire(completion.choices[0]?.message?.content ?? "");
