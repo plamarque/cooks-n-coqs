@@ -20,6 +20,8 @@ import type {
 } from "@cookies-et-coquilettes/domain";
 import { isRecipeValidForSave } from "@cookies-et-coquilettes/domain";
 import RecipeImage from "./components/RecipeImage.vue";
+import ChefAvatar from "./components/ChefAvatar.vue";
+import ChefMessageAvatar from "./components/ChefMessageAvatar.vue";
 import ChefConversationAttachment from "./components/ChefConversationAttachment.vue";
 import IngredientImage from "./components/IngredientImage.vue";
 import IngredientDetailModal from "./components/IngredientDetailModal.vue";
@@ -3382,26 +3384,19 @@ onUnmounted(() => {
 
       <div v-if="!assistantTurns.length" class="assistant-intro">
         <h1 id="assistant-title">On mange quoi&nbsp;?</h1>
-        <section v-if="assistantResumeConversation?.kind === 'available' || assistantResumeUnavailable" class="assistant-resume-card" aria-live="polite">
-          <template v-if="assistantResumeConversation?.kind === 'available'">
-            <p>Retrouvez votre dernier échange avec l’Assistant.</p>
-            <div class="assistant-resume-actions">
-              <button type="button" class="assistant-resume-primary" @click="resumeChefConversation">Reprendre</button>
-              <button type="button" class="assistant-resume-secondary" @click="declineChefConversationResume">Nouvelle conversation</button>
-            </div>
-          </template>
-          <template v-else>
-            <p>La reprise de conversation est indisponible pour le moment.</p>
-            <button type="button" class="assistant-resume-secondary" @click="declineChefConversationResume">Nouvelle conversation</button>
-          </template>
-        </section>
       </div>
+
+      <div class="assistant-welcome" :class="{ 'assistant-welcome--home': !assistantTurns.length }">
+      <ChefAvatar v-if="!assistantTurns.length" />
 
       <section class="assistant-composer-section" :class="{ 'assistant-composer-section--conversation': assistantTurns.length }">
         <div v-if="assistantTurns.length" ref="assistantThreadRef" class="assistant-thread">
           <ol class="assistant-conversation" aria-label="Échange avec l’Assistant">
             <template v-for="(turn, index) in assistantTurns" :key="`${turn.role}-${index}-${turn.text}`">
-              <li :class="`assistant-conversation-turn assistant-conversation-turn--${turn.role}`">{{ turn.text }}</li>
+              <li :class="`assistant-conversation-turn assistant-conversation-turn--${turn.role}`">
+                <span class="assistant-conversation-bubble">{{ turn.text }}</span>
+                <ChefMessageAvatar v-if="turn.role === 'assistant'" />
+              </li>
               <li v-if="turn.attachments?.length" class="assistant-conversation-attachments" :aria-label="`${turn.attachments.length} photo(s) jointe(s)`">
                 <ChefConversationAttachment v-for="attachment in orderedChefAttachments(turn.attachments)" :key="attachment.assetId" :asset-id="attachment.assetId" :label="attachment.name ?? 'Photo jointe'" />
               </li>
@@ -3468,6 +3463,14 @@ onUnmounted(() => {
             </span>
           </div>
           <div class="assistant-composer-actions" :class="{ 'is-listening': assistantListening }">
+            <Button
+              v-if="assistantResumeConversation?.kind === 'available'"
+              aria-label="Reprendre le dernier échange"
+              icon="pi pi-history"
+              class="assistant-icon-action assistant-resume-action"
+              :disabled="assistantBusy"
+              @click="resumeChefConversation"
+            />
             <div class="assistant-photo-picker" @keydown="onAssistantPhotoMenuKeydown" @focusout="onAssistantPhotoMenuFocusout">
               <Button
                 ref="assistantPhotoButtonRef"
@@ -3521,6 +3524,7 @@ onUnmounted(() => {
         </div>
         <p v-if="assistantError" class="assistant-import-error" role="alert">{{ assistantError }}</p>
       </section>
+      </div>
 
       <section v-if="!assistantTurns.length" class="assistant-starters" aria-label="Suggestions de demandes">
         <div class="assistant-starter-list">

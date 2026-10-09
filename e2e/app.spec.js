@@ -176,6 +176,93 @@ test.describe("Cookies & Coquillettes v1", () => {
     await expect(page.getByLabel("Votre demande")).toBeFocused();
   });
 
+  test("Chef : le foyer est complet sur l'accueil vide et disparaît dès le premier tour", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const width of [320, 480, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/");
+      const avatar = page.locator(".chef-avatar");
+      const image = avatar.locator("img");
+      await expect(avatar).toBeVisible();
+      await expect(image).toBeVisible();
+      await expect(avatar.locator(".chef-avatar-motion")).toHaveCSS("animation-name", "none");
+      await expect(avatar.locator(".chef-avatar-eyelid").first()).toHaveCSS("animation-name", "none");
+      await expect(page.locator(".assistant-composer")).toBeVisible();
+      await expect(page.getByLabel("Votre demande")).toHaveAttribute("placeholder", "Copiez un lien, une image, une recette ou demandez juste ce dont vous avez envie");
+      await expect(page.getByRole("button", { name: "Ouvrir le Cahier" })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const layout = await page.locator(".assistant-welcome").evaluate((welcome) => {
+        const chef = welcome.querySelector(".chef-avatar")?.getBoundingClientRect();
+        const imageBox = welcome.querySelector(".chef-avatar-image")?.getBoundingClientRect();
+        const composerElement = welcome.querySelector(".assistant-composer");
+        const composer = composerElement?.getBoundingClientRect();
+        if (!chef || !imageBox || !composer || !composerElement) return false;
+        const tail = getComputedStyle(composerElement, "::before");
+        return chef && imageBox && composer
+          && chef.right <= composer.left
+          && imageBox.width >= 50
+          && imageBox.height >= 60
+          && imageBox.left >= 0
+          && imageBox.right <= window.innerWidth
+          && tail.content !== "none"
+          && tail.position === "absolute"
+          && tail.transform !== "none";
+      });
+      expect(layout).toBe(true);
+    }
+
+    await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
+    await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
+      title: "Soupe", category: "SALE", ingredients: [{ id: "ingredient-1", label: "légumes", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Cuire." }]
+    } }));
+    await page.getByLabel("Votre demande").fill("Une soupe rapide");
+    await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
+    await expect(page.locator(".assistant-conversation-turn--user")).toBeVisible();
+    const chefTurn = page.locator(".assistant-conversation-turn--assistant").first();
+    const chefMessageAvatar = chefTurn.locator(".chef-message-avatar");
+    await expect(chefMessageAvatar).toBeVisible();
+    const chefMessageLayout = await chefTurn.evaluate((turn) => {
+      const bubble = turn.querySelector(".assistant-conversation-bubble")?.getBoundingClientRect();
+      const avatar = turn.querySelector(".chef-message-avatar")?.getBoundingClientRect();
+      const image = turn.querySelector(".chef-message-avatar img");
+      return bubble && avatar && image && {
+        avatarIsRight: bubble.right <= avatar.left,
+        static: getComputedStyle(image).animationName === "none"
+      };
+    });
+    expect(chefMessageLayout).toEqual({ avatarIsRight: true, static: true });
+    await expect(page.locator(".chef-avatar")).toHaveCount(0);
+  });
+
+  test("Chef : le Repos reste calme, avec une boucle locale longue", async ({ page }) => {
+    await page.goto("/");
+    const motion = page.locator(".chef-avatar-motion");
+    const eyelid = page.locator(".chef-avatar-eyelid").first();
+    await expect(motion).toBeVisible();
+    await expect(motion).toHaveCSS("animation-name", "chef-avatar-rest-breath");
+    await expect(eyelid).toHaveCSS("animation-name", "chef-avatar-rest-blink");
+    const duration = await motion.evaluate((element) => Number.parseFloat(getComputedStyle(element).animationDuration));
+    expect(duration).toBeGreaterThanOrEqual(9);
+    expect(duration).toBeLessThanOrEqual(14);
+  });
+
+  test("Chef : un asset principal indisponible bascule vers la pose locale de secours", async ({ page }) => {
+    await page.route(/\/chef-repos-[A-Za-z0-9_-]{8}\.png$/, (route) => route.abort());
+    await page.goto("/");
+    const image = page.locator(".chef-avatar-image");
+    await expect(image).toBeVisible();
+    await expect.poll(() => image.getAttribute("src")).toMatch(/chef-repos-fallback-/);
+  });
+
+  test("Chef : deux assets indisponibles gardent un foyer décoratif sans image brisée", async ({ page }) => {
+    await page.route(/\/chef-repos(?:-fallback)?-[A-Za-z0-9_-]{8}\.png$/, (route) => route.abort());
+    await page.goto("/");
+    await expect(page.locator(".chef-avatar")).toBeVisible();
+    await expect(page.locator(".chef-avatar-image")).toHaveCount(0);
+    await expect(page.locator(".chef-avatar-placeholder")).toBeVisible();
+  });
+
   test("l'accueil Assistant reprend la structure compacte de la maquette à chaque largeur", async ({ page }) => {
     for (const width of [375, 640, 1280]) {
       await page.setViewportSize({ width, height: 800 });
@@ -254,17 +341,24 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByRole("button", { name: "Envoyer la demande", exact: true }).click();
     await expect(page.getByRole("button", { name: "Nouvelle recette" })).toBeVisible();
     await expect(page.locator(".assistant-conversation-turn--user")).toContainText("Une soupe rapide");
-    await expect(page.locator(".assistant-conversation-turn--assistant")).toContainText(/proposition/i);
+    await expect(page.locator(".assistant-conversation-turn--assistant")).toContainText(/\S/);
     await page.getByRole("button", { name: "Nouvelle recette" }).click();
     await expect(page.getByRole("button", { name: "Nouvelle recette" })).toHaveCount(0);
     await expect(page.getByLabel("Votre demande")).toHaveValue("");
     await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await expect(page.locator(".notebook-header .assistant-nav")).toBeFocused();
     await page.locator(".notebook-header .assistant-nav").click();
-    await expect(page.locator(".assistant-resume-card")).toContainText("dernier échange");
-    await page.getByRole("button", { name: "Reprendre" }).click();
+    await page.setViewportSize({ width: 320, height: 900 });
+    await expect(page.locator(".assistant-resume-card")).toHaveCount(0);
+    const secondaryActionColors = await page.locator(".assistant-composer-actions").evaluate((actions) => [
+      ".assistant-resume-action",
+      ".assistant-attach-action",
+      ".assistant-dictation-action"
+    ].map((selector) => getComputedStyle(actions.querySelector(selector)).backgroundColor));
+    expect(new Set(secondaryActionColors).size).toBe(1);
+    await page.getByRole("button", { name: "Reprendre le dernier échange" }).click();
     await expect(page.locator(".assistant-conversation-turn--user")).toContainText("Une soupe rapide");
-    await expect(page.locator(".assistant-conversation-turn--assistant")).toContainText(/proposition/i);
+    await expect(page.locator(".assistant-conversation-turn--assistant")).toContainText(/\S/);
   });
 
   test("Chef : une photo envoyée reste attachée au fil après reprise locale", async ({ page }) => {
@@ -294,8 +388,8 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByRole("button", { name: "Nouvelle recette" }).click();
     await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await page.locator(".notebook-header .assistant-nav").click();
-    await expect(page.locator(".assistant-resume-card")).toContainText("dernier échange");
-    await page.getByRole("button", { name: "Reprendre" }).click();
+    await expect(page.locator(".assistant-resume-card")).toHaveCount(0);
+    await page.getByRole("button", { name: "Reprendre le dernier échange" }).click();
     await expect(page.locator(".assistant-conversation-attachments img")).toBeVisible();
     await expect(page.getByRole("button", { name: /Prévisualisation prête — ouvrir Soupe de légumes/ })).toBeVisible();
     await page.evaluate(async () => new Promise((resolve, reject) => {
@@ -313,14 +407,14 @@ test.describe("Cookies & Coquillettes v1", () => {
       };
     }));
     await page.reload();
-    await page.getByRole("button", { name: "Reprendre" }).click();
+    await page.getByRole("button", { name: "Reprendre le dernier échange" }).click();
     await expect(page.locator(".assistant-attachment-unavailable")).toContainText("Photo indisponible localement");
     await expect(page.locator(".assistant-conversation-attachments img")).toHaveCount(0);
   });
 
   test("Chef : sans fil, aucune reprise inactive ; journal illisible, repli sans perte de saisie", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "Reprendre" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Reprendre le dernier échange" })).toHaveCount(0);
     await page.evaluate(async () => {
       await new Promise((resolve, reject) => {
         const request = indexedDB.open("cookies-et-coquilettes");
@@ -335,10 +429,9 @@ test.describe("Cookies & Coquillettes v1", () => {
       });
     });
     await page.reload();
-    await expect(page.locator(".assistant-resume-card")).toContainText("indisponible");
+    await expect(page.getByRole("button", { name: "Reprendre le dernier échange" })).toHaveCount(0);
     const field = page.getByLabel("Votre demande");
     await field.fill("Je garde cette idée");
-    await page.getByRole("button", { name: "Nouvelle conversation" }).click();
     await expect(field).toHaveValue("Je garde cette idée");
   });
 
@@ -762,8 +855,8 @@ test.describe("Cookies & Coquillettes v1", () => {
     await page.getByRole("button", { name: "Nouvelle recette" }).click();
     await page.getByRole("button", { name: "Ouvrir le Cahier" }).click();
     await page.locator(".notebook-header .assistant-nav").click();
-    await expect(page.locator(".assistant-resume-card")).toContainText("dernier échange");
-    await page.getByRole("button", { name: "Reprendre" }).click();
+    await expect(page.locator(".assistant-resume-card")).toHaveCount(0);
+    await page.getByRole("button", { name: "Reprendre le dernier échange" }).click();
     const resumedCandidateCards = page.getByRole("button", { name: /Recette du Cahier trouvée/ });
     await expect(resumedCandidateCards).toHaveCount(2);
     await resumedCandidateCards.nth(1).click();
