@@ -803,6 +803,97 @@ afin de pouvoir anticiper sans subir une mécanique opaque ou intrusive.
 **alors** elle reste une suggestion,
 **et** toute action durable requiert un geste explicite de la personne.
 
+## Epic 9: Comprendre l’intention de chaque tour Chef
+
+L’utilisateur peut exprimer une envie, une recherche, une création, une variante, une adaptation ou un problème culinaire sans connaître le bon écran ; le Chef route chaque tour vers un parcours unique, contextualisé et actionnable.
+
+**Exigences Chef couvertes:** intention explicite à chaque tour, clarification seulement si indispensable, sorties typées, continuité sur la recette mentionnée ou la dernière vignette.
+
+**Garde-fous:** l’intention explicite prime sur la mémoire et les habitudes ; une clarification unique n’est permise que si une donnée indispensable manque ; aucune écriture n’est implicite ; le BFF ne persiste ni fil ni profil.
+
+### Story 9.1: Classer chaque tour Chef dans un contrat fermé
+
+En tant que personne qui échange avec le Chef,
+je veux que chaque message soit interprété selon une intention explicite, ses contraintes et son contexte utile,
+afin de poursuivre mon objectif sans recommencer ni répondre à des questions redondantes.
+
+**Critères d'acceptation:**
+
+**Étant donné** qu’un message est envoyé au Chef,
+**quand** son tour est préparé,
+**alors** il est classé dans une intention fermée avec un niveau de confiance, des contraintes, une éventuelle recette de référence et l’unique information indispensable manquante,
+**et** ce contrat est disponible à l’orchestrateur client avant de choisir la réponse.
+
+**Étant donné** qu’une clarification précédente ou une recette est présente dans le fil,
+**quand** la personne répond brièvement, par exemple « au Cookeo et sans crème »,
+**alors** le Chef rattache la réponse à la clarification ouverte,
+**ou**, à défaut, à la recette explicitement mentionnée puis à la dernière vignette pertinente,
+**et** il ne redemande pas une information déjà fournie.
+
+**Étant donné** qu’un tour est ambigu sans donnée indispensable,
+**quand** plusieurs interprétations restent possibles,
+**alors** le Chef pose une seule question courte et ciblée,
+**et** il ne confond pas cette clarification avec une nouvelle intention.
+
+### Story 9.2: Trouver une idée, retrouver au Cahier ou créer sur mesure
+
+En tant que personne qui formule une envie culinaire,
+je veux recevoir une sortie adaptée à mon intention,
+afin de trouver une piste, une recette existante ou une nouvelle recette sans navigation imposée.
+
+**Critères d'acceptation:**
+
+**Étant donné** que la personne demande une idée,
+**quand** le Chef répond,
+**alors** il propose une à trois pistes temporaires adaptées aux contraintes connues,
+**et** chacune peut devenir une recette uniquement par une action explicite.
+
+**Étant donné** que la personne cherche une recette de son Cahier,
+**quand** une correspondance locale existe,
+**alors** le Chef présente la recette ou les correspondances pertinentes,
+**et** il ne crée pas une nouvelle recette à la place.
+
+**Étant donné** que la personne demande une recette sur mesure,
+**quand** les informations indispensables sont connues,
+**alors** le Chef produit une prévisualisation éditable,
+**et** aucune recette n’est écrite avant confirmation explicite.
+
+### Story 9.3: Adapter ou décliner une recette de référence
+
+En tant que personne qui veut modifier une recette,
+je veux que le Chef distingue une adaptation ponctuelle d’une variante durable,
+afin d’obtenir immédiatement l’aide pertinente sans modifier la recette d’origine.
+
+**Critères d'acceptation:**
+
+**Étant donné** qu’une recette de référence et des contraintes sont identifiées,
+**quand** la personne demande une adaptation, par exemple une cuisson Cookeo sans crème,
+**alors** le Chef fournit un conseil temporaire appliqué à cette recette,
+**et** il propose explicitement « Créer une variante » si la personne souhaite la conserver.
+
+**Étant donné** que la personne demande une variante,
+**quand** la recette de référence est disponible,
+**alors** le Chef génère une prévisualisation distincte dérivée de l’original,
+**et** cette prévisualisation reste sans effet persistant avant sauvegarde explicite.
+
+### Story 9.4: Clarifier seulement quand nécessaire et préserver la reprise
+
+En tant que personne qui affine sa demande,
+je veux pouvoir reprendre exactement le même objectif après une clarification, une erreur ou une annulation,
+afin de ne pas perdre mon temps ni ma saisie.
+
+**Critères d'acceptation:**
+
+**Étant donné** qu’une donnée réellement indispensable manque,
+**quand** le Chef ne peut pas poursuivre de façon fiable,
+**alors** il pose une seule question ciblée ou demande une photo seulement si elle est pertinente,
+**et** il conserve le contexte nécessaire à la réponse suivante.
+
+**Étant donné** qu’une requête échoue ou est annulée,
+**quand** la personne revient au compositeur,
+**alors** sa saisie est conservée,
+**et** elle peut reprendre ou reformuler sans perdre le fil ni déclencher une écriture implicite.
+
 ## Epic 1: Importer et préparer une recette depuis l'Assistant
 
 L'utilisateur peut démarrer depuis un accueil assistant-first, apporter une recette (URL, image, texte ou partage), l'importer dans un flux annulable, la relire en prévisualisation puis la sauvegarder explicitement, tout en conservant les parcours v1.
