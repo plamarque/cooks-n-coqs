@@ -62,7 +62,7 @@ development_status:
 
   epic-5: in-progress
   5-1-intégrer-l-asset-de-production-du-chef: done
-  5-2-rendre-les-six-états-du-chef-localement: backlog
+  5-2-rendre-les-six-états-du-chef-localement: review
   5-3-lier-les-états-du-chef-au-cycle-de-conversation: backlog
   epic-5-retrospective: optional
 
