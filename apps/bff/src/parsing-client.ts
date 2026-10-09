@@ -837,7 +837,7 @@ export async function enrichMissingCategoryWithExtract(
 }
 
 const UNIT_PATTERN =
-  /(?:litres?|g(?:r?)?|kg|ml|cl|L|cuillère[s]?\s+à\s+soupe|cuillère[s]?\s+à\s+café|c\.?\s*à\s*s\.?|c\.?\s*à\s*c\.?|cc|cs|CC|pincée|œufs|oeufs|œuf|oeuf|unités|unité|pièces|pièce|tranches|tranche|feuilles|feuille|verres|verre|oignons|oignon|pavés|pavé|gousses|gousse)/i;
+  /(?:litres?|g(?:r?)?|kg|ml|cl|L|cuillère[s]?\s+à\s+soupe(?=\s|$)|cuillère[s]?\s+à\s+café(?=\s|$)|c\.?\s*à\s*soupe(?=\s|$)|c\.?\s*à\s*café(?=\s|$)|c\.?\s*à\s*s\.?(?=\s|$)|c\.?\s*à\s*c\.?(?=\s|$)|cc(?=\s|$)|cs(?=\s|$)|pincée|œufs|oeufs|œuf|oeuf|unités|unité|pièces|pièce|tranches|tranche|feuilles|feuille|verres|verre|oignons|oignon|pavés|pavé|gousses|gousse)/i;
 
 const QTY_PATTERN = /(\d*\/\d+|\d+(?:[.,]\d+)?|demi|½|⅓|⅔|¼|¾)/;
 
@@ -867,12 +867,12 @@ function normalizeUnit(raw: string): string {
   if (/^gr?$/.test(u)) return "g";
   if (
     /^cc$/i.test(u) ||
-    /^c\.?\s*à\s*c\.?$/.test(u) ||
+    /^c\.?\s*à\s*c(?:\.?|afé)$/.test(u) ||
     u === "cuillère à café" ||
     u === "cuillères à café"
   )
     return "c. à c.";
-  if (/^c\.?\s*à\s*s\.?$/.test(u) || u === "cuillère à soupe" || u === "cuillères à soupe")
+  if (/^c\.?\s*à\s*s(?:\.?|oupe)$/.test(u) || u === "cuillère à soupe" || u === "cuillères à soupe")
     return "c. à s.";
   return raw.replace(/\.+$/, "").trim();
 }
@@ -1399,6 +1399,46 @@ function extractMainText(html: string): string {
     $(".recipe-content, .recipe-body, .recette, [itemtype*=\"Recipe\"]").text() ||
     $("body").text();
   return main.replace(/\s+/g, " ").trim().slice(0, 15000);
+}
+
+/** Les partages ChatGPT rendent la conversation dans un bootstrap JSON, pas dans
+ * le texte visible de la page. Ne retenir que le bloc recette explicite afin de
+ * ne jamais soumettre le bootstrap complet au parseur. */
+export function extractChatGptShareRecipeText(html: string): string | undefined {
+  const strings = /"((?:\\.|[^"\\])*)"/g;
+  let candidate: RegExpExecArray | null;
+  let recipeText: string | undefined;
+  const consider = (value: unknown): void => {
+    if (typeof value === "string") {
+      if (/^#\s+.+\n/m.test(value) && /^##\s+Ingrédients\s*$/mi.test(value) && /^##\s+Préparation\s*$/mi.test(value)) {
+        if (!recipeText || value.length > recipeText.length) recipeText = value;
+      }
+      return;
+    }
+    if (Array.isArray(value)) value.forEach(consider);
+    else if (value && typeof value === "object") Object.values(value).forEach(consider);
+  };
+  while ((candidate = strings.exec(html))) {
+    try {
+      const decoded = JSON.parse(`"${candidate[1]}"`) as unknown;
+      if (typeof decoded === "string" && /^[{[]/.test(decoded.trim())) {
+        try { consider(JSON.parse(decoded)); } catch { consider(decoded); }
+      } else consider(decoded);
+    } catch {
+      // Une chaîne de script non JSON ne peut pas être le contenu de recette.
+    }
+  }
+  return recipeText;
+}
+
+function isChatGptShareUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    return (parsed.hostname === "chatgpt.com" || parsed.hostname === "www.chatgpt.com")
+      && /^\/share\/[a-z0-9-]+$/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
 }
 
 function isInstagramUrl(rawUrl: string): boolean {
@@ -2386,7 +2426,9 @@ async function parseRecipeWithCloudInner(
         );
       }
 
-      const text = extractMainText(html);
+      const text = isChatGptShareUrl(url)
+        ? extractChatGptShareRecipeText(html) ?? extractMainText(html)
+        : extractMainText(html);
       if (text.length > 100) {
         const aiDraft = await parseWithOpenAI(text, ogImage, url, sourceType, "Recette depuis URL");
         return mergeHtmlInlineStepMediaIntoDraft(aiDraft, html, baseUrl);

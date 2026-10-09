@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Recipe } from "@cookies-et-coquilettes/domain";
 import {
+  assistantPreviewIngredientQuantityText,
   recipeFromAssistantPreview,
   saveAssistantPreview
 } from "../src/services/preview-save-service";
@@ -156,4 +157,21 @@ test("projection preview : les règles domaine normalisent les quantités scalab
     }
   }), () => "id", () => "2026-10-03T10:00:00.000Z");
   assert.equal(recipe.ingredients[0].quantityBase, 2);
+});
+
+test("preview Assistant : les quantités structurées alimentent l'éditeur et la sauvegarde", () => {
+  const ingredient = { id: "i", label: "Lardons", quantity: 200, unit: "g", isScalable: true };
+  assert.equal(assistantPreviewIngredientQuantityText(ingredient), "200 g");
+  assert.equal(assistantPreviewIngredientQuantityText({ ...ingredient, rawText: "une barquette" }), "une barquette");
+  assert.equal(assistantPreviewIngredientQuantityText({ ...ingredient, quantity: undefined, unit: undefined }), "");
+
+  const recipe = recipeFromAssistantPreview(preview({
+    draft: {
+      title: "Tartiflette",
+      category: "SALE",
+      ingredients: [ingredient],
+      steps: []
+    }
+  }), () => "id", () => "2026-10-03T10:00:00.000Z");
+  assert.equal(recipe.ingredients[0].rawText, "200 g");
 });
