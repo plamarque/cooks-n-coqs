@@ -25,3 +25,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-3-garder-les-messages-riches-dans-le-fil.md`
   summary: Rendre l'analyse vision Assistant plus résiliente aux indisponibilités fournisseur : retry temporisé, diagnostic corrélé et reprise du lot sans réanalyser les images déjà réussies.
   evidence: Le lot est traité séquentiellement et la troisième photo valide a reçu un 503 `UPSTREAM_UNAVAILABLE` après les deux essais actuels espacés de 400 ms ; l'URL Tailscale, le BFF et les JPEG ont été vérifiés.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-rendre-les-six-etats-du-chef-localement.md`
+  summary: Réparer la chaîne de build SPA afin que le gate E2E normal atteigne Playwright.
+  evidence: `spa-404-fallback` échoue dans `closeBundle` avant que `dist/index.html` soit disponible ; le défaut précède la Story 5.2 et bloque aussi ses E2E via `npm run test:e2e`.

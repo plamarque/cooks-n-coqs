@@ -247,6 +247,56 @@ test.describe("Cookies & Coquillettes v1", () => {
     expect(duration).toBeLessThanOrEqual(14);
   });
 
+  test("Chef : les cinq états actifs jouent leur planche locale une seule fois", async ({ page }) => {
+    await page.goto("/");
+    const avatar = page.locator(".chef-avatar");
+    const states = [
+      ["ecoute", 2.8, "chef-ecoute"],
+      ["reflexion", 3.2, "chef-reflexion"],
+      ["proposition", 2.6, "chef-proposition"],
+      ["reussite", 2.4, "chef-reussite"],
+      ["question", 3, "chef-question"]
+    ];
+
+    for (const [state, duration, asset] of states) {
+      await avatar.click();
+      await expect(avatar).toHaveAttribute("data-chef-state", state);
+      const sprite = avatar.locator(".chef-avatar-sprite");
+      await expect(sprite).toBeVisible();
+      await expect(sprite).toHaveCSS("animation-iteration-count", "1");
+      expect(await sprite.evaluate((element) => Number.parseFloat(getComputedStyle(element).animationDuration))).toBe(duration);
+      await expect(sprite).toHaveCSS("background-size", "400% 300%");
+      await expect(sprite.locator("img")).toHaveAttribute("src", new RegExp(`${asset}(?:-[A-Za-z0-9_-]{8})?\\.png`));
+    }
+
+    await avatar.press("Enter");
+    await expect(avatar).toHaveAttribute("data-chef-state", "repos");
+    await avatar.press(" ");
+    await expect(avatar).toHaveAttribute("data-chef-state", "ecoute");
+  });
+
+  test("Chef : le mouvement réduit fixe chaque état actif sur sa dernière pose", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/");
+    const avatar = page.locator(".chef-avatar");
+
+    for (const state of ["ecoute", "reflexion", "proposition", "reussite", "question"]) {
+      await avatar.click();
+      await expect(avatar).toHaveAttribute("data-chef-state", state);
+      const sprite = avatar.locator(".chef-avatar-sprite");
+      await expect(sprite).toHaveCSS("animation-name", "none");
+      await expect(sprite).toHaveCSS("background-position", "100% 100%");
+    }
+  });
+
+  test("Chef : une planche active indisponible ne laisse pas d’image brisée", async ({ page }) => {
+    await page.route(/\/chef-ecoute(?:-[A-Za-z0-9_-]{8})?\.png$/, (route) => route.abort());
+    await page.goto("/");
+    await page.locator(".chef-avatar").click();
+    await expect(page.locator(".chef-avatar-sprite")).toHaveCount(0);
+    await expect(page.locator(".chef-avatar-placeholder")).toBeVisible();
+  });
+
   test("Chef : un asset principal indisponible bascule vers la pose locale de secours", async ({ page }) => {
     await page.route(/\/chef-repos-[A-Za-z0-9_-]{8}\.png$/, (route) => route.abort());
     await page.goto("/");

@@ -129,6 +129,41 @@ body {
   animation: chef-avatar-rest-breath var(--chef-rest-duration) ease-in-out infinite;
 }
 
+.chef-avatar-sprite {
+  display: block;
+  width: 100%;
+  max-height: min(44vw, 21rem);
+  aspect-ratio: 1 / 1;
+  background-image: var(--chef-sprite);
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  background-size: 400% 300%;
+  animation-duration: var(--chef-state-duration);
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+  animation-timing-function: steps(1, end);
+}
+
+.chef-avatar-sprite-preload {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chef-avatar--ecoute { --chef-state-duration: 2.8s; }
+.chef-avatar--reflexion { --chef-state-duration: 3.2s; }
+.chef-avatar--proposition { --chef-state-duration: 2.6s; }
+.chef-avatar--reussite { --chef-state-duration: 2.4s; }
+.chef-avatar--question { --chef-state-duration: 3s; }
+
+.chef-avatar--ecoute .chef-avatar-sprite { animation-name: chef-avatar-ecoute; }
+.chef-avatar--reflexion .chef-avatar-sprite { animation-name: chef-avatar-reflexion; }
+.chef-avatar--proposition .chef-avatar-sprite { animation-name: chef-avatar-proposition; }
+.chef-avatar--reussite .chef-avatar-sprite { animation-name: chef-avatar-reussite; }
+.chef-avatar--question .chef-avatar-sprite { animation-name: chef-avatar-question; }
+
 .chef-avatar-eyelid {
   position: absolute;
   top: 54.8%;
@@ -156,6 +191,26 @@ body {
   91%, 100% { transform: scaleY(0); }
 }
 
+@keyframes chef-avatar-ecoute {
+  0%, 8.3% { background-position: 0 0; } 8.4%, 16.6% { background-position: 33.333% 0; } 16.7%, 25% { background-position: 66.666% 0; } 25.1%, 33.3% { background-position: 100% 0; } 33.4%, 41.6% { background-position: 0 50%; } 41.7%, 49.9% { background-position: 33.333% 50%; } 50%, 58.2% { background-position: 66.666% 50%; } 58.3%, 66.6% { background-position: 100% 50%; } 66.7%, 74.9% { background-position: 0 100%; } 75%, 83.2% { background-position: 33.333% 100%; } 83.3%, 91.5% { background-position: 66.666% 100%; } 91.6%, 100% { background-position: 100% 100%; }
+}
+
+@keyframes chef-avatar-reflexion {
+  0%, 8.3% { background-position: 0 0; } 8.4%, 16.6% { background-position: 33.333% 0; } 16.7%, 25% { background-position: 66.666% 0; } 25.1%, 33.3% { background-position: 100% 0; } 33.4%, 41.6% { background-position: 0 50%; } 41.7%, 49.9% { background-position: 33.333% 50%; } 50%, 58.2% { background-position: 66.666% 50%; } 58.3%, 66.6% { background-position: 100% 50%; } 66.7%, 74.9% { background-position: 0 100%; } 75%, 83.2% { background-position: 33.333% 100%; } 83.3%, 91.5% { background-position: 66.666% 100%; } 91.6%, 100% { background-position: 100% 100%; }
+}
+
+@keyframes chef-avatar-proposition {
+  0%, 8.3% { background-position: 0 0; } 8.4%, 16.6% { background-position: 33.333% 0; } 16.7%, 25% { background-position: 66.666% 0; } 25.1%, 33.3% { background-position: 100% 0; } 33.4%, 41.6% { background-position: 0 50%; } 41.7%, 49.9% { background-position: 33.333% 50%; } 50%, 58.2% { background-position: 66.666% 50%; } 58.3%, 66.6% { background-position: 100% 50%; } 66.7%, 74.9% { background-position: 0 100%; } 75%, 83.2% { background-position: 33.333% 100%; } 83.3%, 91.5% { background-position: 66.666% 100%; } 91.6%, 100% { background-position: 100% 100%; }
+}
+
+@keyframes chef-avatar-reussite {
+  0%, 8.3% { background-position: 0 0; } 8.4%, 16.6% { background-position: 33.333% 0; } 16.7%, 25% { background-position: 66.666% 0; } 25.1%, 33.3% { background-position: 100% 0; } 33.4%, 41.6% { background-position: 0 50%; } 41.7%, 49.9% { background-position: 33.333% 50%; } 50%, 58.2% { background-position: 66.666% 50%; } 58.3%, 66.6% { background-position: 100% 50%; } 66.7%, 74.9% { background-position: 0 100%; } 75%, 83.2% { background-position: 33.333% 100%; } 83.3%, 91.5% { background-position: 66.666% 100%; } 91.6%, 100% { background-position: 100% 100%; }
+}
+
+@keyframes chef-avatar-question {
+  0%, 8.3% { background-position: 0 0; } 8.4%, 16.6% { background-position: 33.333% 0; } 16.7%, 25% { background-position: 66.666% 0; } 25.1%, 33.3% { background-position: 100% 0; } 33.4%, 41.6% { background-position: 0 50%; } 41.7%, 49.9% { background-position: 33.333% 50%; } 50%, 58.2% { background-position: 66.666% 50%; } 58.3%, 66.6% { background-position: 100% 50%; } 66.7%, 74.9% { background-position: 0 100%; } 75%, 83.2% { background-position: 33.333% 100%; } 83.3%, 91.5% { background-position: 66.666% 100%; } 91.6%, 100% { background-position: 100% 100%; }
+}
+
 .chef-avatar-placeholder {
   display: block;
   width: 1px;
@@ -166,11 +221,14 @@ body {
   .assistant-welcome--home { grid-template-columns: minmax(10rem, 31%) minmax(0, 1fr); }
   .chef-avatar { margin-bottom: 20px; }
   .chef-avatar-image { max-height: 25rem; }
+  .chef-avatar-sprite { max-height: 25rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .chef-avatar-motion,
-  .chef-avatar-eyelid { animation: none; }
+  .chef-avatar-eyelid,
+  .chef-avatar .chef-avatar-sprite { animation: none; }
+  .chef-avatar-sprite { background-position: 100% 100%; }
 }
 
 .assistant-composer-section {
