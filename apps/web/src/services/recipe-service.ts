@@ -20,6 +20,14 @@ function defaultBffUrl(): string {
 
 const BFF_URL = import.meta.env?.VITE_BFF_URL || defaultBffUrl();
 
+const notebookTitleCollator = new Intl.Collator("fr", { sensitivity: "base" });
+
+/** Ordre visible du Cahier : titre français, puis identifiant pour lever toute égalité. */
+export function compareRecipesByNotebookTitle(a: Recipe, b: Recipe): number {
+  return notebookTitleCollator.compare(a.title, b.title)
+    || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
 export type ImageStorageResult =
   | { imageId: string }
   | { imageId: undefined; issue: "fetch" | "invalid-image" | "storage" };
@@ -140,6 +148,19 @@ function bySearch(recipe: Recipe, search?: string): boolean {
   );
 }
 
+/** Applique les filtres du Cahier avant son ordre de lecture unique. */
+export function filterAndSortNotebookRecipes(recipes: Recipe[], filters?: RecipeFilters): Recipe[] {
+  return recipes
+    .filter((recipe) =>
+      filters?.category ? recipe.category === filters.category : true
+    )
+    .filter((recipe) =>
+      filters?.favorite !== undefined ? recipe.favorite === filters.favorite : true
+    )
+    .filter((recipe) => bySearch(recipe, filters?.search))
+    .sort(compareRecipesByNotebookTitle);
+}
+
 class DexieRecipeService implements RecipeService {
   async createRecipe(recipe: Recipe): Promise<void> {
     const normalized = normalizeRecipeForSave(recipe);
@@ -200,20 +221,7 @@ class DexieRecipeService implements RecipeService {
 
   async listRecipes(filters?: RecipeFilters): Promise<Recipe[]> {
     const all = await db.recipes.toArray();
-    return all
-      .filter((recipe) =>
-        filters?.category ? recipe.category === filters.category : true
-      )
-      .filter((recipe) =>
-        filters?.favorite !== undefined ? recipe.favorite === filters.favorite : true
-      )
-      .filter((recipe) => bySearch(recipe, filters?.search))
-      .sort((a, b) => {
-        if (a.favorite !== b.favorite) {
-          return a.favorite ? -1 : 1;
-        }
-        return b.updatedAt.localeCompare(a.updatedAt);
-      });
+    return filterAndSortNotebookRecipes(all, filters);
   }
 
   async scaleRecipe(recipeId: string, servings: number): Promise<Recipe> {

@@ -70,7 +70,7 @@ Définir l’architecture cible de **Cookies & Coquillettes** en PWA Vue/TypeScr
 Règles de contrat :
 - validation à la sauvegarde (`title` + au moins un ingrédient ou une étape),
 - recalcul portions depuis `quantityBase` (immuable),
-- tri par défaut `updatedAt DESC`.
+- `listRecipes(filters?)` applique les filtres puis l’ordre visible du Cahier : titre via une collation française insensible à la casse et aux accents, puis `id` croissant pour départager les titres équivalents. Le snapshot Assistant conserve son re-tri local distinct favoris/date/id avant son plafond de 60 recettes.
 
 ### Preview save service
 

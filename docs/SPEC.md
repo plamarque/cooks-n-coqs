@@ -76,7 +76,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 1. Les recettes sont affichées sous forme de grille de vignettes.
 2. L’utilisateur peut filtrer par catégorie (`Sucré`, `Salé`) et par favoris. Au chargement, le filtre favoris est activé par défaut (icône cœur) : seules les recettes favorites sont affichées.
 3. L’utilisateur peut rechercher en texte libre sur `titre + ingrédients`.
-4. La liste est triée par défaut : favoris en premier, puis par dernière modification (`updatedAt DESC`).
+4. La liste du Cahier est triée par défaut alphabétiquement par titre, avec une collation française insensible à la casse et aux accents ; à égalité, l’identifiant assure un ordre déterministe. Ce tri s’applique après les filtres catégorie, favori et recherche.
 5. La navigation privilégie l’accès rapide aux recettes fréquemment utilisées.
 
 ### Consultation et exécution
