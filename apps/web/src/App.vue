@@ -60,7 +60,10 @@ import {
   storeImageFromFile,
   storeImageFromUrl
 } from "./services/recipe-service";
-import { saveAssistantPreview as persistAssistantPreview } from "./services/preview-save-service";
+import {
+  assistantPreviewIngredientQuantityText,
+  saveAssistantPreview as persistAssistantPreview
+} from "./services/preview-save-service";
 import {
   exportRecipeBookZipBlob,
   importRecipeBookFromZipFile,
@@ -1319,11 +1322,14 @@ async function prepareAssistantRequest(): Promise<void> {
   assistantPhase.value = "analyzing";
   await nextTick();
   stopAssistantDictation(false);
-  // Toute entrée passe d'abord par la sélection d'intention. L'image reste jointe
-  // localement et n'est jamais ajoutée au fil ; elle n'est parsée qu'après `import`.
-  // F2 est un contrat local historique : le reconnaître ne révèle aucun contenu au BFF.
+  // Une URL seule et F2 sont des imports explicites : ils évitent le routage Chef.
+  // L'image reste jointe localement et n'est jamais ajoutée au fil.
   try {
-    const importPromise = !assistantAttachments.value.length && Boolean(tryParseRecipeShareF2Text(assistantText.value, { sourceType: "TEXT" }))
+    const directImport = !assistantAttachments.value.length && (
+      Boolean(tryParseRecipeShareF2Text(assistantText.value, { sourceType: "TEXT" })) ||
+      routeAssistantImport(assistantText.value, []) === "url"
+    );
+    const importPromise = directImport
       ? assistantSession.import(assistantText.value, null, assistantImportAdapter)
       : prepareAssistantTextRequest(preparationId);
     // resolveText ajoute le tour utilisateur avant sa première attente réseau :
@@ -1680,6 +1686,13 @@ function addAssistantPreviewIngredient(): void {
 
 function removeAssistantPreviewIngredient(index: number): void {
   assistantPreview.value?.draft.ingredients.splice(index, 1);
+}
+
+function updateAssistantPreviewIngredientQuantity(
+  ingredient: ParsedRecipeDraft["ingredients"][number],
+  event: Event
+): void {
+  ingredient.rawText = (event.target as HTMLInputElement).value;
 }
 
 function addAssistantPreviewStep(): void {
@@ -3589,7 +3602,7 @@ onUnmounted(() => {
         <div v-for="(ingredient, ingredientIndex) in assistantPreview.draft.ingredients" :key="ingredient.id" class="ingredient-card assistant-preview-ingredient-card">
           <div class="ingredient-card-image-wrap"><i class="pi pi-shopping-basket" aria-hidden="true" /></div>
           <input v-model="ingredient.label" class="ingredient-card-name assistant-preview-input" type="text" aria-label="Ingrédient" />
-          <input v-model="ingredient.rawText" class="ingredient-card-qty assistant-preview-input" type="text" aria-label="Quantité ou précision" placeholder="Quantité ou précision" />
+          <input :value="assistantPreviewIngredientQuantityText(ingredient)" class="ingredient-card-qty assistant-preview-input" type="text" aria-label="Quantité ou précision" placeholder="Quantité ou précision" @input="updateAssistantPreviewIngredientQuantity(ingredient, $event)" />
           <Button text severity="danger" size="small" icon="pi pi-trash" aria-label="Retirer cet ingrédient" @click="removeAssistantPreviewIngredient(ingredientIndex)" />
         </div>
       </div>

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, routeAssistantImport } from "../src/utils/assistant-session";
 import { AssistantImageRequestError } from "../src/services/assistant-service";
 
@@ -18,6 +21,7 @@ test("session Assistant : conversion et taille résiduelle ont des messages dist
 test("session Assistant : image puis URL puis texte", () => {
   assert.equal(routeAssistantImport("https://example.test", [{} as File]), "image");
   assert.equal(routeAssistantImport("https://example.test", []), "url");
+  assert.equal(routeAssistantImport("https://chatgpt.com/share/abc123?utm_source=share", []), "url");
   assert.equal(routeAssistantImport("Soupe", []), "text");
 });
 
@@ -36,6 +40,17 @@ test("session Assistant : dispatch réel image, URL puis texte", async () => {
     ["url", "https://example.test/recette"],
     ["text", "Recette collée"]
   ]);
+});
+
+test("App.vue : un lien ChatGPT seul est importé avant le routage Chef", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const submission = /async function prepareAssistantRequest[\s\S]*?\n}\n\nasync function prepareAssistantTextRequest/.exec(app);
+  assert.ok(submission, "prepareAssistantRequest est présent");
+  const source = submission[0];
+  assert.match(source, /routeAssistantImport\(assistantText\.value, \[\]\) === "url"/);
+  assert.match(source, /const importPromise = directImport[\s\S]*?assistantSession\.import\(assistantText\.value, null, assistantImportAdapter\)/);
+  assert.match(source, /: prepareAssistantTextRequest\(preparationId\)/);
 });
 
 test("session Assistant : un import envoyé forme un tour utilisateur puis Chef", async () => {

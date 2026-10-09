@@ -33,6 +33,22 @@ test("adaptateur Assistant : AbortError fetch est propagée, jamais convertie en
   }
 });
 
+test("adaptateur Assistant URL : refus de lecture renvoie un draft URL éditable en conservant la query string", async () => {
+  const originalFetch = globalThis.fetch;
+  const url = "https://chatgpt.com/share/abc123?utm_source=share";
+  globalThis.fetch = async () => new Response("Accès refusé", { status: 403 });
+  try {
+    const draft = await assistantImportAdapter.importUrl(url, new AbortController().signal);
+    assert.equal(draft.title, "Recette depuis URL");
+    assert.equal(draft.source?.type, "URL");
+    assert.equal(draft.source?.url, url);
+    assert.deepEqual(draft.ingredients, []);
+    assert.deepEqual(draft.steps, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("import photos v1 : expose préparation, lecture n/N puis vérification", async () => {
   const originalFetch = globalThis.fetch;
   const phases: string[] = [];

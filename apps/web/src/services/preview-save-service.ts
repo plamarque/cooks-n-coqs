@@ -19,6 +19,15 @@ export type PreviewSaveResult = {
   illustrationUnavailable: boolean;
 };
 
+/** Quantité concise attendue par le champ d'édition de prévisualisation. */
+export function assistantPreviewIngredientQuantityText(ingredient: ParsedRecipeDraft["ingredients"][number]): string {
+  const rawText = ingredient.rawText?.trim();
+  if (rawText) return rawText;
+  if (ingredient.quantity === undefined || ingredient.quantity === null || !Number.isFinite(ingredient.quantity)) return "";
+  const unit = ingredient.unit?.trim();
+  return unit ? `${ingredient.quantity} ${unit}` : String(ingredient.quantity);
+}
+
 type PreviewSaveDependencies = {
   prepareIllustration: typeof prepareImageFromUrl;
   createRecipe: Pick<RecipeService, "createRecipe">;
@@ -54,7 +63,7 @@ export function recipeFromAssistantPreview(
       id: ingredient.id || makeId(),
       order: index + 1,
       label: ingredient.label.trim(),
-      rawText: ingredient.rawText ?? ingredient.label.trim()
+      rawText: assistantPreviewIngredientQuantityText(ingredient) || ingredient.label.trim()
     }));
   const ingredientIds = new Set(ingredients.map((ingredient) => ingredient.id));
   const steps = draft.steps
