@@ -1,4 +1,4 @@
-import type { AssistantConversationTurnV1, AssistantPreviewSnapshot, ImportSource, ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
+import type { AssistantConversationTurnV1, AssistantPreviewSnapshot, ChefTurnClassificationV1, ImportSource, ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
 import { AssistantImageRequestError } from "../services/assistant-service";
 
 export type AssistantImportRoute = "image" | "url" | "text";
@@ -96,11 +96,15 @@ export class AssistantSession {
   turns: AssistantConversationTurnV1[] = [];
   clarificationCount = 0;
   question: string | null = null;
+  /** Contrat du seul tour courant : il ne rejoint jamais le fil ni IndexedDB. */
+  classification: ChefTurnClassificationV1 | null = null;
   /** Identifiants Cahier exclus pour le seul fil Assistant courant. */
   private rejectedCandidateIds = new Set<string>();
+  /** Tours volontairement hors IndexedDB après une clarification bloquante. */
+  private ephemeralTurnIds = new Set<string>();
 
-  beginConversation(text: string): void {
-    this.question = null;
+  beginConversation(text: string, closeQuestion = true): void {
+    if (closeQuestion) this.question = null;
     this.turns.push({ id: crypto.randomUUID(), role: "user", text: text.trim() });
   }
 
@@ -108,9 +112,11 @@ export class AssistantSession {
     this.turns.push({ id: crypto.randomUUID(), role: "assistant", text });
   }
 
-  showClarification(question: string): void {
+  showClarification(question: string, ephemeral = false): void {
     this.question = question;
-    this.turns.push({ role: "assistant", text: question });
+    const id = crypto.randomUUID();
+    this.turns.push({ id, role: "assistant", text: question });
+    if (ephemeral) this.ephemeralTurnIds.add(id);
     this.clarificationCount += 1;
     this.phase = "idle";
   }
@@ -120,6 +126,8 @@ export class AssistantSession {
     this.clarificationCount = 0;
     this.question = null;
     this.rejectedCandidateIds.clear();
+    this.ephemeralTurnIds.clear();
+    this.classification = null;
   }
 
   hydrateConversation(turns: readonly AssistantConversationTurnV1[]): void {
@@ -135,6 +143,15 @@ export class AssistantSession {
 
   replaceConversationTurns(turns: readonly AssistantConversationTurnV1[]): void {
     this.turns = turns.map((turn) => structuredClone(turn));
+  }
+
+  markCurrentTurnEphemeral(): void {
+    const id = this.turns.at(-1)?.id;
+    if (id) this.ephemeralTurnIds.add(id);
+  }
+
+  persistableTurns(): AssistantConversationTurnV1[] {
+    return this.turns.filter((turn) => !turn.id || !this.ephemeralTurnIds.has(turn.id)).map((turn) => structuredClone(turn));
   }
 
   attachCardToLatestTurn(card: NonNullable<AssistantConversationTurnV1["cards"]>[number]): void {
@@ -187,17 +204,17 @@ export class AssistantSession {
   }
 
   /** Même propriétaire AbortController/requestId pour sélection puis génération texte. */
-  async resolveText(text: string, adapter: AssistantTextAdapter, options: { hasImages?: boolean; sourceFiles?: File[] } = {}): Promise<AssistantTextResolution | null> {
+  async resolveText(text: string, adapter: AssistantTextAdapter, options: { hasImages?: boolean; sourceFiles?: File[]; turnAlreadyStarted?: boolean } = {}): Promise<AssistantTextResolution | null> {
     this.controller?.abort();
     this.controller = null;
     this.preview = null;
+    this.classification = null;
     const requestId = ++this.requestId;
     const controller = new AbortController();
     this.controller = controller;
     this.phase = "analyzing";
     this.error = null;
-    const previousTurnsLength = this.turns.length;
-    this.beginConversation(text);
+    if (!options.turnAlreadyStarted) this.beginConversation(text);
     try {
       const result = await adapter.resolve(text, controller.signal, (phase) => {
         if (!controller.signal.aborted && requestId === this.requestId) this.phase = phase;
@@ -212,9 +229,6 @@ export class AssistantSession {
       return result;
     } catch (error) {
       if (controller.signal.aborted || requestId !== this.requestId || (error as Error).name === "AbortError") return null;
-      // Le message reste dans le champ. Un nouvel essai ne doit pas ajouter un
-      // deuxième tour identique au contexte transmis à Jev.
-      this.turns.length = previousTurnsLength;
       this.phase = "error";
       const stage = (error as Error).message.match(/^assistant_stage:([a-z_]+)$/)?.[1];
       const detail = (error as Error).message.match(/^assistant_detail:([a-z_]+)$/)?.[1];
@@ -230,7 +244,7 @@ export class AssistantSession {
         return null;
       }
       const preservesImages = options.hasImages;
-      const preservedInput = preservesImages ? "Vos photos et votre demande sont conservées." : "Votre demande est conservée.";
+      const preservedInput = preservesImages ? "Vos photos sont conservées et votre demande reste dans la conversation." : "Votre demande reste dans la conversation.";
       this.error = detail
         ? `Je n’ai pas pu joindre le service d’analyse. ${preservedInput}`
         : stage
@@ -255,6 +269,7 @@ export class AssistantSession {
     this.controller?.abort();
     this.controller = null;
     ++this.requestId;
+    this.classification = null;
     if (this.phase === "importing" || this.phase === "analyzing" || this.phase === "searching" || this.phase === "creating") this.phase = "idle";
   }
 

@@ -90,6 +90,19 @@ test("assistant advice HTTP: wire fermé, route isolée et indisponibilité", as
   });
 });
 
+test("assistant classification HTTP: contrat fermé, injection et indisponibilité", async () => {
+  await withServer(async (base) => {
+    assert.equal((await post(base, "/api/assistant/classify-turn", { message: "x", context: { recipeId: "local" } })).status, 400);
+    let received: unknown;
+    assistantDependencies.classifyTurn = async (input) => { received = input; return { intent: "adapt", confidence: "high", constraints: ["au Cookeo", "sans crème"] }; };
+    const input = { message: "au Cookeo et sans crème", context: { objective: "des cèpes", clarification: "Quel appareil ?", constraints: ["sans crème"], reference: { title: "Échine aux cèpes" } } };
+    assert.deepEqual(await (await post(base, "/api/assistant/classify-turn", input)).json(), { intent: "adapt", confidence: "high", constraints: ["au Cookeo", "sans crème"] });
+    assert.deepEqual(received, input);
+    assistantDependencies.classifyTurn = async () => null;
+    assert.equal((await post(base, "/api/assistant/classify-turn", { message: "des cèpes" })).status, 503);
+  });
+});
+
 test("assistant image intents HTTP: plusieurs images temporaires, bornées et image-only", async () => {
   await withServer(async (base) => {
     let simultaneous = 0;

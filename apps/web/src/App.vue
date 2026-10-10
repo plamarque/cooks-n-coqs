@@ -83,9 +83,10 @@ import {
 } from "./services/import-service";
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, restoreAssistantPreview, routeAssistantImport, snapshotAssistantPreview, type AssistantPreview } from "./utils/assistant-session";
 import { ChefSession } from "./utils/chef-session";
+import { buildChefTurnClassificationContext, resolveChefTurnClassification } from "./utils/chef-turn-classification";
 import { createNoCandidateAssistantPreview } from "./utils/assistant-no-candidate";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
-import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
+import { AssistantImageRequestError, buildAssistantSelectionRequest, classifyChefTurn, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
   getCookingStepImageBlobUrl,
@@ -1177,7 +1178,8 @@ function declineChefConversationResume(): void {
 }
 
 async function persistChefConversation(files: readonly File[] = [], attachmentTurnId?: string): Promise<void> {
-  const record = chefSession.active ? chefSession.sync(assistantSession.turns) : chefSession.begin(assistantSession.turns);
+  const turns = assistantSession.persistableTurns();
+  const record = chefSession.active ? chefSession.sync(turns) : chefSession.begin(turns);
   if (!record) return;
   if (files.length && attachmentTurnId) {
     const persisted = await storeChefConversationAssets(record, attachmentTurnId, files);
@@ -1350,16 +1352,26 @@ async function prepareAssistantRequest(): Promise<void> {
   // L'image reste jointe localement et n'est jamais ajoutée au fil.
   try {
     const directImport = !assistantAttachments.value.length && (
-      Boolean(tryParseRecipeShareF2Text(assistantText.value, { sourceType: "TEXT" })) ||
-      routeAssistantImport(assistantText.value, []) === "url"
+      Boolean(tryParseRecipeShareF2Text(sentAssistantText, { sourceType: "TEXT" })) ||
+      routeAssistantImport(sentAssistantText, []) === "url"
     );
+    if (!directImport) {
+      const visibleTurn = sentAssistantText.trim() || (sentAttachmentFiles.length > 1 ? "Images jointes à analyser" : "Image jointe à analyser");
+      assistantSession.beginConversation(visibleTurn, false);
+      assistantText.value = "";
+      assistantTurns.value = [...assistantSession.turns];
+      revealLatestAssistantEvent();
+    }
     const importPromise = directImport
-      ? assistantSession.import(assistantText.value, null, assistantImportAdapter)
-      : prepareAssistantTextRequest(preparationId);
+      ? assistantSession.import(sentAssistantText, null, assistantImportAdapter)
+      : prepareAssistantTextRequest(preparationId, sentAssistantText);
     // resolveText ajoute le tour utilisateur avant sa première attente réseau :
     // persister ici garantit qu'un départ ou une annulation ne crée pas de fil vide
     // tout en conservant l'intention effectivement envoyée.
-    if (assistantSession.turns.length) {
+    // Un texte Chef reste éphémère jusqu'à la classification : une ambiguïté
+    // indispensable ne crée aucun journal local. Les imports explicites
+    // conservent leur comportement de persistance anticipée existant.
+    if (assistantSession.turns.length && directImport) {
       sentUserTurnId = assistantSession.turns[turnsBeforeRequest]?.id;
       await persistChefConversation(sentAttachmentFiles, sentUserTurnId);
       sentAttachmentsPersisted = sentAttachmentFiles.length > 0;
@@ -1374,7 +1386,7 @@ async function prepareAssistantRequest(): Promise<void> {
     assistantPhase.value = assistantSession.phase === "idle" ? "analyzing" : assistantSession.phase;
     // Une carte déjà proposée reste dans le fil pendant le tour suivant. Seul
     // l'import F2 ouvre un autre flux et ne doit pas conserver ses cartes.
-    if (!assistantAttachments.value.length && Boolean(tryParseRecipeShareF2Text(assistantText.value, { sourceType: "TEXT" }))) {
+    if (!assistantAttachments.value.length && Boolean(tryParseRecipeShareF2Text(sentAssistantText, { sourceType: "TEXT" }))) {
       assistantPreview.value = null;
       assistantCandidatePreview.value = null;
       assistantCandidatePreviews.value = [];
@@ -1394,20 +1406,17 @@ async function prepareAssistantRequest(): Promise<void> {
     }
     assistantError.value = assistantSession.error;
     assistantTurns.value = [...assistantSession.turns];
-    // Après un traitement abouti, les images appartiennent au tour déjà
-    // envoyé (ou à sa preview), pas au prochain message du Compositeur.
-    // En cas d'erreur elles restent disponibles pour un nouvel essai.
+    // Un envoi réel rejoint toujours le fil, même si la réponse échoue : le
+    // Compositeur est libéré et les photos restent disponibles pour un essai.
     if (assistantSession.phase !== "error") {
       // L'intention a rejoint le fil, y compris lorsqu'elle aboutit à un
       // conseil plutôt qu'à une prévisualisation de recette.
       assistantText.value = "";
       clearSentAssistantAttachments();
     } else {
-      // `resolveText` retire le tour échoué pour ne pas le dupliquer au
-      // prochain essai : remettre la saisie tient la promesse du message.
-      assistantText.value = sentAssistantText;
+      assistantText.value = "";
     }
-    if (assistantSession.turns.length) {
+    if (assistantSession.turns.length && !assistantSession.classification?.missing) {
       try {
         sentUserTurnId ??= assistantSession.turns[turnsBeforeRequest]?.id;
         await persistChefConversation(sentAttachmentsPersisted ? [] : sentAttachmentFiles, sentUserTurnId);
@@ -1448,11 +1457,12 @@ async function prepareAssistantRequest(): Promise<void> {
   }
 }
 
-async function prepareAssistantTextRequest(preparationId: number): Promise<AssistantPreview | null> {
+async function prepareAssistantTextRequest(preparationId: number, submittedText: string): Promise<AssistantPreview | null> {
   assistantCandidatePreview.value = null;
   // Une réponse utilisateur ferme la question en attente sans effacer le fil affiché.
-  if (assistantSession.question) assistantSession.question = null;
-  const inputText = assistantText.value.trim();
+  const previousClarification = assistantSession.question;
+  if (previousClarification) assistantSession.question = null;
+  const inputText = submittedText.trim();
   const originalSourceFiles = assistantAttachments.value.map(({ file }) => file);
   const attachments = await prepareAssistantImages(assistantAttachments.value.map(({ file }) => file), () => preparationId === assistantPreparationId && assistantPreparing.value, (progress) => { assistantImageProgress.value = progress; });
   if (!attachments || preparationId !== assistantPreparationId || !assistantPreparing.value) return null;
@@ -1513,9 +1523,31 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
     resolve: async (text, signal, progress) => {
       let stage = "conseil";
       try {
-        // Le wire Conseil est textuel : lui envoyer une photo avant Vision
-        // produit forcément une fausse demande de pièce jointe. Une image
-        // passe donc directement par sa lecture temporaire, puis la sélection.
+        // Toute entrée, y compris image, est classée avant tout parcours. Le
+        // wire ne reçoit jamais le fichier : le résumé Vision reste l'étape
+        // ultérieure dédiée.
+        {
+          const candidateTitles = new Map<string, string>();
+          for (const turn of assistantSession.turns.slice(0, -1)) for (const card of turn.cards ?? []) {
+            if (card.kind !== "candidate") continue;
+            const recipe = await db.recipes.get(card.recipeId);
+            if (recipe) candidateTitles.set(card.recipeId, recipe.title);
+          }
+          const classificationWire = await classifyChefTurn({
+            message: text,
+            context: buildChefTurnClassificationContext(assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text)
+          }, signal);
+          if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+          const classification = resolveChefTurnClassification(classificationWire, assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text);
+          assistantSession.classification = classification;
+          // Une ambiguïté réellement bloquante est la seule sortie qui arrête
+          // le routage; aucun brouillon, recherche ou écriture ne s'ensuit.
+          if (classification.missing) {
+            assistantSession.markCurrentTurnEphemeral();
+            assistantSession.showClarification(classification.missing.question, true);
+            return { kind: "advice" as const };
+          }
+        }
         if (route !== "image") {
           const advice = await requestChefAdvice({ request: text, context: await projectChefAdviceContext(signal) }, signal);
           if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -1571,7 +1603,7 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
         throw new Error(`assistant_stage:${stage}`);
       }
     }
-  }, { hasImages: route === "image" });
+  }, { hasImages: route === "image", turnAlreadyStarted: true });
   if (assistantSession.question) {
     assistantPhase.value = "idle";
     // Le premier message est désormais dans le fil : le champ attend seulement la réponse.
@@ -1633,11 +1665,13 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
 function cancelAssistantImport(): void {
   assistantPreparationId += 1;
   assistantPreparing.value = false;
-  assistantSession.cancel();
+  // Annuler l'opération ne ferme pas la conversation : seul le résultat
+  // distant est invalidé, pour préserver les tours et la saisie en cours.
+  assistantSession.invalidate();
   assistantPhase.value = assistantSession.phase;
   assistantError.value = null;
-  assistantTurns.value = assistantSession.turns;
-  assistantQuestion.value = null;
+  assistantTurns.value = [...assistantSession.turns];
+  assistantQuestion.value = assistantSession.question;
   assistantAnnouncement.value = "Import annulé. Votre saisie est conservée.";
   focusAssistantComposer();
 }

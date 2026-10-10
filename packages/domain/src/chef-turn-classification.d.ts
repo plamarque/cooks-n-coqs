@@ -1,0 +1,13 @@
+export const CHEF_TURN_CLASSIFICATION_MESSAGE_MAX_LENGTH: number;
+export const CHEF_TURN_CLASSIFICATION_CONSTRAINT_MAX_LENGTH: number;
+export type ChefTurnIntentV1 = "idea" | "search" | "create" | "adapt" | "variant";
+export type ChefTurnConfidenceV1 = "high" | "medium" | "low";
+export type ChefTurnReferenceV1 = { title: string; source: "clarification" | "mentioned_recipe" | "latest_card" };
+export type ChefTurnMissingV1 = { field: string; question: string };
+export type ChefTurnClassificationContextV1 = { objective?: string; constraints?: string[]; clarification?: string; reference?: { title: string } };
+export type ChefTurnClassificationRequestV1 = { message: string; context?: ChefTurnClassificationContextV1 };
+export type ChefTurnClassificationWireV1 = { intent: ChefTurnIntentV1; confidence: ChefTurnConfidenceV1; constraints: string[]; missing?: ChefTurnMissingV1 };
+export type ChefTurnClassificationV1 = ChefTurnClassificationWireV1 & { reference?: ChefTurnReferenceV1 };
+export function isChefTurnClassificationRequestV1(value: unknown): value is ChefTurnClassificationRequestV1;
+export function isChefTurnClassificationWireV1(value: unknown): value is ChefTurnClassificationWireV1;
+export function isChefTurnClassificationV1(value: unknown): value is ChefTurnClassificationV1;

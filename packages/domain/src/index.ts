@@ -3,3 +3,4 @@ export * from "./recipe-rules";
 export * from "./import-source-dedup";
 export * from "./notebook-selection";
 export * from "./chef-advice";
+export * from "./chef-turn-classification";

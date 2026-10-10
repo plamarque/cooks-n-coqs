@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildChefAdviceUserContent, CHEF_ADVICE_SYSTEM_PROMPT, chooseNotebookRecipe, decodeChefAdviceWire, getChefAdvice, isAssistantSelectionInput, isRetryableAssistantImageError, normalizeAssistantImageSummary, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
+import { buildChefAdviceUserContent, CHEF_ADVICE_SYSTEM_PROMPT, CHEF_TURN_CLASSIFICATION_SYSTEM_PROMPT, chooseNotebookRecipe, decodeChefAdviceWire, decodeChefTurnClassificationWire, getChefAdvice, isAssistantSelectionInput, isRetryableAssistantImageError, normalizeAssistantImageSummary, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
+
+test("classification BFF : décode seulement le contrat fermé et impose la continuité", () => {
+  assert.deepEqual(decodeChefTurnClassificationWire('{"intent":"adapt","confidence":"high","constraints":["au Cookeo","sans crème"]}'), { intent: "adapt", confidence: "high", constraints: ["au Cookeo", "sans crème"] });
+  assert.equal(decodeChefTurnClassificationWire('{"intent":"adapt","confidence":"high","constraints":[],"recipeId":"local"}'), null);
+  assert.match(CHEF_TURN_CLASSIFICATION_SYSTEM_PROMPT, /réponse brève à une clarification/i);
+  assert.match(CHEF_TURN_CLASSIFICATION_SYSTEM_PROMPT, /n'ouvre jamais une nouvelle intention/i);
+});
 
 test("conseil BFF : décode advice et recipe, et rejette un wire fournisseur invalide", () => {
   assert.deepEqual(decodeChefAdviceWire('{"kind":"recipe"}'), { kind: "recipe" });
