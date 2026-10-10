@@ -81,9 +81,17 @@ Règles de contrat :
 
 - Le client est l'orchestrateur du Chef : il possède le fil, le profil et le contexte affiché ; le BFF traite seulement une requête temporaire bornée et ne persiste ni conversation, ni profil, ni Cahier.
 - Une demande d'outil émise par le BFF est une capacité nommée à payload minimal. Le client valide, accepte ou refuse la capacité avant de fournir un extrait local ou d'exécuter une écriture autorisée.
-- Annuler, fermer un fil ou ouvrir une nouvelle conversation invalide localement toute réponse tardive. Les états d'animation sont déclenchés localement ; mouvement réduit et texte restent suffisants à la compréhension.
+- Annuler, fermer un fil ou ouvrir une nouvelle conversation invalide localement toute réponse tardive. Le client choisit un unique état visuel Chef à partir de l'événement produit réel, suivant le contrat canonique de `SPEC.md` (`Repos`, `Écoute`, `Réflexion`, `Proposition`, `Réussite`, `Question`) ; le BFF ne le choisit jamais. Mouvement réduit et texte restent suffisants à la compréhension.
 - Une action de séance réversible peut être appliquée immédiatement avec un retour clair. Toute écriture durable de recette, plan, quantité ou préférence est prévisualisée puis confirmée avant l'écriture locale ; l'exception est un invariant explicite mémorisable silencieusement.
 - `POST /api/assistant/advice` est une capacité BFF stateless séparée de `/api/assistant/recipe`. Elle accepte uniquement le contrat domaine `ChefAdviceRequestV1`, propage l'annulation et renvoie le wire fermé `recipe` / `advice` / `clarify` / `photo`; le fil actif complet est projeté temporairement avec ses cartes/vignettes bornées, sans identifiants locaux, blobs originaux, profil ni Cahier hors cartes, et n’est jamais persisté.
+
+#### Intégration réutilisable des états Chef
+
+- `apps/web/src/utils/chef-visual-state.ts` est le point d'entrée unique à introduire dès le prochain parcours Chef hors de l'accueil. Il porte le type `ChefVisualState`, les événements sémantiques de présentation et une fonction pure qui retourne l'état canonique. Il ne reçoit ni phase réseau brute, ni `AbortController`, ni donnée de conversation et ne déclenche aucun effet.
+- `apps/web/src/components/ChefAvatar.vue` reste le rendu du personnage : il reçoit un état déjà choisi et les options d'accessibilité/mouvement, mais ne décide jamais de l'état métier.
+- `apps/web/src/components/ChefStatusBubble.vue` est le composant à réutiliser pour une attente ou une parole du Chef : composition de l'avatar, du libellé court, des indicateurs de progression éventuels et des règles de mouvement réduit. Il reçoit l'état et le texte ; il ne lance ni n'annule d'opération. Les styles partagés résident dans `apps/web/src/styles.css`.
+- Le parent de parcours (aujourd'hui `apps/web/src/App.vue`, demain toute surface dédiée) traduit son cycle local en événements sémantiques, appelle ce mapper et compose `ChefStatusBubble`. Aucun nouveau parcours ne code directement une correspondance de phase vers `ChefAvatar` ni une bulle ad hoc.
+- Les règles du mapper sont couvertes par `apps/web/test/chef-visual-state.test.ts`; un parcours qui expose le Chef ajoute un test d'intégration ou E2E de sa transition, notamment annulation et réponse tardive.
 
 ### Recipe book transfer (export / import fichier)
 
