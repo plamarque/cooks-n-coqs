@@ -13,9 +13,11 @@ export function decodeAssistantDraftWireV1(value: unknown): AssistantDraftWireV1
   if (!minute(draft.prepTimeMin) || !minute(draft.cookTimeMin) || !minute(draft.restTimeMin) || !Array.isArray(draft.ingredients) || !Array.isArray(draft.steps) || !draft.ingredients.length || !draft.steps.length || draft.ingredients.length > 80 || draft.steps.length > 80) return null;
   const ingredients = draft.ingredients.map((raw, index) => {
     const item = raw as Record<string, unknown>;
-    return !!item && Object.keys(item).every((key) => key === "id" || key === "label" || key === "isScalable")
+    return !!item && Object.keys(item).every((key) => key === "id" || key === "label" || key === "quantity" || key === "unit" || key === "isScalable")
       && typeof item.id === "string" && item.id === `ingredient-${index + 1}`
       && typeof item.label === "string" && !!item.label.trim() && item.label.length <= 180
+      && (item.quantity === undefined || typeof item.quantity === "number" && Number.isFinite(item.quantity) && item.quantity > 0 && item.quantity <= 100_000)
+      && (item.unit === undefined || typeof item.unit === "string" && !!item.unit.trim() && item.unit.length <= 80)
       && typeof item.isScalable === "boolean";
   });
   const steps = draft.steps.map((raw, index) => {
@@ -27,7 +29,16 @@ export function decodeAssistantDraftWireV1(value: unknown): AssistantDraftWireV1
   if (ingredients.some((valid) => !valid) || steps.some((valid) => !valid)) return null;
   return {
     title: draft.title.trim(), category: draft.category,
-    ingredients: draft.ingredients as ParsedRecipeDraft["ingredients"], steps: draft.steps as ParsedRecipeDraft["steps"],
+    ingredients: draft.ingredients.map((raw) => {
+      const item = raw as Record<string, unknown>;
+      return {
+        id: item.id as string,
+        label: (item.label as string).trim(),
+        ...(item.quantity === undefined ? {} : { quantity: item.quantity as number }),
+        ...(item.unit === undefined ? {} : { unit: (item.unit as string).trim() }),
+        isScalable: item.isScalable as boolean
+      };
+    }), steps: draft.steps as ParsedRecipeDraft["steps"],
     ...(draft.prepTimeMin === undefined ? {} : { prepTimeMin: draft.prepTimeMin as number }),
     ...(draft.cookTimeMin === undefined ? {} : { cookTimeMin: draft.cookTimeMin as number }),
     ...(draft.restTimeMin === undefined ? {} : { restTimeMin: draft.restTimeMin as number })

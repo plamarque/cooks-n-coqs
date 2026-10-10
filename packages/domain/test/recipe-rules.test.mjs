@@ -16,6 +16,23 @@ test("le wire Assistant fermé refuse les données de persistance", () => {
   assert.equal(decodeAssistantDraftWireV1({ ...valid, steps: [{ ...valid.steps[0], order: 2 }] }), null);
 });
 
+test("le wire Assistant conserve quantité et unité séparées du libellé", () => {
+  const draft = decodeAssistantDraftWireV1({
+    title: "Banana bread", category: "SUCRE",
+    ingredients: [
+      { id: "ingredient-1", label: "bananes très mûres", quantity: 2, unit: "bananes", isScalable: true },
+      { id: "ingredient-2", label: "farine", quantity: 100, unit: "g", isScalable: true },
+      { id: "ingredient-3", label: "sel", quantity: 1, unit: "pincée", isScalable: false }
+    ],
+    steps: [{ id: "step-1", order: 1, text: "Mélanger." }]
+  });
+  assert.deepEqual(draft?.ingredients, [
+    { id: "ingredient-1", label: "bananes très mûres", quantity: 2, unit: "bananes", isScalable: true },
+    { id: "ingredient-2", label: "farine", quantity: 100, unit: "g", isScalable: true },
+    { id: "ingredient-3", label: "sel", quantity: 1, unit: "pincée", isScalable: false }
+  ]);
+});
+
 test("validation: reject empty title and empty content", () => {
   assert.equal(
     isRecipeValidForSave({

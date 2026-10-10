@@ -142,7 +142,17 @@ export function validateAssistantRecipeDraft(value: unknown): ParsedRecipeDraft 
   if (!title || (d.category !== "SUCRE" && d.category !== "SALE") || !Array.isArray(d.ingredients) || !Array.isArray(d.steps)) return null;
   const ingredients = d.ingredients.slice(0, 80).map((raw, index) => {
     const x = raw as Record<string, unknown>; const label = text(x?.label, 180); if (!label) return null;
-    return { id: `ingredient-${index + 1}`, label, isScalable: x.isScalable === true };
+    const quantity = typeof x.quantity === "number" && Number.isFinite(x.quantity) && x.quantity > 0 && x.quantity <= 100_000
+      ? x.quantity
+      : undefined;
+    const unit = text(x.unit, 80) ?? undefined;
+    return {
+      id: `ingredient-${index + 1}`,
+      label,
+      ...(quantity === undefined ? {} : { quantity }),
+      ...(unit === undefined ? {} : { unit }),
+      isScalable: x.isScalable === true
+    };
   }).filter(Boolean);
   const steps = d.steps.slice(0, 80).map((raw, index) => {
     const x = raw as Record<string, unknown>; const step = text(x?.text, 2000); if (!step) return null;
@@ -219,7 +229,7 @@ export async function generateAssistantRecipe(request: string, signal?: AbortSig
   const key = process.env.OPENAI_API_KEY; if (!key) return null;
   for (let attempt = 0; attempt < ASSISTANT_RECIPE_ATTEMPTS; attempt += 1) {
     try {
-      const completion = await new OpenAI({ apiKey: key }).chat.completions.create({ model: getChatModel("assistant_recipe"), response_format: { type: "json_object" }, messages: [{ role: "user", content: `Crée une recette française. Réponds uniquement par un objet JSON racine, sans clé enveloppante, exactement sous cette forme : {"title":"nom de la recette","category":"SUCRE ou SALE","ingredients":[{"label":"quantité et ingrédient","isScalable":true}],"steps":[{"text":"instruction"}],"prepTimeMin":0,"cookTimeMin":0,"restTimeMin":0}. Les trois temps sont optionnels et doivent être des entiers en minutes. N'utilise jamais les clés nom, recette, instructions, quantite, unite ou description. Demande finale: ${request}. Contexte conversationnel: ${JSON.stringify(turns)}` }] }, { signal, timeout: ASSISTANT_RECIPE_TIMEOUT_MS });
+      const completion = await new OpenAI({ apiKey: key }).chat.completions.create({ model: getChatModel("assistant_recipe"), response_format: { type: "json_object" }, messages: [{ role: "user", content: `Crée une recette française. Réponds uniquement par un objet JSON racine, sans clé enveloppante, exactement sous cette forme : {"title":"nom de la recette","category":"SUCRE ou SALE","ingredients":[{"label":"nom de l’ingrédient sans quantité ni unité","quantity":100,"unit":"g","isScalable":true}],"steps":[{"text":"instruction"}],"prepTimeMin":0,"cookTimeMin":0,"restTimeMin":0}. Pour chaque ingrédient quantifié, quantity est un nombre et unit est son unité culinaire (g, ml, oeuf, banane, sachet, pincée…). Le label ne contient jamais quantité ni unité. Les trois temps sont optionnels et doivent être des entiers en minutes. N'utilise jamais les clés nom, recette, instructions, quantite, unite ou description. Demande finale: ${request}. Contexte conversationnel: ${JSON.stringify(turns)}` }] }, { signal, timeout: ASSISTANT_RECIPE_TIMEOUT_MS });
       const draft = validateAssistantRecipeDraft(JSON.parse((completion.choices[0]?.message?.content ?? "").replace(/^```json?\s*|\s*```$/g, "")));
       if (draft) return draft;
     } catch (error) {
