@@ -25,8 +25,9 @@ import {
   generateRecipeImage
 } from "./image-generator.js";
 import { detectStepTimerDurationSeconds } from "./step-timer-detector.js";
-import { chooseNotebookRecipe, generateAssistantRecipe, getChefAdvice, isAssistantRecipeInput, isAssistantSelectionInput, summarizeAssistantImage, validateAssistantRecipeDraft, writeAssistantClarification } from "./assistant-client.js";
+import { chooseNotebookRecipe, generateAssistantRecipe, getChefAdvice, getChefTurnClassification, isAssistantRecipeInput, isAssistantSelectionInput, summarizeAssistantImage, validateAssistantRecipeDraft, writeAssistantClarification } from "./assistant-client.js";
 import { isChefAdviceRequestV1, isChefAdviceWireV1 } from "@cookies-et-coquilettes/domain/chef-advice";
+import { isChefTurnClassificationRequestV1, isChefTurnClassificationWireV1 } from "@cookies-et-coquilettes/domain/chef-turn-classification";
 
 /** Point d’injection réservé aux tests HTTP : aucun fournisseur réel n’est appelé. */
 export const assistantDependencies = {
@@ -34,7 +35,8 @@ export const assistantDependencies = {
   summarizeImage: summarizeAssistantImage,
   clarify: writeAssistantClarification,
   generate: generateAssistantRecipe,
-  advice: getChefAdvice
+  advice: getChefAdvice,
+  classifyTurn: getChefTurnClassification
 };
 
 export const app = express();
@@ -57,7 +59,7 @@ app.use(
 app.use(express.json({ limit: "4mb" }));
 
 type AssistantDiagnostic = {
-  stage: "vision" | "selection" | "generation" | "advice";
+  stage: "vision" | "selection" | "generation" | "advice" | "classification";
   provider: "jev" | "luna" | "openai" | "none";
   errorClass: "none" | "invalid_input" | "upstream_unavailable" | "cancelled";
   httpStatus?: number;
@@ -246,6 +248,32 @@ app.post("/api/assistant/advice", async (req, res) => {
   traceAssistant({ stage: "advice", provider: "openai", errorClass: "none", httpStatus: 200, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
   res.setHeader("x-request-id", requestId);
   res.json(wire);
+});
+
+/** Classification sans état, avant tout routage ou écriture côté client. */
+app.post("/api/assistant/classify-turn", async (req, res) => {
+  const requestId = assistantRequestId(req);
+  const startedAt = Date.now();
+  if (!isChefTurnClassificationRequestV1(req.body)) {
+    traceAssistant({ stage: "classification", provider: "none", errorClass: "invalid_input", httpStatus: 400, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+    assistantError(res, requestId, 400, { error: "INVALID_INPUT" }); return;
+  }
+  const controller = new AbortController();
+  req.once("aborted", () => controller.abort());
+  res.once("close", () => { if (!res.writableEnded) controller.abort(); });
+  let wire;
+  try { wire = await assistantDependencies.classifyTurn(req.body, controller.signal); }
+  catch {
+    traceAssistant({ stage: "classification", provider: "openai", errorClass: controller.signal.aborted ? "cancelled" : "upstream_unavailable", ...(controller.signal.aborted ? {} : { httpStatus: 503 }), durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+    if (!controller.signal.aborted) assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); return;
+  }
+  if (controller.signal.aborted) { traceAssistant({ stage: "classification", provider: "openai", errorClass: "cancelled", durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); return; }
+  if (!wire || !isChefTurnClassificationWireV1(wire)) {
+    traceAssistant({ stage: "classification", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+    assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); return;
+  }
+  traceAssistant({ stage: "classification", provider: "openai", errorClass: "none", httpStatus: 200, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+  res.setHeader("x-request-id", requestId); res.json(wire);
 });
 
 app.post("/api/import/url", async (req, res) => {

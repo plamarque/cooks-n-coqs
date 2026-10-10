@@ -203,3 +203,7 @@ Le payload de partage F2 déjà reconnu reste l’exception compatible : son par
 ## Conseil culinaire temporaire (story 4.5)
 
 Avant le pipeline recette, le Chef peut rendre un wire fermé `recipe`, `advice`, `clarify` ou `photo`. À chaque conseil, le client transmet temporairement tous les tours ordonnés du fil actif ainsi que les cartes recettes/previews projetées et leurs vignettes bornées; aucun id local, `blob:`, original joint, profil, préférence ou Cahier hors cartes ne part. Un conseil est textuel, concis, motivé, avec une seule alternative au plus et des repères certain/supposé/à vérifier. Il ne crée ni recette, preview ni carte. Le BFF ne persiste ni ne journalise ce contexte; 4.4 reste propriétaire de la reprise, offline, retry et erreurs actionnables.
+
+## Classification fermée d’un tour Chef (story 9.1)
+
+Avant tout conseil, recherche ou création, le client obtient une classification temporaire et validée : une intention (`idea`, `search`, `create`, `adapt` ou `variant`), une confiance, des contraintes uniques et au plus une donnée indispensable manquante. Une clarification ouverte est reprise avant toute autre lecture; sinon le client résout localement la recette explicitement citée, puis la dernière vignette pertinente. Aucun identifiant local, `File`, blob, profil ni Cahier complet ne traverse le réseau. Une donnée manquante unique arrête le routage et devient une question courte; annulation, clôture et réponse tardive n’écrivent ni ne mettent à jour le fil.

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { isNotebookSelectionRequestV1, NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH } from "@cookies-et-coquilettes/domain/notebook-selection";
 import { isChefAdviceRequestV1, isChefAdviceWireV1, type ChefAdviceRequestV1, type ChefAdviceWireV1 } from "@cookies-et-coquilettes/domain/chef-advice";
+import { isChefTurnClassificationRequestV1, isChefTurnClassificationWireV1, type ChefTurnClassificationRequestV1, type ChefTurnClassificationWireV1 } from "@cookies-et-coquilettes/domain/chef-turn-classification";
 import { getChatModel } from "./ai-config.js";
 import type { ParsedRecipeDraft } from "./types.js";
 
@@ -282,5 +283,29 @@ export function decodeChefAdviceWire(raw: string): ChefAdviceWireV1 | null {
   try {
     const wire: unknown = JSON.parse(raw.replace(/^```json?\s*|\s*```$/g, ""));
     return isChefAdviceWireV1(wire) ? wire : null;
+  } catch { return null; }
+}
+
+/** Le BFF classe sans connaître aucun identifiant ni objet local. */
+export const CHEF_TURN_CLASSIFICATION_SYSTEM_PROMPT = "Classe un seul tour du Chef français. L'intention explicite du message prime toujours. Réutilise l'objectif, les contraintes, la clarification et le titre de référence temporairement fournis; une réponse brève à une clarification poursuit le même objectif et n'ouvre jamais une nouvelle intention. Réponds uniquement en JSON fermé: {\"intent\":\"idea|search|create|adapt|variant\",\"confidence\":\"high|medium|low\",\"constraints\":[\"...\"],\"missing\":{\"field\":\"...\",\"question\":\"...\"} optionnel}. Les contraintes sont uniques, courtes et incluent celles déjà connues. missing est absent sauf si une seule information indispensable bloque réellement la suite; sa question est courte et actionnable. N'invente jamais de référence, id, action, recette, raisonnement ou donnée personnelle.";
+
+export async function getChefTurnClassification(input: ChefTurnClassificationRequestV1, signal?: AbortSignal): Promise<ChefTurnClassificationWireV1 | null> {
+  if (!isChefTurnClassificationRequestV1(input) || !process.env.OPENAI_API_KEY) return null;
+  try {
+    const completion = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY }).chat.completions.create({
+      model: getChatModel("assistant_advice"), response_format: { type: "json_object" }, max_completion_tokens: 300,
+      messages: [{ role: "system", content: CHEF_TURN_CLASSIFICATION_SYSTEM_PROMPT }, { role: "user", content: JSON.stringify(input) }]
+    }, { signal, timeout: TYPESAFE_TIMEOUT_MS });
+    return decodeChefTurnClassificationWire(completion.choices[0]?.message?.content ?? "");
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return null;
+  }
+}
+
+export function decodeChefTurnClassificationWire(raw: string): ChefTurnClassificationWireV1 | null {
+  try {
+    const wire: unknown = JSON.parse(raw.replace(/^```json?\s*|\s*```$/g, ""));
+    return isChefTurnClassificationWireV1(wire) ? wire : null;
   } catch { return null; }
 }

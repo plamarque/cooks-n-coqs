@@ -5,6 +5,56 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, routeAssistantImport } from "../src/utils/assistant-session";
 import { AssistantImageRequestError } from "../src/services/assistant-service";
+import { buildChefTurnClassificationContext, resolveChefTurnClassification } from "../src/utils/chef-turn-classification";
+
+test("classification Chef : une réponse brève reprend clarification et contraintes sans exposer d'id", () => {
+  const turns = [
+    { role: "user" as const, text: "Des cèpes" },
+    { role: "assistant" as const, text: "Quel appareil utilisez-vous ?", cards: [{ kind: "preview" as const, preview: { draft, source: undefined } }] }
+  ];
+  const context = buildChefTurnClassificationContext(turns, "Quel appareil utilisez-vous ?");
+  assert.deepEqual(context?.reference, { title: "Soupe" });
+  assert.equal(JSON.stringify(context).includes("recipeId"), false);
+  assert.deepEqual(resolveChefTurnClassification({ intent: "adapt", confidence: "high", constraints: ["au Cookeo", "sans crème"] }, turns, "Quel appareil utilisez-vous ?"), {
+    intent: "adapt", confidence: "high", constraints: ["au Cookeo", "sans crème"], reference: { title: "Soupe", source: "clarification" }
+  });
+});
+
+test("classification Chef : la recette nommée dans le tour courant prime la dernière vignette", () => {
+  const turns = [{ role: "assistant" as const, text: "Voici deux pistes." }];
+  const titles = new Map([["a", "Tarte aux pommes"], ["b", "Soupe de cèpes"]]);
+  assert.deepEqual(resolveChefTurnClassification({ intent: "adapt", confidence: "high", constraints: [] }, turns, null, titles, "Adapte la soupe de cèpes au Cookeo"), {
+    intent: "adapt", confidence: "high", constraints: [], reference: { title: "Soupe de cèpes", source: "mentioned_recipe" }
+  });
+});
+
+test("session Assistant : une clarification indispensable garde ses tours hors persistance", () => {
+  const session = new AssistantSession();
+  session.beginConversation("Des cèpes");
+  session.markCurrentTurnEphemeral();
+  session.showClarification("Quel appareil utilisez-vous ?", true);
+  session.beginConversation("Au Cookeo");
+  assert.deepEqual(session.persistableTurns().map((turn) => turn.text), ["Au Cookeo"]);
+});
+
+test("classification Chef : la recette citée prime sur la dernière vignette hors clarification", () => {
+  const turns = [
+    { role: "assistant" as const, text: "Voici deux recettes.", cards: [{ kind: "candidate" as const, recipeId: "ancienne" }] },
+    { role: "assistant" as const, text: "Et cette dernière.", cards: [{ kind: "candidate" as const, recipeId: "derniere" }] },
+    { role: "user" as const, text: "Adapte l'Échine aux cèpes au Cookeo." }
+  ];
+  const titles = new Map([["ancienne", "Échine aux cèpes"], ["derniere", "Soupe de cèpes"]]);
+  assert.deepEqual(resolveChefTurnClassification({ intent: "adapt", confidence: "high", constraints: ["au Cookeo"] }, turns, null, titles).reference, {
+    title: "Échine aux cèpes", source: "mentioned_recipe"
+  });
+});
+
+test("classification Chef : la dernière vignette reste le secours quand aucune recette n'est citée", () => {
+  const turns = [{ role: "assistant" as const, text: "Une piste.", cards: [{ kind: "candidate" as const, recipeId: "derniere" }] }];
+  assert.deepEqual(resolveChefTurnClassification({ intent: "idea", confidence: "medium", constraints: [] }, turns, null, new Map([["derniere", "Soupe de cèpes"]])).reference, {
+    title: "Soupe de cèpes", source: "latest_card"
+  });
+});
 
 const draft = { title: "Soupe", category: "SALE" as const, ingredients: [], steps: [], source: { type: "TEXT" as const, capturedAt: "2026-10-02" } };
 
@@ -48,9 +98,9 @@ test("App.vue : un lien ChatGPT seul est importé avant le routage Chef", () => 
   const submission = /async function prepareAssistantRequest[\s\S]*?\n}\n\nasync function prepareAssistantTextRequest/.exec(app);
   assert.ok(submission, "prepareAssistantRequest est présent");
   const source = submission[0];
-  assert.match(source, /routeAssistantImport\(assistantText\.value, \[\]\) === "url"/);
-  assert.match(source, /const importPromise = directImport[\s\S]*?assistantSession\.import\(assistantText\.value, null, assistantImportAdapter\)/);
-  assert.match(source, /: prepareAssistantTextRequest\(preparationId\)/);
+  assert.match(source, /routeAssistantImport\(sentAssistantText, \[\]\) === "url"/);
+  assert.match(source, /const importPromise = directImport[\s\S]*?assistantSession\.import\(sentAssistantText, null, assistantImportAdapter\)/);
+  assert.match(source, /: prepareAssistantTextRequest\(preparationId, sentAssistantText\)/);
 });
 
 test("App.vue : une photo évite le wire Conseil textuel et part vers Vision", () => {
@@ -60,6 +110,16 @@ test("App.vue : une photo évite le wire Conseil textuel et part vers Vision", (
   assert.ok(requestPreparation, "prepareAssistantTextRequest est présent");
   assert.match(requestPreparation[0], /if \(route !== "image"\) \{[\s\S]*?requestChefAdvice/);
   assert.match(requestPreparation[0], /route === "image" \? await summarizeAssistantImages\(attachments/);
+});
+
+test("App.vue : annuler une demande invalide le résultat sans effacer le fil", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const cancellation = /function cancelAssistantImport\(\): void \{[\s\S]*?\n\}/.exec(app);
+  assert.ok(cancellation, "cancelAssistantImport est présent");
+  assert.match(cancellation[0], /assistantSession\.invalidate\(\)/);
+  assert.doesNotMatch(cancellation[0], /assistantSession\.cancel\(\)/);
+  assert.match(cancellation[0], /assistantTurns\.value = \[\.\.\.assistantSession\.turns\]/);
 });
 
 test("App.vue : les quatre attentes conversationnelles montrent le Chef Réflexion à la place du spinner", () => {
@@ -103,6 +163,25 @@ test("session Assistant : un import envoyé forme un tour utilisateur puis Chef"
   const session = new AssistantSession();
   await session.import("https://example.test/recette", null, { importImage: async () => draft, importUrl: async () => draft, importText: async () => draft });
   assert.deepEqual(session.turns.map(({ role }) => role), ["user", "assistant"]);
+});
+
+test("session Assistant : le tour affiché au départ n'est pas dupliqué pendant la résolution", async () => {
+  const session = new AssistantSession();
+  session.question = "Quel appareil utilisez-vous ?";
+  session.beginConversation("Au Cookeo et sans crème", false);
+  await session.resolveText("Au Cookeo et sans crème", { resolve: async () => ({ kind: "advice" }) }, { turnAlreadyStarted: true });
+  assert.deepEqual(session.turns.map((turn) => turn.text), ["Au Cookeo et sans crème"]);
+  assert.equal(session.question, "Quel appareil utilisez-vous ?");
+});
+
+test("App.vue : un tour Chef est affiché avant la préparation locale", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const submission = /async function prepareAssistantRequest\(\): Promise<void> \{[\s\S]*?\n}\n\nasync function prepareAssistantTextRequest/.exec(app);
+  assert.ok(submission, "prepareAssistantRequest est présent");
+  assert.match(submission[0], /assistantSession\.beginConversation\(visibleTurn, false\)/);
+  assert.match(submission[0], /assistantText\.value = "";/);
+  assert.match(submission[0], /prepareAssistantTextRequest\(preparationId, sentAssistantText\)/);
 });
 
 test("session Assistant : cancel abort réellement le signal de l'adaptateur", async () => {
@@ -311,14 +390,15 @@ test("session Assistant : l’échec de sélection texte ne mentionne pas de pho
   const session = new AssistantSession();
   await session.resolveText("recette sans image", { resolve: async () => { throw new Error("assistant_stage:decision"); } });
   assert.match(session.error ?? "", /choix de la meilleure piste/);
-  assert.match(session.error ?? "", /Votre demande est conservée/);
+  assert.match(session.error ?? "", /Votre demande reste dans la conversation/);
   assert.doesNotMatch(session.error ?? "", /photos/i);
+  assert.deepEqual(session.turns.map((turn) => turn.text), ["recette sans image"]);
 });
 
 test("session Assistant : l’échec de sélection avec photos conserve leur copy", async () => {
   const session = new AssistantSession();
   await session.resolveText("recette jointe", { resolve: async () => { throw new Error("assistant_stage:decision"); } }, { hasImages: true });
-  assert.match(session.error ?? "", /Vos photos et votre demande sont conservées/);
+  assert.match(session.error ?? "", /Vos photos sont conservées et votre demande reste dans la conversation/);
 });
 
 test("session Assistant : une erreur de proposition reste neutre et conserve la saisie appelante", async () => {
@@ -330,15 +410,15 @@ test("session Assistant : une erreur de proposition reste neutre et conserve la 
   assert.equal(command, "un dîner végétarien");
 });
 
-test("session Assistant : un échec vision se décrit sans dupliquer le tour lors d'un nouvel essai", async () => {
+test("session Assistant : un échec vision garde chaque envoi visible dans le fil", async () => {
   const session = new AssistantSession();
   const adapter = { resolve: async () => { throw new AssistantImageRequestError("http", "12345678-1234-4234-8234-123456789abc", 503); } };
   await session.resolveText("mes quatre photos", adapter);
   assert.match(session.error ?? "", /momentanément indisponible/);
   assert.match(session.error ?? "", /12345678/);
-  assert.equal(session.turns.length, 0);
+  assert.equal(session.turns.length, 1);
   await session.resolveText("mes quatre photos", adapter);
-  assert.equal(session.turns.length, 0);
+  assert.equal(session.turns.length, 2);
 });
 
 test("session Assistant : fallback draft devient une prévisualisation ouvrable", async () => {

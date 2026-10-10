@@ -16,6 +16,10 @@
     "./chef-advice": {
       "types": "./src/chef-advice.d.ts",
       "default": "./src/chef-advice.js"
+    },
+    "./chef-turn-classification": {
+      "types": "./src/chef-turn-classification.d.ts",
+      "default": "./src/chef-turn-classification.js"
     }
   }
 }
