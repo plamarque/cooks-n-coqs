@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-13-2026 04:57
-last_updated: 10-09-2026
+last_updated: 10-10-2026 12:00
 project: cooks-n-coqs
 project_key: NOKEY
 tracking_system: file-system
@@ -84,3 +84,22 @@ development_status:
   8-1-choisir-les-rituels-culinaires-du-chef: backlog
   8-2-délivrer-une-proposition-proactive-sans-promettre-l-impossib: backlog
   epic-8-retrospective: optional
+
+  epic-9: backlog
+  9-1-classer-chaque-tour-chef-dans-un-contrat-fermé: backlog
+  9-2-trouver-une-idée-retrouver-au-cahier-ou-créer-sur-mesure: backlog
+  9-3-adapter-ou-décliner-une-recette-de-référence: backlog
+  9-4-clarifier-seulement-quand-nécessaire-et-préserver-la-reprise: backlog
+  epic-9-retrospective: optional
+
+  epic-10: in-progress
+  10-1-classer-librement-ses-recettes-et-filtrer-son-cahier: done
+  10-2-introduire-les-catégories-standard: backlog
+  10-3-migrer-sucré-salé-vers-les-catégories-standard: backlog
+  10-4-proposer-des-catégories-standard-pendant-l-import-et-la-géné: backlog
+  10-5-classer-une-recette-selon-les-catégories-les-plus-probables: backlog
+  10-6-concevoir-le-nouveau-filtrage-par-catégories: backlog
+  10-7-mettre-en-œuvre-le-filtrage-de-catégories-approuvé: backlog
+  10-8-réutiliser-une-catégorie-personnelle-existante: backlog
+  10-9-afficher-les-catégories-partout-où-une-recette-est-consultée: backlog
+  epic-10-retrospective: optional
