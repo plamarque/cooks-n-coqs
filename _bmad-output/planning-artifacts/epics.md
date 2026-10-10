@@ -4,7 +4,7 @@ stepsCompleted:
   - step-02-design-epics
   - step-03-create-stories
   - step-04-final-validation
-updated: '2026-10-04'
+updated: '2026-10-10'
 inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-cooks-n-coqs-2026-10-01/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-cooks-n-coqs-2026-10-01/ARCHITECTURE-SPINE.md
@@ -13,6 +13,9 @@ inputDocuments:
   - _bmad-output/planning-artifacts/architecture/architecture-cooks-n-coqs-2026-10-04/ARCHITECTURE-SPINE.md
   - _bmad-output/planning-artifacts/ux-designs/ux-cooks-n-coqs-2026-10-04/DESIGN.md
   - _bmad-output/planning-artifacts/ux-designs/ux-cooks-n-coqs-2026-10-04/EXPERIENCE.md
+  - docs/SPEC.md
+  - docs/DOMAIN.md
+  - docs/ARCH.md
 ---
 
 # cooks-n-coqs - Epic Breakdown
@@ -49,6 +52,16 @@ FR-M4: Migrer avant le 1er décembre 2026 la configuration qui utilise `gpt-imag
 
 FR-M5: Pouvoir activer le modèle retenu par usage (`recipe`, `ingredient`, `cooking_step`) et revenir à la configuration précédente pendant la validation.
 
+FR-C1: Permettre à une recette de porter plusieurs catégories personnelles locales, saisies explicitement par la personne, et de les utiliser pour retrouver des recettes dans le Cahier.
+
+FR-C2: Proposer, à l'import ou à la génération d'une recette, des catégories standard inférées du contenu par le BFF, sans persister de donnée personnelle côté serveur.
+
+FR-C3: Remplacer le classement binaire historique `Sucré` / `Salé` par des catégories standard, sans perdre la possibilité de retrouver les recettes existantes.
+
+FR-C4: Faire correspondre, via Jev, le contenu d'une recette avec le vocabulaire local de catégories utile, avec une sortie typée et contrôlée par le client.
+
+FR-C5: Offrir dans le Cahier une expérience de filtrage unifiée par catégories, compréhensible sur mobile et permettant de revenir à toutes les recettes.
+
 ### NonFunctional Requirements
 
 NFR-1: Ne stocker ni n'envoyer d'audio brut, conserver les recettes local-first et préserver la provenance des imports selon `ImportSource`.
@@ -62,6 +75,10 @@ NFR-M1: Les clés restent exclusivement dans le BFF ; le corpus ne contient aucu
 NFR-M2: L'évaluation ne remplace pas la génération de production tant qu'une décision humaine n'a pas validé les résultats.
 
 NFR-M3: La bascule documente la configuration Render, les contrôles post-déploiement et le plan de repli.
+
+NFR-C1: Les catégories personnelles et les recettes restent la source de vérité locale ; le BFF ne reçoit que le contenu et le vocabulaire strictement nécessaires à une requête ponctuelle et ne les persiste pas.
+
+NFR-C2: Une inférence de catégories indisponible ou ambiguë n'empêche jamais l'import ou la génération d'une recette, qui reste éditable localement.
 
 ### Chef C&C — Functional Requirements
 
@@ -111,6 +128,10 @@ Chef-NFR-3: Distinguer certitude, hypothèse et donnée à vérifier ; ne pas pr
 - Couvrir par tests Node/tsx les règles de routage, la machine d'état, annulation/fallback, la sélection Jev→Luna→indisponible, seuil/ordre/cap/longueur/références/contraintes, partage F2, la sauvegarde transactionnelle et le détail hors filtre ; couvrir côté BFF wires, limites, codes et redaction.
 - L'évaluation et la migration image respectent la centralisation actuelle de la sélection par `AI_IMAGE_MODEL_RECIPE`, `AI_IMAGE_MODEL_INGREDIENT` et `AI_IMAGE_MODEL_COOKING_STEP` dans le BFF ; aucune clé ne va dans le front.
 - `gpt-image-1-mini` est annoncé en retrait d'API le 1er décembre 2026 ; la migration doit être validée avant cette date sans écraser les objets de cache existants.
+- Faire évoluer le modèle de catégories dans `packages/domain`, avec validation et normalisation partagées, puis maintenir les jumeaux TypeScript/JavaScript alignés.
+- Concevoir le contrat BFF et le wire Jev de catégorisation comme une capacité stateless, validée aux deux extrémités, qui ne peut ni écrire dans le Cahier ni créer de catégorie locale sans action client explicite.
+- Préserver la compatibilité des recettes existantes portant `SUCRE` ou `SALE`, y compris à l'export/import du Cahier, avant de retirer ce champ historique.
+- Couvrir par tests les migrations, la normalisation/déduplication des libellés, les wires valides et invalides, les refus/indisponibilités BFF et les parcours de filtre mobile.
 
 ### UX Design Requirements
 
@@ -154,6 +175,8 @@ UX-DR19: Prévoir un texte alternatif utile pour chaque illustration et une alte
 
 UX-DR20: Conserver le même ordre de lecture et les mêmes actions du téléphone au bureau, sans panneaux latéraux ; le carrousel répond aux flèches lorsqu'il a le focus.
 
+UX-DR21: Concevoir le filtre de catégories comme une seule interaction claire, compacte et accessible sur mobile ; elle distingue les catégories standard et personnelles sans exposer le vocabulaire technique interne.
+
 ### FR Coverage Map
 
 - FR-1 : Epic 1 — Compositeur et entrées assistant.
@@ -168,6 +191,11 @@ UX-DR20: Conserver le même ordre de lecture et les mêmes actions du téléphon
 - FR-M3 : Epic 3 — Décision fondée sur qualité, latence, coût et régénérations.
 - FR-M4 : Epic 3 — Migration avant le retrait de `gpt-image-1-mini`.
 - FR-M5 : Epic 3 — Configuration par usage et repli contrôlé.
+- FR-C1 : Epic 10 — catégories personnelles et filtre initial.
+- FR-C2 : Epic 10 — catégories standard proposées à l'import et à la génération.
+- FR-C3 : Epic 10 — migration de `Sucré` / `Salé` vers les catégories standard.
+- FR-C4 : Epic 10 — matching typé Jev avec vocabulaire local.
+- FR-C5 : Epic 10 — filtrage unifié du Cahier.
 - Chef-FR-1 : Epics 4, 5 et 6 — conversation, identité incarnée et surfaces contextuelles.
 - Chef-FR-2 : Epics 1, 2 et 4 — routage existant, fil continu et contrat de conseil orienté.
 - Chef-FR-3 : Epics 1, 2 et 6 — prévisualisation, sauvegarde explicite et dépannage contextualisé.
@@ -1155,3 +1183,251 @@ So that je ne perds pas les illustrations de recettes, d'ingrédients ou d'étap
 **When** le mainteneur applique le repli documenté,
 **Then** il peut restaurer le modèle et la taille précédents par usage sans changement de code ni purge du cache,
 **And** le contrôle post-déploiement et son résultat sont consignés.
+
+## Epic 10: Retrouver une recette selon ses envies
+
+La personne peut classer une recette avec ses propres mots, bénéficier de catégories standard suggérées à l'import ou à la génération, puis retrouver simplement une recette dans son Cahier, sans perdre les classements existants.
+
+**FRs covered:** FR-C1, FR-C2, FR-C3, FR-C4, FR-C5.
+
+**Garde-fous:** le Cahier et les catégories personnelles restent locaux ; le BFF est stateless et ne reçoit que le contenu et le vocabulaire nécessaires à une requête bornée ; une suggestion ou un échec d'inférence ne bloque jamais une recette éditable ni n'écrit une donnée locale sans action explicite.
+
+### Story 10.1: Classer librement ses recettes et filtrer son Cahier
+
+En tant que personne qui tient son Cahier,
+je veux pouvoir attribuer plusieurs catégories personnelles à une recette et filtrer mes recettes selon ces catégories,
+afin de retrouver rapidement ce dont j'ai envie sans devoir employer une taxonomie imposée.
+
+**Critères d'acceptation :**
+
+**Étant donné** une recette créée ou modifiée manuellement,
+**quand** j'ajoute un ou plusieurs libellés de catégorie,
+**alors** ils sont sauvegardés localement avec la recette,
+**et** les libellés vides ou équivalents par casse/accents ne créent pas de doublon.
+
+**Étant donné** le Cahier,
+**quand** j'ouvre le contrôle « J'ai envie de… »,
+**alors** il propose les catégories personnelles déjà utilisées,
+**et** « Toutes les recettes » permet de revenir à la liste non filtrée.
+
+**Étant donné** une catégorie personnelle choisie,
+**quand** la liste est rafraîchie,
+**alors** seules les recettes portant cette catégorie sont affichées, avec une comparaison insensible à la casse et aux accents,
+**et** « Toutes les recettes » retire ce seul filtre sans modifier les autres filtres.
+
+**Étant donné** un écran mobile,
+**quand** je consulte le Cahier,
+**alors** le filtre et les actions d'en-tête restent accessibles, compacts et sans débordement horizontal.
+
+### Story 10.2: Introduire les catégories standard
+
+En tant que personne qui classe ses recettes,
+je veux disposer de catégories standard cohérentes avec mes catégories personnelles,
+afin de reconnaître et choisir les grands types de recettes sans inventer chaque libellé.
+
+**Critères d'acceptation :**
+
+**Étant donné** une recette nouvelle ou modifiée,
+**quand** je consulte ou édite ses catégories,
+**alors** l'application peut distinguer des catégories standard et des catégories personnelles,
+**et** seules les catégories personnelles peuvent être créées librement par la personne.
+
+**Étant donné** une catégorie standard,
+**quand** elle est enregistrée avec une recette,
+**alors** elle est validée par les règles partagées du domaine,
+**et** son libellé et son identifiant restent stables pour le Cahier et les transferts.
+
+**Étant donné** une recette sans catégorie standard,
+**quand** elle est lue, modifiée ou transférée,
+**alors** elle reste pleinement utilisable,
+**et** l'application ne dépend d'aucun appel BFF pour afficher ou sauvegarder la recette.
+
+### Story 10.3: Migrer `Sucré / Salé` vers les catégories standard
+
+En tant que personne qui possède déjà des recettes classées,
+je veux que mes anciens repères `Sucré` et `Salé` deviennent des catégories standard,
+afin de conserver mes habitudes de classement dans le nouveau modèle.
+
+**Critères d'acceptation :**
+
+**Étant donné** une recette existante marquée `Sucré` ou `Salé`,
+**quand** elle est ouverte, modifiée, importée ou exportée après la migration,
+**alors** elle porte la catégorie standard équivalente,
+**et** elle reste retrouvable avec le même sens culinaire.
+
+**Étant donné** une recette qui possède déjà d'autres catégories,
+**quand** son ancien repère est migré,
+**alors** la catégorie standard équivalente s'ajoute sans supprimer ses catégories personnelles,
+**et** aucun doublon n'est créé.
+
+**Étant donné** un cahier contenant des données anciennes ou partielles,
+**quand** l'application les relit,
+**alors** elle conserve chaque recette utilisable et éditable,
+**et** la migration est déterministe, locale et sans appel BFF.
+
+**Étant donné** un transfert de Cahier entre versions,
+**quand** une archive contient l'ancien ou le nouveau format de classement,
+**alors** l'import préserve le classement interprétable,
+**et** l'export produit un format compatible avec le modèle de catégories standard.
+
+### Story 10.4: Proposer des catégories standard pendant l'import et la génération
+
+En tant que personne qui ajoute une recette,
+je veux que l'application me propose automatiquement les catégories standard pertinentes,
+afin de retrouver ensuite ma recette sans devoir tout classer à la main.
+
+**Critères d'acceptation :**
+
+**Étant donné** un import ou une recette générée dont le contenu est disponible,
+**quand** le client demande une catégorisation standard,
+**alors** le BFF analyse uniquement le contenu nécessaire de cette recette,
+**et** il ne persiste ni recette, ni catégorie, ni contexte utilisateur.
+
+**Étant donné** une réponse de catégorisation du BFF,
+**quand** le client la reçoit,
+**alors** il n'accepte que des identifiants présents dans le catalogue standard local,
+**et** les catégories proposées sont attachées à la recette ou au brouillon de manière éditable.
+
+**Étant donné** une analyse ambiguë, indisponible ou invalide,
+**quand** l'import ou la génération se poursuit,
+**alors** la recette reste créée ou prévisualisée normalement,
+**et** la personne peut toujours compléter ses catégories manuellement.
+
+**Étant donné** une nouvelle recette avec des catégories standard suggérées,
+**quand** elle est ensuite modifiée ou transférée,
+**alors** ces catégories suivent le même modèle partagé et validé que les catégories standard ajoutées manuellement.
+
+### Story 10.5: Classer une recette selon les catégories les plus probables
+
+En tant que personne qui importe ou génère une recette,
+je veux que l'application lui associe automatiquement les catégories les plus probables,
+afin de la retrouver avec mes propres repères comme avec les catégories standard.
+
+**Critères d'acceptation :**
+
+**Étant donné** une recette à classer, le catalogue standard et les catégories personnelles locales,
+**quand** le client demande la catégorisation,
+**alors** il transmet au BFF un extrait borné de la recette et les catégories personnelles nécessaires,
+**et** le BFF combine ce vocabulaire avec les catégories standard avant l'appel Jev, sans rien persister.
+
+**Étant donné** le vocabulaire candidat combiné,
+**quand** Jev évalue la recette,
+**alors** il retourne un score typé pour chaque correspondance considérée,
+**et** le BFF ne renvoie que les catégories dont le score atteint le seuil minimal configuré côté serveur.
+
+**Étant donné** les catégories sélectionnées,
+**quand** le client reçoit la réponse,
+**alors** il vérifie que chaque catégorie appartient toujours au catalogue standard ou au vocabulaire personnel local,
+**et** il les associe à la recette de façon éditable.
+
+**Étant donné** une réponse invalide, ambiguë, annulée ou indisponible,
+**quand** l'import ou la génération continue,
+**alors** la recette reste utilisable et éditable,
+**et** aucune catégorie personnelle n'est créée ni ajoutée automatiquement.
+
+**Étant donné** un réglage de seuil de catégorisation,
+**quand** il doit être ajusté après observation des résultats,
+**alors** il est un paramètre documenté et modifiable côté BFF,
+**et** ni le score ni ce réglage ne sont exposés à la personne qui utilise le Cahier.
+
+### Story 10.6: Concevoir le nouveau filtrage par catégories
+
+En tant que personne qui cherche une recette,
+je veux que le futur filtrage par catégories soit défini à partir de mes usages réels,
+afin qu'il remplace clairement les filtres `Sucré / Salé` et le menu actuel sans ajouter de confusion.
+
+**Critères d'acceptation :**
+
+**Étant donné** les catégories standard et personnelles disponibles,
+**quand** le nouveau parcours de filtrage est conçu,
+**alors** il tranche explicitement les libellés, la hiérarchie et le comportement de sélection,
+**et** il précise si plusieurs catégories sont combinables ou mutuellement exclusives.
+
+**Étant donné** cette décision UX,
+**quand** elle est préparée pour développement,
+**alors** elle inclut un parcours mobile-first et clavier/toucher,
+**et** elle décrit comment revenir à une liste non filtrée et comment elle cohabite avec Recherche et Favoris.
+
+**Étant donné** que le design n'est pas encore validé,
+**quand** cette story est réalisée,
+**alors** aucun comportement final de filtrage n'est imposé par anticipation,
+**et** la story d'implémentation suivante reçoit une spécification approuvée et testable.
+
+### Story 10.7: Mettre en œuvre le filtrage de catégories approuvé
+
+En tant que personne qui cherche une recette,
+je veux utiliser le nouveau filtrage par catégories défini pour le Cahier,
+afin de retrouver mes recettes selon une interaction cohérente avec mes envies.
+
+**Critères d'acceptation :**
+
+**Étant donné** la spécification UX approuvée dans la Story 10.6,
+**quand** le nouveau filtrage est implémenté,
+**alors** ses libellés, sa hiérarchie et son comportement de sélection respectent cette décision,
+**et** les filtres historiques `Sucré / Salé` et le contrôle actuel sont remplacés sans double interface concurrente.
+
+**Étant donné** une sélection de catégories,
+**quand** le Cahier est rafraîchi,
+**alors** la liste respecte exactement la logique de combinaison approuvée,
+**et** Recherche, Favoris, tri et retour à une liste non filtrée conservent le comportement spécifié.
+
+**Étant donné** une personne sur mobile, au clavier ou avec lecteur d'écran,
+**quand** elle utilise ce filtre,
+**alors** les contrôles sont nommés, atteignables et sans débordement horizontal,
+**et** les changements de résultat sont compréhensibles.
+
+### Story 10.8: Réutiliser une catégorie personnelle existante
+
+En tant que personne qui édite une recette,
+je veux voir les catégories personnelles déjà utilisées pendant ma saisie,
+afin de réemployer le bon libellé et d'éviter les doublons approchants.
+
+**Critères d'acceptation :**
+
+**Étant donné** des catégories personnelles déjà présentes dans mon Cahier,
+**quand** je commence à en saisir une dans le formulaire,
+**alors** l'application me propose les libellés pertinents en ignorant la casse et les accents,
+**et** la liste reste utilisable au toucher comme au clavier.
+
+**Étant donné** une suggestion existante,
+**quand** je la sélectionne,
+**alors** son libellé canonique est réutilisé,
+**et** aucune nouvelle catégorie personnelle équivalente ou approchante n'est créée.
+
+**Étant donné** un libellé réellement nouveau,
+**quand** je choisis explicitement de l'ajouter,
+**alors** la saisie libre reste possible,
+**et** la normalisation du domaine continue d'écarter les doublons exacts par casse ou accents.
+
+**Étant donné** une recette déjà ouverte ou une nouvelle recette,
+**quand** je modifie ses catégories,
+**alors** les suggestions ne changent aucune autre recette,
+**et** la sauvegarde reste explicite.
+
+### Story 10.9: Afficher les catégories partout où une recette est consultée
+
+En tant que personne qui consulte une recette,
+je veux voir ses catégories dans le Cahier, sur sa fiche et dans les résultats Assistant,
+afin de comprendre immédiatement comment elle est classée et de la reconnaître plus facilement.
+
+**Critères d'acceptation :**
+
+**Étant donné** une recette portant des catégories standard ou personnelles,
+**quand** elle apparaît sur une carte du Cahier,
+**alors** ses catégories sont affichées de façon lisible sans masquer le titre, l'image ou les actions de la carte,
+**et** l'affichage s'adapte aux petites largeurs.
+
+**Étant donné** une fiche recette en lecture,
+**quand** la recette possède des catégories,
+**alors** elles sont visibles dans le mode consultation,
+**et** elles sont cohérentes avec celles montrées sur sa carte.
+
+**Étant donné** un résultat ou une prévisualisation de recette dans l'Assistant,
+**quand** des catégories sont disponibles,
+**alors** elles sont affichées avec le résultat,
+**et** l'absence de catégories ne bloque ni l'affichage ni les actions de la recette.
+
+**Étant donné** une catégorie standard ou personnelle,
+**quand** elle est rendue sur l'une de ces surfaces,
+**alors** sa présentation suit une règle visuelle partagée et accessible,
+**et** elle ne force pas la personne à connaître son origine technique.

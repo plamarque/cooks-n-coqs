@@ -39,9 +39,11 @@ export function normalizeIngredient(ingredient) {
 }
 
 export function normalizeRecipeForSave(recipe) {
+  const categories = Array.from(new Map((recipe.personalCategories ?? []).map((value) => { const label = value.trim().replace(/\s+/g, " "); return [label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr"), label]; }).filter(([, label]) => label)).values());
   return {
     ...recipe,
-    ingredients: recipe.ingredients.map(normalizeIngredient)
+    ingredients: recipe.ingredients.map(normalizeIngredient),
+    ...(categories.length ? { personalCategories: categories } : {})
   };
 }
 

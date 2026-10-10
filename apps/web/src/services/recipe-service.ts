@@ -158,6 +158,7 @@ export function filterAndSortNotebookRecipes(recipes: Recipe[], filters?: Recipe
       filters?.favorite !== undefined ? recipe.favorite === filters.favorite : true
     )
     .filter((recipe) => bySearch(recipe, filters?.search))
+    .filter((recipe) => !filters?.personalCategory || (recipe.personalCategories ?? []).some((value) => value.localeCompare(filters.personalCategory!, "fr", { sensitivity: "base" }) === 0))
     .sort(compareRecipesByNotebookTitle);
 }
 

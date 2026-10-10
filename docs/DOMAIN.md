@@ -19,6 +19,7 @@ Attributs principaux :
 - `id`
 - `title`
 - `category`
+- `personalCategories` (optionnel, liste de libellés libres locaux) — vides exclus et doublons ignorés sans tenir compte de la casse ou des accents; absent = aucune catégorie.
 - `favorite`
 - `servingsBase` (optionnel)
 - `servingsCurrent` (optionnel)

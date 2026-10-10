@@ -15,7 +15,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
    - partage système mobile (quand la plateforme le permet),
    - écran « Nouvelle recette » : champ de collage (URL/texte/image) + Importer, Saisir à la main, Choisir un fichier.
 3. Structuration lisible de la recette importée sans altérer arbitrairement le sens de la source.
-4. Classement binaire des recettes : `Sucré` / `Salé` (sans tags en v1).
+4. Classement binaire des recettes : `Sucré` / `Salé`, complété par zéro à plusieurs catégories personnelles saisies à la main.
 5. Mise en favoris.
 6. Consultation via vignettes (photo + nom), détail lisible, et édition libre à tout moment.
 7. Ajustement du nombre de portions avec recalcul automatique des quantités.
@@ -74,7 +74,7 @@ Problème utilisateur adressé en priorité : ne plus devoir re-chercher les rec
 ### Organisation et recherche rapide
 
 1. Les recettes sont affichées sous forme de grille de vignettes.
-2. L’utilisateur peut filtrer par catégorie (`Sucré`, `Salé`) et par favoris. Au chargement, le filtre favoris est activé par défaut (icône cœur) : seules les recettes favorites sont affichées.
+2. L’utilisateur peut filtrer par catégorie (`Sucré`, `Salé`), catégorie personnelle et favoris. Le contrôle `Envie de…` propose les catégories déjà utilisées et `Toutes les recettes` retire ce seul filtre. Au chargement, le filtre favoris est activé par défaut (icône cœur) : seules les recettes favorites sont affichées.
 3. L’utilisateur peut rechercher en texte libre sur `titre + ingrédients`.
 4. La liste du Cahier est triée par défaut alphabétiquement par titre, avec une collation française insensible à la casse et aux accents ; à égalité, l’identifiant assure un ordre déterministe. Ce tri s’applique après les filtres catégorie, favori et recherche.
 5. La navigation privilégie l’accès rapide aux recettes fréquemment utilisées.

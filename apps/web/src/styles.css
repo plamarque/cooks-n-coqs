@@ -1910,6 +1910,21 @@ body {
   flex-wrap: wrap;
 }
 
+.personal-category-filter {
+  width: auto;
+  max-width: 11rem;
+  min-width: 0;
+  padding: 0.32rem 1.75rem 0.32rem 0.5rem;
+  border: 1px solid rgba(31, 79, 70, 0.32);
+  border-radius: 999px;
+  background: #fff;
+  color: #1f4f46;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.mobile-search-nav { display: none !important; }
+
 /* Mobile : icône loupe devant Favoris, champ recherche dépliable au-dessus des filtres */
 @media (max-width: 600px) {
   .filters-inner {
@@ -1940,6 +1955,26 @@ body {
 
   .search-toggle-btn {
     display: inline-flex !important;
+  }
+
+  .notebook-header .new-recipe-nav.p-button,
+  .notebook-header .assistant-nav.p-button,
+  .notebook-header .mobile-search-nav.p-button {
+    width: 2.8rem;
+    min-width: 2.8rem;
+    height: 2.8rem;
+    padding: 0 !important;
+  }
+
+  .notebook-header .new-recipe-nav .p-button-label,
+  .notebook-header .assistant-nav .p-button-label {
+    display: none;
+  }
+
+  .mobile-search-nav { display: inline-flex !important; }
+
+  .filter-chips .search-toggle-btn {
+    display: none !important;
   }
 
   .recipe-detail-actions {
@@ -2345,6 +2380,21 @@ body {
 
 .category-radios {
   gap: 1rem;
+}
+
+.form-personal-categories {
+  flex: 1 1 13rem;
+  min-width: 0;
+  max-width: 18rem;
+}
+
+.form-personal-categories .row {
+  flex-wrap: nowrap;
+}
+
+.form-personal-categories input {
+  min-width: 0;
+  flex: 1;
 }
 
 .ingredient-row {

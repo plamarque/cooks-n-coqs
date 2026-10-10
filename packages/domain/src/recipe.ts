@@ -56,6 +56,7 @@ export interface Recipe {
   id: string;
   title: string;
   category: RecipeCategory;
+  personalCategories?: string[];
   favorite: boolean;
   servingsBase?: number;
   servingsCurrent?: number;
@@ -105,6 +106,7 @@ export interface RecipeFilters {
   category?: RecipeCategory;
   favorite?: boolean;
   search?: string;
+  personalCategory?: string;
 }
 
 export interface RecipeService {

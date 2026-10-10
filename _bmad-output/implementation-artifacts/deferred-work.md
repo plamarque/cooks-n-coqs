@@ -28,3 +28,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-2-rendre-les-six-etats-du-chef-localement.md`
   summary: Réparer la chaîne de build SPA afin que le gate E2E normal atteigne Playwright.
   evidence: `spa-404-fallback` échoue dans `closeBundle` avant que `dist/index.html` soit disponible ; le défaut précède la Story 5.2 et bloque aussi ses E2E via `npm run test:e2e`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-tags-recettes-envies-categories.md`
+  summary: Ajouter une autocomplétion de catégories locales qui évite les doublons approchants et privilégie le vocabulaire déjà employé.
+  evidence: La Story 1 normalise les doublons exacts à la sauvegarde mais ne propose pas encore les catégories existantes pendant la saisie.
+- source_spec: `_bmad-output/implementation-artifacts/spec-tags-recettes-envies-categories.md`
+  summary: Afficher les catégories personnelles sur les vues de recette pertinentes, après avoir défini la hiérarchie visuelle et les usages de lecture.
+  evidence: La Story 1 couvre la saisie et le filtre; l’affichage des catégories sur cartes ou fiche est une décision de présentation distincte.

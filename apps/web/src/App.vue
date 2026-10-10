@@ -4,6 +4,7 @@ import Button from "primevue/button";
 import Card from "primevue/card";
 import ConfirmDialog from "primevue/confirmdialog";
 import Dialog from "primevue/dialog";
+import Menu from "primevue/menu";
 import ProgressBar from "primevue/progressbar";
 import ProgressSpinner from "primevue/progressspinner";
 import { useConfirm } from "primevue/useconfirm";
@@ -142,6 +143,7 @@ interface StepInput {
 interface RecipeFormState {
   title: string;
   category: RecipeCategory;
+  personalCategories: string[];
   favorite: boolean;
   servingsBase: string;
   prepTimeMin: string;
@@ -189,7 +191,23 @@ function toggleSearchExpanded() {
   }
 }
 const categoryFilter = ref<"ALL" | RecipeCategory>("ALL");
+const personalCategoryFilter = ref("");
+const ALL_PERSONAL_CATEGORIES = "__all__";
+const personalCategoryInput = ref("");
+const availablePersonalCategories = computed(() => Array.from(new Set(recipes.value.flatMap((recipe) => recipe.personalCategories ?? []))).sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })));
+
+function addPersonalCategory() {
+  const value = personalCategoryInput.value.trim();
+  if (value && !form.value.personalCategories.some((item) => item.localeCompare(value, "fr", { sensitivity: "base" }) === 0)) form.value.personalCategories.push(value);
+  personalCategoryInput.value = "";
+}
+
+function selectPersonalCategory(value: string): void {
+  personalCategoryFilter.value = value === ALL_PERSONAL_CATEGORIES ? "" : value;
+}
 const favoriteOnly = ref(true);
+const notebookActionsMenu = ref<InstanceType<typeof Menu> | null>(null);
+const notebookActions = computed(() => [{ label: "Exporter le Cahier", icon: "pi pi-upload", disabled: importBusy.value, command: openExportBookDialog }]);
 
 const assistantText = ref("");
 const assistantAttachments = ref<AssistantAttachment[]>([]);
@@ -357,6 +375,7 @@ function emptyForm(): RecipeFormState {
   return {
     title: "",
     category: "SALE",
+    personalCategories: [],
     favorite: false,
     servingsBase: "",
     prepTimeMin: "",
@@ -463,6 +482,7 @@ function toForm(recipe: Recipe): RecipeFormState {
   return {
     title: recipe.title,
     category: recipe.category,
+    personalCategories: [...(recipe.personalCategories ?? [])],
     favorite: recipe.favorite,
     servingsBase: recipe.servingsBase ? String(recipe.servingsBase) : "",
     prepTimeMin: recipe.prepTimeMin ? String(recipe.prepTimeMin) : "",
@@ -530,6 +550,7 @@ function draftToForm(draft: ParsedRecipeDraft): RecipeFormState {
   return {
     title: draft.title,
     category: draft.category,
+    personalCategories: [],
     favorite: false,
     servingsBase: draft.servingsBase ? String(draft.servingsBase) : "",
     prepTimeMin: draft.prepTimeMin ? String(draft.prepTimeMin) : "",
@@ -671,6 +692,7 @@ function formToRecipe(existing?: Recipe): Recipe {
     id: existing?.id ?? randomId(),
     title: form.value.title.trim(),
     category: form.value.category,
+    personalCategories: form.value.personalCategories,
     favorite: form.value.favorite,
     servingsBase,
     servingsCurrent: servingsBase,
@@ -1038,6 +1060,7 @@ const formYouTubeEmbedUrl = computed(() =>
 
 const activeFilters = computed<RecipeFilters>(() => ({
   category: categoryFilter.value === "ALL" ? undefined : categoryFilter.value,
+  personalCategory: personalCategoryFilter.value || undefined,
   favorite: favoriteOnly.value ? true : undefined,
   search: search.value.trim() || undefined
 }));
@@ -3623,6 +3646,7 @@ onUnmounted(() => {
           label="Nouvelle recette"
           icon="pi pi-plus"
           rounded
+          class="new-recipe-nav"
           :loading="importBusy"
           @click="openAddChoice"
         />
@@ -3634,6 +3658,9 @@ onUnmounted(() => {
           class="assistant-nav"
           @click="openAssistant"
         />
+        <Button class="mobile-search-nav" icon="pi pi-search" severity="secondary" rounded aria-label="Rechercher" @click="toggleSearchExpanded" />
+        <Button icon="pi pi-ellipsis-v" severity="secondary" rounded aria-label="Plus d’actions du Cahier" @click="notebookActionsMenu?.toggle($event)" />
+        <Menu ref="notebookActionsMenu" :model="notebookActions" popup />
       </header>
       <div class="toolbar">
         <div class="filters">
@@ -3666,6 +3693,11 @@ onUnmounted(() => {
               aria-label="Favoris"
               @click="favoriteOnly = !favoriteOnly"
             />
+            <select :value="personalCategoryFilter" class="personal-category-filter" aria-label="Filtrer les recettes par catégorie" @change="selectPersonalCategory(($event.target as HTMLSelectElement).value)">
+              <option value="" disabled>J’ai envie de…</option>
+              <option :value="ALL_PERSONAL_CATEGORIES">Toutes les recettes</option>
+              <option v-for="item in availablePersonalCategories" :key="item" :value="item">{{ item }}</option>
+            </select>
             <Button
               :severity="categoryFilter === 'SUCRE' ? 'primary' : 'secondary'"
               label="Sucré"
@@ -3680,17 +3712,6 @@ onUnmounted(() => {
             />
             </div>
           </div>
-        </div>
-        <div class="toolbar-actions">
-          <Button
-            icon="pi pi-upload"
-            severity="secondary"
-            rounded
-            aria-label="Exporter le cahier"
-            title="Exporter le cahier"
-            :disabled="importBusy"
-            @click="openExportBookDialog"
-          />
         </div>
       </div>
 
@@ -4612,6 +4633,11 @@ onUnmounted(() => {
             </label>
           </div>
         </div>
+        <div class="stack form-personal-categories">
+          <label for="personalCategories">Catégories</label>
+          <div class="row"><input id="personalCategories" v-model="personalCategoryInput" placeholder="ex. soupe" @keydown.enter.prevent="addPersonalCategory" /><Button label="Ajouter" size="small" @click="addPersonalCategory" /></div>
+          <div class="filter-chips"><Button v-for="item in form.personalCategories" :key="item" :label="item" size="small" icon="pi pi-times" :aria-label="`Retirer ${item}`" @click="form.personalCategories = form.personalCategories.filter((value) => value !== item)" /></div>
+        </div>
         <div class="stack">
           <label for="servingsBase">Portions</label>
           <input id="servingsBase" v-model="form.servingsBase" type="number" min="1" step="1" class="portions-input" />
@@ -4640,6 +4666,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+
 
       <h3>Ingrédients</h3>
       <div v-for="ingredient in form.ingredients" :key="ingredient.id" class="ingredient-row">

@@ -49,6 +49,11 @@ test("Cahier filtré : le titre prévaut sur favori et date de modification", ()
   );
 });
 
+test("Cahier filtré : une catégorie personnelle est insensible à la casse et aux accents", () => {
+  const recipes = [{ ...recipe("soupe", "Soupe"), personalCategories: ["Soupes"] }, { ...recipe("pates", "Pâtes"), personalCategories: ["Pâtes"] }];
+  assert.deepEqual(filterAndSortNotebookRecipes(recipes, { personalCategory: "soupes" }).map(({ id }) => id), ["soupe"]);
+});
+
 test("listRecipes : lecture Dexie filtrée et triée par titre", async () => {
   const recipes = [
     { ...recipe("favorite-z", "Zeste"), favorite: true, updatedAt: "2026-10-09T00:00:00.000Z" },
