@@ -84,7 +84,7 @@ import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForN
 import { ChefSession } from "./utils/chef-session";
 import { createNoCandidateAssistantPreview } from "./utils/assistant-no-candidate";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
-import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, resolveAssistantProgressPhotoUrl, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
+import { AssistantImageRequestError, buildAssistantSelectionRequest, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
   getCookingStepImageBlobUrl,
@@ -270,11 +270,6 @@ const clipboardBusy = ref(false);
 const importSourceType = ref<ImportProgressType | null>(null);
 const photoImportProgress = ref<{ phase: "preparing" | "reading" | "reordering"; current: number; total: number } | null>(null);
 const assistantImageProgress = ref<{ phase: "preparing" | "reading"; current: number; total: number } | null>(null);
-const assistantProgressPhotoUrl = computed(() => resolveAssistantProgressPhotoUrl(
-  assistantPhase.value,
-  assistantImageProgress.value,
-  assistantAttachments.value.map(({ previewUrl }) => previewUrl)
-));
 const imageGenerating = ref(false);
 const imageReextracting = ref(false);
 const recipeIdWithPendingImage = ref<string | null>(null);
@@ -1165,6 +1160,10 @@ async function persistChefConversation(files: readonly File[] = [], attachmentTu
     const persisted = await storeChefConversationAssets(record, attachmentTurnId, files);
     chefSession.hydrate(persisted);
     assistantSession.replaceConversationTurns(persisted.turns);
+    // La transaction enrichit le tour déjà affiché avec ses références d'assets.
+    // Synchroniser le ref immédiatement : attendre une reprise masquait la photo
+    // et empêchait une réponse dans le fil courant.
+    assistantTurns.value = [...assistantSession.turns];
   } else await db.chefConversations.put(record);
 }
 
@@ -1491,18 +1490,23 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
     resolve: async (text, signal, progress) => {
       let stage = "conseil";
       try {
-        const advice = await requestChefAdvice({ request: text, context: await projectChefAdviceContext(signal) }, signal);
-        if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
-        if (advice.kind !== "recipe") {
-          const confidence = advice.kind === "advice" && advice.confidence.length
-            ? `\nRepères : ${advice.confidence.map((item) => item === "certain" ? "certain" : item === "suppose" ? "supposé" : "à vérifier").join(", ")}.`
-            : "";
-          const reply = advice.kind === "advice"
-            ? `${advice.recommendation}\n${advice.reason}${advice.alternative ? `\nAutre piste : ${advice.alternative}` : ""}${confidence}`
-            : advice.kind === "clarify" ? advice.question : advice.request;
-          if (advice.kind === "clarify" || advice.kind === "photo") assistantSession.showClarification(reply);
-          else assistantSession.addChefTurn(reply);
-          return { kind: "advice" as const };
+        // Le wire Conseil est textuel : lui envoyer une photo avant Vision
+        // produit forcément une fausse demande de pièce jointe. Une image
+        // passe donc directement par sa lecture temporaire, puis la sélection.
+        if (route !== "image") {
+          const advice = await requestChefAdvice({ request: text, context: await projectChefAdviceContext(signal) }, signal);
+          if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+          if (advice.kind !== "recipe") {
+            const confidence = advice.kind === "advice" && advice.confidence.length
+              ? `\nRepères : ${advice.confidence.map((item) => item === "certain" ? "certain" : item === "suppose" ? "supposé" : "à vérifier").join(", ")}.`
+              : "";
+            const reply = advice.kind === "advice"
+              ? `${advice.recommendation}\n${advice.reason}${advice.alternative ? `\nAutre piste : ${advice.alternative}` : ""}${confidence}`
+              : advice.kind === "clarify" ? advice.question : advice.request;
+            if (advice.kind === "clarify" || advice.kind === "photo") assistantSession.showClarification(reply);
+            else assistantSession.addChefTurn(reply);
+            return { kind: "advice" as const };
+          }
         }
         progress("searching");
         assistantPhase.value = assistantSession.phase;
@@ -1528,7 +1532,10 @@ async function prepareAssistantTextRequest(preparationId: number): Promise<Assis
             sourceFiles: originalSourceFiles,
             turns: projectAssistantTurnsForNetwork(assistantSession.turns),
             signal,
-            creating: () => progress("creating"),
+            creating: () => {
+              progress("creating");
+              assistantPhase.value = assistantSession.phase;
+            },
             generate: generateAssistantRecipe
           }), "generation", 25_000);
           return { kind: "draft" as const, ...preview };
@@ -3404,7 +3411,14 @@ onUnmounted(() => {
                 <div class="assistant-preview-card-wrap assistant-thread-card-wrap">
                   <template v-if="card.kind === 'preview'">
                     <button type="button" class="assistant-preview-card" :aria-label="`Prévisualisation prête — ouvrir ${card.preview.draft.title}`" @click="openAssistantPreview(card.preview, card.imageUrl, card.imageUnavailable)">
-                      <span class="assistant-preview-card-hero" :class="{ 'is-loading': !card.imageUrl && !card.imageUnavailable }"><img v-if="card.imageUrl" class="assistant-preview-card-image" :src="card.imageUrl" alt="" /><span v-else-if="!card.imageUnavailable" class="assistant-preview-card-loading"><span class="assistant-preview-card-loading-mark" aria-hidden="true"><ProgressSpinner /><img src="/favicon.svg" alt="" /></span><span>Je prépare l’illustration…</span></span><span v-else class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span></span>
+                      <span class="assistant-preview-card-hero" :class="{ 'is-loading': !card.imageUrl && !card.imageUnavailable }">
+                        <img v-if="card.imageUrl" class="assistant-preview-card-image" :src="card.imageUrl" alt="" />
+                        <span v-else-if="!card.imageUnavailable" class="assistant-preview-card-loading" role="status" aria-live="polite">
+                          <ChefAvatar class="assistant-preview-card-loading-chef" state="proposition" :interactive="false" :loop="true" />
+                          <span class="assistant-preview-loading-bubble">Je prépare l’illustration… <span class="assistant-progress-dots" aria-hidden="true"><i /><i /><i /></span></span>
+                        </span>
+                        <span v-else class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span>
+                      </span>
                       <span class="assistant-preview-card-copy"><span class="assistant-preview-card-status">Recette sur mesure</span><span class="assistant-preview-card-title">{{ card.preview.draft.title }}</span><span class="assistant-preview-card-meta">{{ assistantPreviewCategoryLabel(card.preview.draft.category) }} · {{ card.preview.draft.ingredients.length }} ingrédients</span></span>
                       <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
                     </button>
@@ -3426,9 +3440,12 @@ onUnmounted(() => {
               </li>
             </template>
             <li v-if="['importing', 'analyzing', 'searching', 'creating'].includes(assistantPhase)" class="assistant-conversation-progress">
-              <div class="assistant-import-progress" role="status" aria-live="polite">
-                <span class="assistant-import-progress-mark" aria-hidden="true"><ProgressSpinner /><img :class="{ 'assistant-import-progress-photo': assistantProgressPhotoUrl }" :src="assistantProgressPhotoUrl ?? '/favicon.svg'" alt="" /></span>
-                <span class="assistant-import-progress-label">{{ assistantPhase === 'searching' ? 'Je cherche dans votre Cahier' : assistantPhase === 'creating' ? 'Je crée votre recette' : assistantPhase === 'analyzing' ? (assistantImageProgress ? `${assistantImageProgress.phase === 'preparing' ? 'Préparation' : 'Lecture'} de la photo ${assistantImageProgress.current}/${assistantImageProgress.total}` : (assistantAttachments.length ? 'J’analyse vos photos' : 'J’analyse votre demande')) : (assistantAttachments.length ? 'Je lis vos photos pour reconstituer la recette' : 'J’analyse votre recette') }}</span>
+              <div class="assistant-import-progress assistant-import-progress--thinking" role="status" aria-live="polite">
+                <ChefAvatar class="assistant-import-progress-chef" state="reflexion" :interactive="false" :loop="true" />
+                <span class="assistant-import-progress-bubble">
+                  <span class="assistant-import-progress-label">{{ assistantPhase === 'searching' ? 'Je cherche dans votre Cahier' : assistantPhase === 'creating' ? 'Je crée votre recette' : assistantPhase === 'analyzing' ? (assistantImageProgress ? `${assistantImageProgress.phase === 'preparing' ? 'Préparation' : 'Lecture'} de la photo ${assistantImageProgress.current}/${assistantImageProgress.total}` : (assistantAttachments.length ? 'J’analyse vos photos' : 'J’analyse votre demande')) : (assistantAttachments.length ? 'Je lis vos photos pour reconstituer la recette' : 'J’analyse votre recette') }}</span>
+                  <span class="assistant-progress-dots" aria-hidden="true"><i /><i /><i /></span>
+                </span>
               </div>
             </li>
           </ol>
@@ -3589,7 +3606,13 @@ onUnmounted(() => {
       <fieldset class="assistant-preview-editor" :disabled="assistantPreviewSaving">
       <div class="recipe-detail-header">
         <img v-if="assistantPreviewImageUrl" class="recipe-detail-image" :src="assistantPreviewImageUrl" :alt="`Illustration de ${assistantPreview.draft.title}`" />
-        <div v-else class="recipe-detail-image-placeholder" :class="{ 'recipe-detail-image-placeholder--loading': !assistantPreviewImageUnavailable }"><ProgressSpinner v-if="!assistantPreviewImageUnavailable" aria-label="Illustration en préparation" /><i v-else class="pi pi-book" aria-hidden="true" /></div>
+        <div v-else class="recipe-detail-image-placeholder" :class="{ 'recipe-detail-image-placeholder--loading': !assistantPreviewImageUnavailable }">
+          <div v-if="!assistantPreviewImageUnavailable" class="assistant-preview-image-loading" role="status" aria-live="polite">
+            <ChefAvatar class="assistant-preview-image-loading-chef" state="proposition" :interactive="false" :loop="true" />
+            <span class="assistant-preview-loading-bubble">Je prépare l’illustration… <span class="assistant-progress-dots" aria-hidden="true"><i /><i /><i /></span></span>
+          </div>
+          <i v-else class="pi pi-book" aria-hidden="true" />
+        </div>
         <div class="recipe-detail-header-actions">
           <Button text icon="pi pi-arrow-left" class="recipe-detail-back" aria-label="Fermer la prévisualisation" :disabled="assistantPreviewSaving" @click="closeAssistantPreview" />
           <Button icon="pi pi-save" aria-label="Sauvegarder" class="assistant-preview-save" :loading="assistantPreviewSaving" :disabled="assistantPreviewSaving" @click="saveAssistantPreview" />

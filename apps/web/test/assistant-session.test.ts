@@ -53,6 +53,52 @@ test("App.vue : un lien ChatGPT seul est importé avant le routage Chef", () => 
   assert.match(source, /: prepareAssistantTextRequest\(preparationId\)/);
 });
 
+test("App.vue : une photo évite le wire Conseil textuel et part vers Vision", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const requestPreparation = /async function prepareAssistantTextRequest[\s\S]*?\n}\n\nfunction cancelAssistantImport/.exec(app);
+  assert.ok(requestPreparation, "prepareAssistantTextRequest est présent");
+  assert.match(requestPreparation[0], /if \(route !== "image"\) \{[\s\S]*?requestChefAdvice/);
+  assert.match(requestPreparation[0], /route === "image" \? await summarizeAssistantImages\(attachments/);
+});
+
+test("App.vue : les quatre attentes conversationnelles montrent le Chef Réflexion à la place du spinner", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const progress = /<li v-if="\['importing', 'analyzing', 'searching', 'creating'\]\.includes\(assistantPhase\)"[\s\S]*?<\/li>/.exec(app);
+  assert.ok(progress, "le bloc de progression conversationnelle est présent");
+  assert.match(progress[0], /assistant-import-progress--thinking/);
+  assert.match(progress[0], /<ChefAvatar class="assistant-import-progress-chef" state="reflexion" :interactive="false" :loop="true"/);
+  assert.match(progress[0], /assistant-import-progress-bubble[\s\S]*?assistant-progress-dots/);
+  assert.doesNotMatch(progress[0], /assistant-import-progress-mark|<ProgressSpinner/);
+});
+
+test("App.vue : l'illustration asynchrone de la prévisualisation montre le Chef Proposition", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  assert.match(app, /class="assistant-preview-card-loading" role="status" aria-live="polite"[\s\S]*?<ChefAvatar class="assistant-preview-card-loading-chef" state="proposition" :interactive="false" :loop="true"/);
+  assert.match(app, /class="assistant-preview-image-loading" role="status" aria-live="polite"[\s\S]*?<ChefAvatar class="assistant-preview-image-loading-chef" state="proposition" :interactive="false" :loop="true"/);
+  assert.match(app, /assistant-preview-loading-bubble[\s\S]*?assistant-progress-dots/);
+  assert.doesNotMatch(app, /assistant-preview-card-loading-mark|Illustration en préparation/);
+});
+
+test("ChefAvatar : un sprite indisponible garde une pose statique de secours", () => {
+  const avatarPath = join(dirname(fileURLToPath(import.meta.url)), "../src/components/ChefAvatar.vue");
+  const avatar = readFileSync(avatarPath, "utf8");
+  assert.match(avatar, /const spriteUnavailable = ref\(false\)/);
+  assert.match(avatar, /function showSpriteUnavailable\(\): void \{\s*spriteUnavailable\.value = true;/);
+  assert.match(avatar, /v-else-if="activeState !== 'repos' && !spriteUnavailable"/);
+  assert.match(avatar, /class="chef-avatar-image chef-avatar-static-fallback"[\s\S]*:src="chefReposFallback"/);
+  assert.match(avatar, /:aria-hidden="interactive \? undefined : true"/);
+});
+
+test("ChefAvatar : les attentes peuvent boucler une planche active", () => {
+  const avatarPath = join(dirname(fileURLToPath(import.meta.url)), "../src/components/ChefAvatar.vue");
+  const avatar = readFileSync(avatarPath, "utf8");
+  assert.match(avatar, /loop\?: boolean/);
+  assert.match(avatar, /chef-avatar--loop/);
+});
+
 test("session Assistant : un import envoyé forme un tour utilisateur puis Chef", async () => {
   const session = new AssistantSession();
   await session.import("https://example.test/recette", null, { importImage: async () => draft, importUrl: async () => draft, importText: async () => draft });
@@ -170,6 +216,27 @@ test("session Assistant : le draft issu d'un noCandidate ouvre une preview éph�
   assert.equal(session.preview?.draft.title, "Soupe");
   assert.deepEqual(session.preview?.sourceFiles, [photo]);
   assert.equal(session.phase, "ready");
+});
+
+test("session Assistant : création annulée ou invalidée quitte immédiatement la réflexion", async () => {
+  for (const endRequest of [(session: AssistantSession) => session.cancel(), (session: AssistantSession) => session.invalidate()]) {
+    let resolve!: (value: { kind: "draft"; draft: typeof draft }) => void;
+    const session = new AssistantSession();
+    const pending = session.resolveText("une soupe inédite", {
+      resolve: async (_text, _signal, progress) => {
+        progress("searching");
+        progress("creating");
+        return new Promise((done) => { resolve = done; });
+      }
+    });
+    await Promise.resolve();
+    assert.equal(session.phase, "creating");
+    endRequest(session);
+    assert.equal(session.phase, "idle");
+    resolve({ kind: "draft", draft });
+    assert.equal(await pending, null);
+    assert.equal(session.preview, null);
+  }
 });
 
 test("session Assistant : fil volatile, deux précisions puis remise à zéro", () => {
