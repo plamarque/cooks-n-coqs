@@ -4,7 +4,7 @@ stepsCompleted:
   - step-02-design-epics
   - step-03-create-stories
   - step-04-final-validation
-updated: '2026-10-10'
+updated: '2026-10-11'
 inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-cooks-n-coqs-2026-10-01/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-cooks-n-coqs-2026-10-01/ARCHITECTURE-SPINE.md
@@ -833,7 +833,7 @@ afin de pouvoir anticiper sans subir une mécanique opaque ou intrusive.
 
 ## Epic 9: Comprendre l’intention de chaque tour Chef
 
-L’utilisateur peut exprimer une envie, une recherche, une création, une variante, une adaptation ou un problème culinaire sans connaître le bon écran ; le Chef route chaque tour vers un parcours unique, contextualisé et actionnable.
+L’utilisateur peut exprimer une envie, une recherche, une création, une variante, une adaptation ou un problème culinaire sans connaître le bon écran ; le Chef comprend son tour, consulte si nécessaire un contexte minimal par des outils locaux autorisés, puis répond de façon contextualisée et actionnable.
 
 **Exigences Chef couvertes:** intention explicite à chaque tour, clarification seulement si indispensable, sorties typées, continuité sur la recette mentionnée ou la dernière vignette.
 
@@ -886,17 +886,17 @@ afin de trouver une piste, une recette existante ou une nouvelle recette sans na
 **alors** le Chef produit une prévisualisation éditable,
 **et** aucune recette n’est écrite avant confirmation explicite.
 
-### Story 9.3: Adapter ou décliner une recette de référence
+### Story 9.3: Orchestrer une adaptation par outils locaux bornés
 
 En tant que personne qui veut modifier une recette,
-je veux que le Chef distingue une adaptation ponctuelle d’une variante durable,
+je veux que le Chef puisse consulter uniquement le contexte de recette utile avant de répondre,
 afin d’obtenir immédiatement l’aide pertinente sans modifier la recette d’origine.
 
 **Critères d'acceptation:**
 
 **Étant donné** qu’une recette de référence et des contraintes sont identifiées,
 **quand** la personne demande une adaptation, par exemple une cuisson Cookeo sans crème,
-**alors** le Chef fournit un conseil temporaire appliqué à cette recette,
+**alors** le Chef peut demander `getRecipeContext` dans le registre local fermé, recevoir seulement l’extrait nécessaire et fournir un conseil temporaire appliqué à cette recette,
 **et** il propose explicitement « Créer une variante » si la personne souhaite la conserver.
 
 **Étant donné** que la personne demande une variante,
@@ -904,7 +904,17 @@ afin d’obtenir immédiatement l’aide pertinente sans modifier la recette d�
 **alors** le Chef génère une prévisualisation distincte dérivée de l’original,
 **et** cette prévisualisation reste sans effet persistant avant sauvegarde explicite.
 
-### Story 9.4: Clarifier seulement quand nécessaire et préserver la reprise
+**Étant donné** qu’un tour Chef demande un outil,
+**quand** l'appel est hors registre, invalide, trop large, refusé ou arrive après annulation,
+**alors** le client le refuse sans transmettre de donnée supplémentaire ni écrire localement,
+**et** le Chef reçoit une issue exploitable et honnête.
+
+**Étant donné** qu’un tour est en cours,
+**quand** le runtime a déjà exécuté deux outils ou qu’un outil est indisponible,
+**alors** il termine le tour sans nouvel appel d’outil,
+**et** l’interface préserve la saisie et ne produit aucun résultat tardif.
+
+### Story 9.4: Chercher, clarifier et reprendre avec le même runtime local
 
 En tant que personne qui affine sa demande,
 je veux pouvoir reprendre exactement le même objectif après une clarification, une erreur ou une annulation,
@@ -912,10 +922,15 @@ afin de ne pas perdre mon temps ni ma saisie.
 
 **Critères d'acceptation:**
 
-**Étant donné** qu’une donnée réellement indispensable manque,
+**Étant donné** que le Chef doit choisir entre une recherche locale, une idée ou une création,
+**quand** l’intention permet une recherche,
+**alors** il peut demander `searchNotebook`, recevoir un résultat local minimal puis décider de la réponse du même tour,
+**et** il ne transmet jamais le Cahier complet au BFF.
+
+**Étant donné** qu’une donnée réellement indispensable manque après les outils autorisés,
 **quand** le Chef ne peut pas poursuivre de façon fiable,
 **alors** il pose une seule question ciblée ou demande une photo seulement si elle est pertinente,
-**et** il conserve le contexte nécessaire à la réponse suivante.
+**et** il conserve l’objectif et les résultats minimisés nécessaires à la réponse suivante.
 
 **Étant donné** qu’une requête échoue ou est annulée,
 **quand** la personne revient au compositeur,
