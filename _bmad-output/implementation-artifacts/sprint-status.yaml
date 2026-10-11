@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-13-2026 04:57
-last_updated: 10-11-2026 12:15
+last_updated: 10-11-2026 12:00
 project: cooks-n-coqs
 project_key: NOKEY
 tracking_system: file-system
@@ -88,8 +88,8 @@ development_status:
   epic-9: backlog
   9-1-classer-chaque-tour-chef-dans-un-contrat-fermé: done
   9-2-trouver-une-idée-retrouver-au-cahier-ou-créer-sur-mesure: done
-  9-3-adapter-ou-décliner-une-recette-de-référence: backlog
-  9-4-clarifier-seulement-quand-nécessaire-et-préserver-la-reprise: backlog
+  9-3-introduire-chefagent-et-les-mcp-v1: in-progress
+  9-4-chercher-clarifier-et-reprendre-avec-le-même-runtime-local: backlog
   epic-9-retrospective: optional
 
   epic-10: in-progress

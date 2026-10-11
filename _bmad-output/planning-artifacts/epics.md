@@ -833,11 +833,11 @@ afin de pouvoir anticiper sans subir une mécanique opaque ou intrusive.
 
 ## Epic 9: Comprendre l’intention de chaque tour Chef
 
-L’utilisateur peut exprimer une envie, une recherche, une création, une variante, une adaptation ou un problème culinaire sans connaître le bon écran ; le Chef comprend son tour, consulte si nécessaire un contexte minimal par des outils locaux autorisés, puis répond de façon contextualisée et actionnable.
+L’utilisateur peut exprimer une envie, une recherche, une création, une variante, une adaptation ou un problème culinaire sans connaître le bon écran ; ChefAgent comprend son objectif en plusieurs tours, charge les savoir-faire C&C et consulte les capacités MCP locales ou externes nécessaires avant de répondre.
 
 **Exigences Chef couvertes:** intention explicite à chaque tour, clarification seulement si indispensable, sorties typées, continuité sur la recette mentionnée ou la dernière vignette.
 
-**Garde-fous:** l’intention explicite prime sur la mémoire et les habitudes ; une clarification unique n’est permise que si une donnée indispensable manque ; aucune écriture n’est implicite ; le BFF ne persiste ni fil ni profil.
+**Garde-fous:** l’intention explicite prime sur la mémoire et les habitudes ; aucune écriture n’est implicite ; ChefAgent contrôle les capacités, l’annulation et les réponses tardives ; le BFF ne persiste ni fil ni profil.
 
 ### Story 9.1: Classer chaque tour Chef dans un contrat fermé
 
@@ -886,33 +886,33 @@ afin de trouver une piste, une recette existante ou une nouvelle recette sans na
 **alors** le Chef produit une prévisualisation éditable,
 **et** aucune recette n’est écrite avant confirmation explicite.
 
-### Story 9.3: Orchestrer une adaptation par outils locaux bornés
+### Story 9.3: Introduire ChefAgent et les MCP V1
 
-En tant que personne qui veut modifier une recette,
-je veux que le Chef puisse consulter uniquement le contexte de recette utile avant de répondre,
-afin d’obtenir immédiatement l’aide pertinente sans modifier la recette d’origine.
+En tant que personne qui échange avec le Chef,
+je veux qu’il puisse raisonner en plusieurs étapes et choisir les capacités C&C utiles,
+afin de recevoir les mêmes services qu’aujourd’hui, enrichis d’une adaptation sans navigation imposée.
 
 **Critères d'acceptation:**
 
-**Étant donné** qu’une recette de référence et des contraintes sont identifiées,
-**quand** la personne demande une adaptation, par exemple une cuisson Cookeo sans crème,
-**alors** le Chef peut demander `getRecipeContext` dans le registre local fermé, recevoir seulement l’extrait nécessaire et fournir un conseil temporaire appliqué à cette recette,
-**et** il propose explicitement « Créer une variante » si la personne souhaite la conserver.
+**Étant donné** une demande déjà couverte par 9.2,
+**quand** elle est traitée par ChefAgent,
+**alors** il rend les mêmes idées, résultats Cahier, previews ou conseils visibles,
+**et** il préserve la saisie, l’annulation et l’absence d’écriture implicite.
 
-**Étant donné** que la personne demande une variante,
-**quand** la recette de référence est disponible,
-**alors** le Chef génère une prévisualisation distincte dérivée de l’original,
-**et** cette prévisualisation reste sans effet persistant avant sauvegarde explicite.
+**Étant donné** une recette de référence et « au Cookeo et sans crème »,
+**quand** le reasoning model demande des skills ou tools MCP utiles,
+**alors** ChefAgent les valide et les route vers le MCP local ou BFF, puis poursuit jusqu’à une finale,
+**et** il ne transmet que le contexte local minimal nécessaire.
 
-**Étant donné** qu’un tour Chef demande un outil,
-**quand** l'appel est hors registre, invalide, trop large, refusé ou arrive après annulation,
-**alors** le client le refuse sans transmettre de donnée supplémentaire ni écrire localement,
-**et** le Chef reçoit une issue exploitable et honnête.
+**Étant donné** qu’une adaptation conduit à une variante,
+**quand** ChefAgent finalise le tour,
+**alors** il prépare une preview distincte sans modifier la recette source,
+**et** seul « Sauvegarder » peut déclencher la persistance existante.
 
-**Étant donné** qu’un tour est en cours,
-**quand** le runtime a déjà exécuté deux outils ou qu’un outil est indisponible,
-**alors** il termine le tour sans nouvel appel d’outil,
-**et** l’interface préserve la saisie et ne produit aucun résultat tardif.
+**Étant donné** une boucle sans progrès, annulée ou en erreur définitive,
+**quand** ChefAgent la détecte,
+**alors** il arrête le tour et ignore toute continuation tardive,
+**et** l’interface préserve la saisie sans écriture locale.
 
 ### Story 9.4: Chercher, clarifier et reprendre avec le même runtime local
 
