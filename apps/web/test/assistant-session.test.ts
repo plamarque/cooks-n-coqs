@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, routeAssistantImport } from "../src/utils/assistant-session";
 import { AssistantImageRequestError } from "../src/services/assistant-service";
-import { buildChefTurnClassificationContext, resolveChefTurnClassification } from "../src/utils/chef-turn-classification";
+import { buildChefTurnClassificationContext, requestsRecipePreview, resolveChefTurnClassification } from "../src/utils/chef-turn-classification";
 
 test("classification Chef : une réponse brève reprend clarification et contraintes sans exposer d'id", () => {
   const turns = [
@@ -18,6 +18,19 @@ test("classification Chef : une réponse brève reprend clarification et contrai
   assert.deepEqual(resolveChefTurnClassification({ intent: "adapt", confidence: "high", constraints: ["au Cookeo", "sans crème"] }, turns, "Quel appareil utilisez-vous ?"), {
     intent: "adapt", confidence: "high", constraints: ["au Cookeo", "sans crème"], reference: { title: "Soupe", source: "clarification" }
   });
+});
+
+test("classification Chef : une référence locale résolue retire seulement le manque correspondant", () => {
+  const turns = [{ role: "assistant" as const, text: "Proposition", cards: [{ kind: "preview" as const, preview: { draft, source: undefined } }] }];
+  assert.deepEqual(resolveChefTurnClassification({ intent: "adapt", confidence: "high", constraints: ["sans lait de coco"], missing: { field: "reference", question: "Quelle recette ?" } }, turns, null), {
+    intent: "adapt", confidence: "high", constraints: ["sans lait de coco"], reference: { title: "Soupe", source: "latest_card" }
+  });
+});
+
+test("classification Chef : demander naturellement la recette d’une piste prépare une preview", () => {
+  assert.equal(requestsRecipePreview("Pas mal, montre-moi la recette"), true);
+  assert.equal(requestsRecipePreview("Je veux la fiche avec les étapes"), true);
+  assert.equal(requestsRecipePreview("Peux-tu expliquer le rôle du citron ?"), false);
 });
 
 test("classification Chef : la recette nommée dans le tour courant prime la dernière vignette", () => {
@@ -117,6 +130,13 @@ test("App.vue : une photo évite le wire Conseil textuel et part vers Vision", (
   assert.match(requestPreparation[0], /route === "image" \? await summarizeAssistantImages\(attachments/);
 });
 
+test("App.vue : une photo reste une prévisualisation même si l’agent conclut trop tôt", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  assert.match(app, /const finalOutput = route === "image"\s*\? "preview"/);
+  assert.match(app, /output: finalOutput/);
+});
+
 test("App.vue : create avec photo résume avant la preview, sans passer par le Cahier", () => {
   const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
   const app = readFileSync(appPath, "utf8");
@@ -126,7 +146,7 @@ test("App.vue : create avec photo résume avant la preview, sans passer par le C
   const create = /create: async \(\) => \{[\s\S]*?\n            \},\n            search: searchNotebook/.exec(source);
   assert.ok(create, "la sortie create est branchée au routeur");
   assert.match(create[0], /route === "image"[\s\S]*?summarizeAssistantImages\(attachments, inputText, signal/);
-  assert.match(create[0], /buildAssistantSelectionRequest\(requestWithConstraints, visualSummaries\)/);
+  assert.match(create[0], /buildAssistantSelectionRequest\(`\$\{requestWithConstraints\}\$\{recipeExcerpt\}`, visualSummaries\)/);
   assert.doesNotMatch(create[0], /selectNotebookRecipe|buildNotebookSnapshot/);
 });
 
@@ -134,7 +154,7 @@ test("App.vue : le smoke mobile rend les sorties Chef visibles et laisse Vision 
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const app = readFileSync(join(root, "src/App.vue"), "utf8");
   const styles = readFileSync(join(root, "src/styles.css"), "utf8");
-  assert.match(app, /if \(classification\.missing && route !== "image"\)/);
+  assert.match(app, /if \(classification\?\.missing && route !== "image"/);
   assert.match(app, /route === "image" && classifiedRoute === "idea" \? "create" : classifiedRoute/);
   assert.match(app, /assistantIdeasByTurnId[\s\S]*?assistant-idea-list[\s\S]*?<strong>\{\{ idea\.title \}\}<\/strong>[\s\S]*?\{\{ idea\.description \}\}/);
   assert.match(app, /Je n’ai trouvé aucune recette correspondante dans votre Cahier[\s\S]*?assistantNoCandidateTurnIds/);

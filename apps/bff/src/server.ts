@@ -25,9 +25,10 @@ import {
   generateRecipeImage
 } from "./image-generator.js";
 import { detectStepTimerDurationSeconds } from "./step-timer-detector.js";
-import { chooseNotebookRecipe, generateAssistantRecipe, getChefAdvice, getChefTurnClassification, isAssistantRecipeInput, isAssistantSelectionInput, summarizeAssistantImage, validateAssistantRecipeDraft, writeAssistantClarification } from "./assistant-client.js";
+import { chooseNotebookRecipe, generateAssistantRecipe, getChefAdvice, getChefAgentDecision, getChefTurnClassification, isAssistantRecipeInput, isAssistantSelectionInput, summarizeAssistantImage, validateAssistantRecipeDraft, writeAssistantClarification } from "./assistant-client.js";
 import { isChefAdviceRequestV1, isChefAdviceWireV1 } from "@cookies-et-coquilettes/domain/chef-advice";
 import { isChefTurnClassificationRequestV1, isChefTurnClassificationWireV1 } from "@cookies-et-coquilettes/domain/chef-turn-classification";
+import { isChefAgentDecisionV1, isChefAgentRequestV1 } from "@cookies-et-coquilettes/domain/chef-agent";
 
 /** Point d’injection réservé aux tests HTTP : aucun fournisseur réel n’est appelé. */
 export const assistantDependencies = {
@@ -36,7 +37,8 @@ export const assistantDependencies = {
   clarify: writeAssistantClarification,
   generate: generateAssistantRecipe,
   advice: getChefAdvice,
-  classifyTurn: getChefTurnClassification
+  classifyTurn: getChefTurnClassification,
+  chefAgent: getChefAgentDecision
 };
 
 export const app = express();
@@ -59,7 +61,7 @@ app.use(
 app.use(express.json({ limit: "4mb" }));
 
 type AssistantDiagnostic = {
-  stage: "vision" | "selection" | "generation" | "advice" | "classification";
+  stage: "vision" | "selection" | "generation" | "advice" | "classification" | "agent";
   provider: "jev" | "luna" | "openai" | "none";
   errorClass: "none" | "invalid_input" | "upstream_unavailable" | "cancelled";
   httpStatus?: number;
@@ -274,6 +276,31 @@ app.post("/api/assistant/classify-turn", async (req, res) => {
   }
   traceAssistant({ stage: "classification", provider: "openai", errorClass: "none", httpStatus: 200, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
   res.setHeader("x-request-id", requestId); res.json(wire);
+});
+
+/** Le raisonneur ne fait que proposer une étape: la PWA valide et exécute le MCP. */
+app.post("/api/assistant/agent", async (req, res) => {
+  const requestId = assistantRequestId(req);
+  const startedAt = Date.now();
+  if (!isChefAgentRequestV1(req.body)) {
+    traceAssistant({ stage: "agent", provider: "none", errorClass: "invalid_input", httpStatus: 400, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+    assistantError(res, requestId, 400, { error: "INVALID_INPUT" }); return;
+  }
+  const controller = new AbortController();
+  req.once("aborted", () => controller.abort());
+  res.once("close", () => { if (!res.writableEnded) controller.abort(); });
+  try {
+    const decision = await assistantDependencies.chefAgent(req.body, controller.signal);
+    if (controller.signal.aborted) { traceAssistant({ stage: "agent", provider: "openai", errorClass: "cancelled", durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); return; }
+    if (!decision || !isChefAgentDecisionV1(decision)) {
+      traceAssistant({ stage: "agent", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+      assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); return;
+    }
+    traceAssistant({ stage: "agent", provider: "openai", errorClass: "none", httpStatus: 200, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+    res.setHeader("x-request-id", requestId); res.json(decision);
+  } catch {
+    if (!controller.signal.aborted) { traceAssistant({ stage: "agent", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); }
+  }
 });
 
 app.post("/api/import/url", async (req, res) => {

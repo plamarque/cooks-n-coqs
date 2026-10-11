@@ -1,0 +1,14 @@
+export declare const CHEF_AGENT_MAX_STEPS = 6;
+export declare const CHEF_AGENT_MAX_TOOLS = 6;
+export declare const CHEF_AGENT_MESSAGE_MAX_LENGTH = 2600;
+export type ChefSkillIdV1 = "chef-core" | "adapter-une-recette";
+export type ChefMcpToolNameV1 = "search-notebook" | "get-recipe-context" | "prepare-preview" | "assistant-advice" | "assistant-recipe" | "classify-turn";
+export type ChefAgentToolInputV1 = { query: string } | { referenceTitle?: string } | { request: string } | { message: string; context?: string };
+export type ChefAgentToolResultV1 = { titles: string[] } | { recipe: { title: string; ingredients: string[]; steps: string[] } } | { prepared: true } | { text: string } | { intent: string; constraints: string[] };
+export type ChefAgentToolCallV1 = { kind: "tool"; tool: ChefMcpToolNameV1; input: ChefAgentToolInputV1 };
+export type ChefAgentFinalV1 = { kind: "final"; output: "ideas" | "search" | "preview" | "advice" | "clarify"; text?: string; createVariant?: boolean };
+export type ChefAgentDecisionV1 = ChefAgentToolCallV1 | ChefAgentFinalV1;
+export type ChefAgentRequestV1 = { message: string; skills: ChefSkillIdV1[]; tools: ChefMcpToolNameV1[]; results?: Array<{ tool: ChefMcpToolNameV1; result: ChefAgentToolResultV1 }> };
+export declare function isChefAgentToolInputForTool(tool: ChefMcpToolNameV1, value: unknown): value is ChefAgentToolInputV1;
+export declare function isChefAgentRequestV1(value: unknown): value is ChefAgentRequestV1;
+export declare function isChefAgentDecisionV1(value: unknown): value is ChefAgentDecisionV1;

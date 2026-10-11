@@ -3,6 +3,15 @@ import type { AssistantConversationTurnV1, ChefTurnClassificationContextV1, Chef
 type Card = NonNullable<AssistantConversationTurnV1["cards"]>[number];
 
 /**
+ * Filet de continuité local : le raisonneur reste la décision principale,
+ * mais les formulations usuelles qui demandent la fiche d'une piste déjà
+ * discutée ne doivent pas dépendre du seul verbe « générer ».
+ */
+export function requestsRecipePreview(text: string): boolean {
+  return /\b(?:montre(?:[- ]moi)?|donne(?:[- ]moi)?|[ée]cris(?:[- ]moi)?|je veux|j['’]aimerais|on peut avoir)\b[^.\n]{0,80}\b(?:la |une )?(?:recette|fiche|version d[ée]taill[ée]e|[ée]tapes)\b/iu.test(text);
+}
+
+/**
  * Projette uniquement le contexte textuel temporaire. Les cartes restent sur
  * l'appareil : leur titre sert seulement à résoudre une référence locale.
  */
@@ -58,6 +67,13 @@ function normalizeForMatch(value: string): string {
 
 export function resolveChefTurnClassification(wire: ChefTurnClassificationWireV1, turns: readonly AssistantConversationTurnV1[], openClarification: string | null, candidateTitles = new Map<string, string>(), currentMessage?: string): ChefTurnClassificationV1 {
   const reference = resolveChefTurnReference(turns, openClarification, candidateTitles, currentMessage);
+  // Le BFF ne reçoit qu'un titre temporaire et peut légitimement demander une
+  // référence. Dès que la PWA l'a résolue dans une carte locale, cette donnée
+  // n'est plus manquante : ne pas poser une question contradictoire.
+  if (reference && wire.missing?.field === "reference") {
+    const { missing: _missing, ...classification } = wire;
+    return { ...classification, reference };
+  }
   return { ...wire, ...(reference ? { reference } : {}) };
 }
 

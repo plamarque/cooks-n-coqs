@@ -17,7 +17,8 @@ import type {
   RecipeFilters,
   ShareImportPayload,
   InstructionStep,
-  AssistantConversationTurnV1
+  AssistantConversationTurnV1,
+  ChefTurnClassificationV1
 } from "@cookies-et-coquilettes/domain";
 import { isRecipeValidForSave } from "@cookies-et-coquilettes/domain";
 import RecipeImage from "./components/RecipeImage.vue";
@@ -83,11 +84,14 @@ import {
 } from "./services/import-service";
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, restoreAssistantPreview, routeAssistantImport, snapshotAssistantPreview, type AssistantPreview } from "./utils/assistant-session";
 import { ChefSession } from "./utils/chef-session";
-import { buildChefTurnClassificationContext, resolveChefTurnClassification } from "./utils/chef-turn-classification";
-import { restoreChefIdeasFromTurns, restoreChefNoCandidateTurnIds, routeChefIntentForRequest, runChefIntentOutcome, type ChefIdea } from "./utils/chef-intent-router";
+import { buildChefTurnClassificationContext, requestsRecipePreview, resolveChefTurnClassification } from "./utils/chef-turn-classification";
+import { restoreChefIdeasFromTurns, restoreChefNoCandidateTurnIds, routeChefIntentForRequest, type ChefIdea } from "./utils/chef-intent-router";
+import { preserveChef92Outcome, runChefAgentOutcome } from "./utils/chef-agent-outcome";
+import { ChefAgent } from "./utils/chef-agent";
+import { toChefRecipeExcerpt } from "./utils/chef-mcp-local";
 import { createNoCandidateAssistantPreview } from "./utils/assistant-no-candidate";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
-import { AssistantImageRequestError, buildAssistantSelectionRequest, classifyChefTurn, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
+import { AssistantImageRequestError, AssistantRecipeRequestError, buildAssistantSelectionRequest, classifyChefTurn, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, requestChefAgentDecision, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
   getCookingStepImageBlobUrl,
@@ -1520,9 +1524,9 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
     });
   };
   const projectChefAdviceContext = async (signal: AbortSignal) => ({
-    turns: await Promise.all(assistantSession.turns.map(async (turn, turnIndex) => ({
+    turns: await Promise.all(assistantSession.turns.slice(-4).map(async (turn, turnIndex) => ({
       role: turn.role,
-      text: turn.text,
+      text: turn.text.slice(0, 600),
       ...(turn.cards?.length ? { cards: (await Promise.all(turn.cards.map(async (card) => {
         const candidateRecipe = card.kind === "candidate" ? await db.recipes.get(card.recipeId) : undefined;
         const draft = card.kind === "preview" ? card.preview.draft : candidateRecipe;
@@ -1531,7 +1535,7 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
         const image = imageId ? await db.images.get(imageId) : undefined;
         let thumbnail = image ? await toBoundedThumbnail(image.blob, signal) : undefined;
         if (!thumbnail && card.kind === "preview") {
-          const previewCard = assistantThreadCards.value.find((threadCard): threadCard is Extract<typeof assistantThreadCards.value[number], { kind: "preview" }> => threadCard.kind === "preview" && threadCard.turnCount === turnIndex + 1 && threadCard.preview.draft.title === draft.title);
+          const previewCard = assistantThreadCards.value.find((threadCard): threadCard is Extract<typeof assistantThreadCards.value[number], { kind: "preview" }> => threadCard.kind === "preview" && threadCard.turnCount === assistantSession.turns.indexOf(turn) + 1 && threadCard.preview.draft.title === draft.title);
           if (previewCard?.imageUrl && !previewCard.imageUrl.startsWith("blob:")) {
             try {
               const response = await fetch(previewCard.imageUrl, { signal });
@@ -1541,9 +1545,9 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
           }
         }
         return {
-          title: draft.title,
-          ingredients: draft.ingredients.map((ingredient) => ingredient.label),
-          steps: draft.steps.map((step) => step.text),
+          title: draft.title.slice(0, 180),
+          ingredients: draft.ingredients.slice(0, 16).map((ingredient) => ingredient.label.slice(0, 180)),
+          steps: draft.steps.slice(0, 8).map((step) => step.text.slice(0, 500)),
           ...(thumbnail ? { thumbnail } : {})
         };
       }))).filter((card): card is { title: string; ingredients: string[]; steps: string[] } => card !== null) } : {})
@@ -1553,9 +1557,11 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
     resolve: async (text, signal, progress) => {
       let stage = "conseil";
       try {
-        // Toute entrée, y compris image, est classée avant tout parcours. Le
-        // wire ne reçoit jamais le fichier : le résumé Vision reste l'étape
-        // ultérieure dédiée.
+        let agentFinal: { output: "ideas" | "search" | "preview" | "advice" | "clarify"; text?: string } | null = null;
+        let agentClassification: ChefTurnClassificationV1 | null = null;
+        let recipeContext: ReturnType<typeof toChefRecipeExcerpt> | null = null;
+        let previewPrepared = false;
+        let agentUnavailable = false;
         {
           const candidateTitles = new Map<string, string>();
           for (const turn of assistantSession.turns.slice(0, -1)) for (const card of turn.cards ?? []) {
@@ -1563,18 +1569,170 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
             const recipe = await db.recipes.get(card.recipeId);
             if (recipe) candidateTitles.set(card.recipeId, recipe.title);
           }
-          const classificationWire = await classifyChefTurn({
-            message: text,
-            context: buildChefTurnClassificationContext(assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text)
-          }, signal);
-          if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
-          const classification = resolveChefTurnClassification(classificationWire, assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text);
+          const matchesReferenceTitle = (candidateTitle: string, referenceTitle: string) => {
+            const normalize = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("fr-FR").trim();
+            const candidate = normalize(candidateTitle);
+            const reference = normalize(referenceTitle);
+            return candidate === reference || candidate.includes(reference) || reference.includes(candidate);
+          };
+          const messageMentionsRecipe = (candidateTitle: string, message: string) => {
+            const normalize = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("fr-FR").trim();
+            const titleWords = normalize(candidateTitle).split(/\s+/u).filter(Boolean);
+            // Le Cahier peut avoir un suffixe d'auteur; les trois premiers
+            // mots conservent ici le nom culinaire que la personne emploie.
+            const stablePrefix = titleWords.slice(0, Math.min(3, titleWords.length)).join(" ");
+            const normalizedMessage = normalize(message);
+            return normalizedMessage.includes(normalize(candidateTitle)) || (stablePrefix.length >= 8 && normalizedMessage.includes(stablePrefix));
+          };
+          const latestTemporaryPreview = () => {
+            for (const turn of [...assistantSession.turns.slice(0, -1)].reverse()) {
+              const preview = [...(turn.cards ?? [])].reverse().find((card) => card.kind === "preview");
+              if (preview) return preview.preview.draft;
+            }
+            return null;
+          };
+          const resolveReferencedRecipe = async (referenceTitle: string | undefined) => {
+            const inferredTitle = referenceTitle ?? [...candidateTitles.values()].find((title) => messageMentionsRecipe(title, text));
+            // Une prévisualisation n'est pas encore dans Dexie. Elle reste
+            // toutefois une référence locale valide pour une relance comme
+            // « je n'ai pas de lait de coco » : l'agent peut en lire un
+            // extrait borné, sans provoquer de sauvegarde implicite.
+            const preview = latestTemporaryPreview();
+            if (preview && (!inferredTitle || matchesReferenceTitle(preview.title, inferredTitle))) return preview;
+            const visibleRecipe = selectedRecipe.value;
+            if (visibleRecipe && (!inferredTitle || matchesReferenceTitle(visibleRecipe.title, inferredTitle))) return visibleRecipe;
+            if (!inferredTitle) {
+              const snapshot = await buildNotebookSnapshot();
+              const match = snapshot.candidates.find((candidate) => messageMentionsRecipe(candidate.title, text));
+              return match ? snapshot.resolve(match.candidateRef) ?? null : null;
+            }
+            for (const [recipeId, title] of candidateTitles) {
+              if (matchesReferenceTitle(title, inferredTitle)) return db.recipes.get(recipeId);
+            }
+            const snapshot = await buildNotebookSnapshot();
+            const match = snapshot.candidates.find((candidate) => matchesReferenceTitle(candidate.title, inferredTitle) || messageMentionsRecipe(candidate.title, text));
+            return match ? snapshot.resolve(match.candidateRef) ?? null : null;
+          };
+          // Le modèle ne voit que les capacités annoncées. Chaque lecture
+          // IndexedDB reste locale et revient sous forme d'extrait redacted.
+          const agent = new ChefAgent({
+            decide: requestChefAgentDecision,
+            execute: async (tool, input, toolSignal) => {
+              if (tool === "classify-turn" && "message" in input) {
+                const wire = await classifyChefTurn({ message: input.message, context: buildChefTurnClassificationContext(assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text) }, toolSignal);
+                agentClassification = resolveChefTurnClassification(wire, assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text);
+                return { intent: wire.intent, constraints: wire.constraints };
+              }
+              if (tool === "search-notebook" && "query" in input) {
+                const snapshot = await buildNotebookSnapshot();
+                return { titles: snapshot.candidates.filter((candidate) => candidate.title.toLocaleLowerCase("fr-FR").includes(input.query.toLocaleLowerCase("fr-FR"))).slice(0, 3).map((candidate) => candidate.title) };
+              }
+              if (tool === "get-recipe-context") {
+                const referenceTitle = "referenceTitle" in input ? input.referenceTitle : undefined;
+                const recipe = await resolveReferencedRecipe(referenceTitle ?? agentClassification?.reference?.title);
+                // Une relance sur une idée textuelle n'a pas nécessairement
+                // de carte ou de recette du Cahier. C'est une absence de
+                // contexte local, non un échec de tour : le raisonneur peut
+                // alors continuer avec assistant-advice et le fil borné.
+                if (!recipe) return { text: "Aucune recette locale n’est disponible pour cette relance." };
+                recipeContext = toChefRecipeExcerpt(recipe);
+                return { recipe: recipeContext };
+              }
+              if (tool === "prepare-preview" && "request" in input) {
+                if (!recipeContext) {
+                  const recipe = await resolveReferencedRecipe(agentClassification?.reference?.title);
+                  if (recipe) recipeContext = toChefRecipeExcerpt(recipe);
+                }
+                if (!recipeContext) throw new Error("contexte recette requis");
+                previewPrepared = true;
+                return { prepared: true };
+              }
+              if (tool === "assistant-advice" && "request" in input) {
+                const advice = await requestChefAdvice({
+                  request: input.request,
+                  context: recipeContext
+                    ? { recipeTitle: recipeContext.title, ingredients: recipeContext.ingredients }
+                    : await projectChefAdviceContext(toolSignal)
+                }, toolSignal);
+                if (advice.kind !== "advice") throw new Error("conseil MCP indisponible");
+                return { text: `${advice.recommendation}\n${advice.reason}${advice.alternative ? `\nAutre piste : ${advice.alternative}` : ""}`.slice(0, 600) };
+              }
+              throw new Error("tool refusé");
+            }
+          });
+          const explicitNotebookSearchAtEntry = /\b(?:cherche|recherche|retrouve)\b|\bdans (?:mon|le) cahier\b/iu.test(text);
+          const explicitRecipeCreationAtEntry = /\b(?:cr[ée]e|g[ée]n[èe]re|fais|propose)\b[^.\n]{0,80}\b(?:recette|variante)\b/iu.test(text) || requestsRecipePreview(text);
+          const activePreviewAtEntry = latestTemporaryPreview();
+          // Une carte active donne un contexte non ambigu aux questions et
+          // remarques suivantes. Cette règle locale précède le raisonneur :
+          // aucun faux « create » ou « search » ne peut alors la remplacer.
+          if (activePreviewAtEntry && !explicitNotebookSearchAtEntry && !explicitRecipeCreationAtEntry) {
+            recipeContext = toChefRecipeExcerpt(activePreviewAtEntry);
+            agentFinal = { output: "advice" };
+          } else try {
+            const agentResult = await agent.run(text, ["chef-core", "adapter-une-recette"], signal);
+            if (agentResult.kind !== "final") {
+              if (agentResult.reason === "cancelled") throw signal.reason ?? new DOMException("Aborted", "AbortError");
+              // Le raisonneur peut s'arrêter proprement sans finale (absence de
+              // progrès, outil invalide ou échec d'outil). Cela ne doit pas
+              // dégrader les capacités déjà livrées en 9.2 : le classifieur
+              // stateless existant reprend alors ce tour, sans mutation locale.
+              agentUnavailable = true;
+            } else {
+              const adviceResult = [...agentResult.toolResults].reverse().find((entry) => entry.tool === "assistant-advice" && "text" in entry.result);
+              const adviceText = adviceResult && "text" in adviceResult.result ? adviceResult.result.text : undefined;
+              const normalizedFinal = preserveChef92Outcome(agentResult.final);
+              agentFinal = { ...normalizedFinal, ...(normalizedFinal.output === "advice" && !normalizedFinal.text && adviceText ? { text: adviceText } : {}) };
+            }
+          } catch (error) {
+            if (signal.aborted || (error as Error).name === "AbortError") throw error;
+            if (error instanceof AssistantRecipeRequestError) agentUnavailable = true;
+            else throw error;
+          }
+          // Compatibilité 9.2 si le raisonneur dédié est indisponible ou s'est
+          // arrêté sans finale. Une finale ou une classification agentique ne
+          // repasse jamais par le classifieur préalable.
+          let classification: ChefTurnClassificationV1 | null = agentClassification;
+          if (agentUnavailable) {
+            const classificationWire = await classifyChefTurn({
+              message: text,
+              context: buildChefTurnClassificationContext(assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text)
+            }, signal);
+            if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+            classification = resolveChefTurnClassification(classificationWire, assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text);
+          }
+          // Une question sur une prévisualisation visible reste un conseil sur
+          // cette recette. Le raisonneur peut confondre « rôle de… » avec une
+          // recherche ou une création; seules des demandes explicites de
+          // Cahier ou de nouvelle recette peuvent quitter ce contexte.
+          const explicitNotebookSearch = /\b(?:cherche|recherche|retrouve)\b|\bdans (?:mon|le) cahier\b/iu.test(text);
+          const explicitRecipeCreation = /\b(?:cr[ée]e|g[ée]n[èe]re|fais|propose)\b[^.\n]{0,80}\b(?:recette|variante)\b/iu.test(text) || requestsRecipePreview(text);
+          // Le Cahier est une intention explicite, jamais le repli d'une
+          // question culinaire générale (ingrédients, ustensiles, méthode).
+          // Sans ces mots, une fausse classification « search » devient un
+          // conseil et ne peut pas conclure par « aucune recette trouvée ».
+          if ((agentFinal?.output === "search" || classification?.intent === "search") && !explicitNotebookSearch) {
+            agentFinal = { output: "advice" };
+          }
+          if ((agentFinal?.output === "preview" || classification?.intent === "create") && !explicitNotebookSearch && !explicitRecipeCreation) {
+            const preview = latestTemporaryPreview();
+            if (preview) {
+              recipeContext = toChefRecipeExcerpt(preview);
+              agentFinal = { output: "advice" };
+            }
+          }
+          if (requestsRecipePreview(text) && !explicitNotebookSearch) agentFinal = { output: "preview" };
+          // Le raisonneur et son classifieur sont des améliorations de 9.3,
+          // jamais une condition pour répondre. Un repli réseau ponctuel
+          // reprend donc le conseil conversationnel 9.2 avec son contexte
+          // temporaire borné, plutôt que d'afficher une erreur générique.
+          if (!classification && !agentFinal) agentFinal = { output: "advice" };
           assistantSession.classification = classification;
           // Une ambiguïté réellement bloquante est la seule sortie qui arrête
           // le routage; aucun brouillon, recherche ou écriture ne s'ensuit.
           // Une image valide est déjà une donnée exploitable : la classification
           // textuelle ne peut pas empêcher Vision de l'examiner.
-          if (classification.missing && route !== "image") {
+          if (classification?.missing && route !== "image" && (!agentFinal || agentFinal.output === "clarify")) {
             assistantSession.markCurrentTurnEphemeral();
             assistantSession.showClarification(classification.missing.question, true);
             return { kind: "advice" as const };
@@ -1583,8 +1741,23 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
           // faire avec ça ? ») appelle une recette sur mesure après Vision.
           // Une recherche explicitement classée search reste, elle, bornée au
           // Cahier et ne peut jamais créer une recette par défaut.
-          const classifiedRoute = routeChefIntentForRequest(classification, inputText, route === "image");
+          const classifiedRoute = classification ? routeChefIntentForRequest(classification, inputText, route === "image") : "advice";
           const intentRoute = route === "image" && classifiedRoute === "idea" ? "create" : classifiedRoute;
+          // La demande explicite de variante est un contrat produit : le
+          // raisonneur peut proposer une mauvaise finale, mais il ne peut pas
+          // transformer une création de variante en conseil textuel. Le
+          // contexte reste lu localement et la preview demeure éphémère.
+          const explicitVariant = /\b(?:cr[ée]e|g[ée]n[èe]re|fais|propose)\b[^.\n]{0,80}\bvariante\b/iu.test(text);
+          if (classification?.intent === "variant" || explicitVariant) {
+            if (!recipeContext && explicitVariant) {
+              const recipe = await resolveReferencedRecipe(undefined);
+              if (recipe) recipeContext = toChefRecipeExcerpt(recipe);
+            }
+            if (recipeContext) {
+              agentFinal = { output: "preview" };
+              previewPrepared = true;
+            }
+          }
           const searchNotebook = async () => {
             progress("searching");
             assistantPhase.value = assistantSession.phase;
@@ -1601,7 +1774,17 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
             stage = "decision";
             return withinAssistantDeadline(selectNotebookRecipe(selectionRequest, candidates, signal), "decision");
           };
-          const outcome = await runChefIntentOutcome(intentRoute, {
+          if (agentFinal?.output === "preview" && classification && (classification.intent === "adapt" || classification.intent === "variant") && (!recipeContext || !previewPrepared)) throw new Error("assistant_stage:agent");
+          if (agentFinal?.output === "advice" && classification && (classification.intent === "adapt" || classification.intent === "variant") && !recipeContext) throw new Error("assistant_stage:agent");
+          // Une image est une donnée exploitable, même si le raisonneur a
+          // conclu trop tôt sur le seul texte. Ce parcours doit donc toujours
+          // passer par Vision puis préparer une recette temporaire ; il ne
+          // peut ni tomber dans le Cahier ni rendre un conseil sans l'avoir
+          // examinée.
+          const finalOutput = route === "image"
+            ? "preview"
+            : agentFinal?.output ?? (intentRoute === "idea" ? "ideas" : intentRoute === "create" ? "preview" : intentRoute === "search" ? "search" : "advice");
+          const outcome = await runChefAgentOutcome({ kind: "final", output: finalOutput, ...(agentFinal?.text ? { text: agentFinal.text } : {}) }, {
             ideas: async () => {
               const inspiration = await requestChefAdvice({ request: text, context: await projectChefAdviceContext(signal) }, signal);
               if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -1614,10 +1797,13 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
               const visualSummaries = route === "image"
                 ? await summarizeAssistantImages(attachments, inputText, signal, (imageProgress) => { assistantImageProgress.value = imageProgress; })
                 : [];
-              const requestWithConstraints = classification.constraints.length
+              const requestWithConstraints = classification?.constraints.length
                 ? `${text}\nContraintes connues : ${classification.constraints.join(", ")}`
                 : text;
-              generationRequest = buildAssistantSelectionRequest(requestWithConstraints, visualSummaries);
+              const recipeExcerpt = recipeContext
+                ? `\nRecette locale autorisée à adapter : ${recipeContext.title}\nIngrédients : ${recipeContext.ingredients.join(", ")}\nÉtapes : ${recipeContext.steps.join(" ")}`
+                : "";
+              generationRequest = buildAssistantSelectionRequest(`${requestWithConstraints}${recipeExcerpt}`, visualSummaries);
               stage = "generation";
               return withinAssistantDeadline(createNoCandidateAssistantPreview({
                 route,
@@ -1629,7 +1815,9 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
                 generate: generateAssistantRecipe
               }), "generation", 25_000);
             },
-            search: searchNotebook
+            search: searchNotebook,
+            advice: async () => {},
+            clarify: async (question) => { assistantSession.showClarification(question); }
           });
           if (outcome.kind === "ideas") {
             assistantSession.addChefTurn(`${outcome.ideas.map((idea, index) => `${index + 1}. ${idea.title} — ${idea.description}`).join("\n")}\n\nDites-moi quelle piste vous attire pour la préciser.`);
@@ -1644,6 +1832,11 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
             if (outcome.result.kind === "candidates") return { kind: "candidates" as const, candidateRefs: outcome.result.candidates.map(({ candidateRef }) => candidateRef) };
             if (outcome.result.kind === "noCandidate") return { kind: "noCandidate" as const };
             throw new Error("selection unavailable");
+          }
+          if (outcome.kind === "clarify") return { kind: "advice" as const };
+          if (agentFinal?.output === "advice" && agentFinal.text) {
+            assistantSession.addChefTurn(agentFinal.text);
+            return { kind: "advice" as const };
           } else if (route !== "image") {
             const advice = await requestChefAdvice({ request: text, context: await projectChefAdviceContext(signal) }, signal);
             if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -1674,6 +1867,9 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
         if ((error as Error).name === "AbortError") throw error;
         if (error instanceof AssistantImageRequestError) throw error;
         if ((error as Error).message.startsWith("assistant_detail:")) throw error;
+        // Diagnostic local sans contenu utilisateur, utile lorsque le
+        // raisonneur ou un tool interrompt un tour avant sa finale.
+        console.warn(`assistant_resolution_failed stage=${stage} error=${(error as Error).message}`);
         throw new Error(`assistant_stage:${stage}`);
       }
     }

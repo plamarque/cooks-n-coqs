@@ -20,6 +20,10 @@
     "./chef-turn-classification": {
       "types": "./src/chef-turn-classification.d.ts",
       "default": "./src/chef-turn-classification.js"
+    },
+    "./chef-agent": {
+      "types": "./src/chef-agent.d.ts",
+      "default": "./src/chef-agent.js"
     }
   }
 }

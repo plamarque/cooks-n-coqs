@@ -20,6 +20,17 @@ async function post(base: string, path: string, body: unknown): Promise<Response
 }
 test.afterEach(() => Object.assign(assistantDependencies, original));
 
+test("agent BFF : accepte seulement le wire fermé, sans état", async () => {
+  assistantDependencies.chefAgent = async () => ({ kind: "final", output: "advice", text: "Réduisez la crème." });
+  await withServer(async (base) => {
+    const response = await post(base, "/api/assistant/agent", { message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"] });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { kind: "final", output: "advice", text: "Réduisez la crème." });
+    const invalid = await post(base, "/api/assistant/agent", { message: "x", skills: ["réseau"], tools: [] });
+    assert.equal(invalid.status, 400);
+  });
+});
+
 test("BFF : le proxy TLS local transmet HTTPS à la requête qui construit les URLs générées", async () => {
   app.get("/__test/forwarded-image-url", (req, res) => {
     res.json({ protocol: req.protocol, imageUrl: buildCachedImageUrl(req, "test-key") });

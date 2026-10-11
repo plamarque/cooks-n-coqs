@@ -2,7 +2,7 @@
 title: 'Story 9.3 — Introduire ChefAgent et les MCP V1'
 type: 'feature'
 created: '2026-10-11'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '2cf8499c8985a38a25ff28fa50121b691340b166'
 review_loop_iteration: 0
 context:
@@ -59,11 +59,11 @@ Le LLM décide du prochain skill ou tool ; `ChefAgent` décide s'il est autoris�
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `packages/domain` — définir skills, catalogues MCP et wires de boucle (`skill`, appel, résultat minimal, finale) ; adapter les contrats 9.2 sans casser leurs sorties et synchroniser les jumeaux.
-- [ ] `apps/bff` — préserver les routes existantes ; ajouter passerelle stateless de raisonnement et adaptateurs MCP des services externes métier, avec abort et validation.
-- [ ] `apps/web/src/utils/chef-agent.ts`, `chef-skills.ts`, `chef-mcp-local.ts` — créer l'agent PWA multi-tour, ses skills et son MCP local (recherche Cahier, contexte recette, preview), avec détection d'absence de progrès, annulation et redaction.
-- [ ] `apps/web/src/services/assistant-service.ts`, `utils/assistant-session.ts`, `App.vue` — faire passer toutes les capacités 9.2 par l'agent en conservant checkpoint, saisie, états et rendu des cartes/previews/conseils.
-- [ ] Tests domaine/BFF/web et régression de parité 9.2 — doubles de reasoning model, parcours multi-tour, annulation/tardif, non-écriture et mêmes sorties visibles ; aligner les docs normatifs après approbation.
+- [x] `packages/domain` — définir skills, catalogues MCP et wires de boucle (`skill`, appel, résultat minimal, finale) ; adapter les contrats 9.2 sans casser leurs sorties et synchroniser les jumeaux.
+- [x] `apps/bff` — préserver les routes existantes ; ajouter passerelle stateless de raisonnement et adaptateurs MCP des services externes métier, avec abort et validation.
+- [x] `apps/web/src/utils/chef-agent.ts`, `chef-skills.ts`, `chef-mcp-local.ts` — créer l'agent PWA multi-tour, ses skills et son MCP local (recherche Cahier, contexte recette, preview), avec détection d'absence de progrès, annulation et redaction.
+- [x] `apps/web/src/services/assistant-service.ts`, `utils/assistant-session.ts`, `App.vue` — faire passer toutes les capacités 9.2 par l'agent en conservant checkpoint, saisie, états et rendu des cartes/previews/conseils.
+- [x] Tests domaine/BFF/web et régression de parité 9.2 — doubles de reasoning model, parcours multi-tour, annulation/tardif, non-écriture et mêmes sorties visibles ; aligner les docs normatifs après approbation.
 
 **Acceptance Criteria:**
 - Given les demandes 9.2 existantes, when elles passent par `ChefAgent`, then elles rendent les mêmes idées, recettes Cahier, previews ou conseils avec le même contrôle d'annulation et sans écriture implicite.
