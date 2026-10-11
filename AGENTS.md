@@ -43,6 +43,6 @@ Cookies & Coquillettes — PWA recettes (Vue 3 / Vite) + BFF Express + package d
 
 ## Clôture d'une story
 
-- « Clôturons », « termine cette story » ou équivalent est une autorisation de réaliser la clôture **locale** normale : vérifier l’état réel, lancer les vérifications pertinentes, committer les seuls changements de la story, merger dans `main`, vérifier `main`, puis retirer le worktree et la branche locale une fois intégrés.
+- « Clôturons », « termine cette story » ou équivalent déclenche la skill `bmad-close-story` et autorise la clôture **locale** normale : vérifier l’état réel, lancer les vérifications pertinentes, générer et valider `sprint-status.yaml` avec la story à `done` avant le commit et le merge, committer les seuls changements de la story, merger dans `main`, vérifier `main`, puis retirer le worktree et la branche locale une fois intégrés.
 - Ce n’est pas un teardown aveugle : détecter et expliquer tout conflit, test en échec, changement non lié, worktree non mergé ou processus actif avant d’agir. Une story simplement marquée `done` peut déclencher une proposition de clôture, jamais une suppression automatique.
 - Ne jamais pousser, déployer, supprimer un autre worktree, ni supprimer le worktree actif du chat sans instruction explicite. Une clôture qui nécessite de retirer le worktree courant se termine dans le chat de story puis s’exécute depuis le checkout d’intégration.

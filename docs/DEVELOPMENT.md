@@ -67,10 +67,12 @@ ce worktree.
 
 ### Clôturer une story
 
-Une demande explicite telle que « clôturons » autorise la clôture locale complète,
-sans devoir lister `commit` puis `merge` : Codex vérifie l’état, exécute les contrôles
-pertinents, committe les changements de la story, merge dans `main`, vérifie `main`, puis
-retire le worktree et la branche locale intégrés. Il ne traite pas ce mot comme un ordre
+Une demande explicite telle que « clôturons » déclenche la skill `bmad-close-story` et
+autorise la clôture locale complète, sans devoir lister `commit` puis `merge` : Codex
+vérifie l’état, exécute les contrôles pertinents, génère et valide `sprint-status.yaml`
+avec la story à `done` avant le commit et le merge, committe les changements de la story,
+merge dans `main`, vérifie `main`, puis retire le worktree et la branche locale intégrés.
+Il ne traite pas ce mot comme un ordre
 de suppression aveugle : conflit, changements non liés, test en échec, travail non mergé
 ou processus actif doivent être signalés avant toute action. `done` seul reste une occasion
 de proposer la clôture, pas de l’exécuter. Push et déploiement restent des autorisations
