@@ -73,7 +73,7 @@ import {
   RecipeBookImportError
 } from "./services/recipe-book-transfer-service";
 import { rehydrateRecipeMediaAfterArchiveImport } from "./services/recipe-book-rehydrate-after-import";
-import { db, storeChefConversationAssets, type ChefConversationResume } from "./storage/db";
+import { db, getChefConversationAttachmentFiles, storeChefConversationAssets, type ChefConversationResume } from "./storage/db";
 import { browserCookingModeService } from "./services/cooking-mode-service";
 import {
   bffImportService,
@@ -84,6 +84,7 @@ import {
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, restoreAssistantPreview, routeAssistantImport, snapshotAssistantPreview, type AssistantPreview } from "./utils/assistant-session";
 import { ChefSession } from "./utils/chef-session";
 import { buildChefTurnClassificationContext, resolveChefTurnClassification } from "./utils/chef-turn-classification";
+import { restoreChefIdeasFromTurns, restoreChefNoCandidateTurnIds, routeChefIntentForRequest, runChefIntentOutcome, type ChefIdea } from "./utils/chef-intent-router";
 import { createNoCandidateAssistantPreview } from "./utils/assistant-no-candidate";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
 import { AssistantImageRequestError, buildAssistantSelectionRequest, classifyChefTurn, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
@@ -232,6 +233,10 @@ const assistantCandidatePreview = ref<Recipe | null>(null);
 const assistantCandidatePreviews = ref<Recipe[]>([]);
 const assistantThreadCards = ref<AssistantThreadCard[]>([]);
 const assistantCardsAfterTurn = (turnCount: number) => assistantThreadCards.value.filter((card) => card.turnCount === turnCount);
+// Les pistes structurent un tour Chef temporaire : elles ne créent ni recette,
+// ni preview, ni identité persistée propre.
+const assistantIdeasByTurnId = ref<Record<string, readonly ChefIdea[]>>({});
+const assistantNoCandidateTurnIds = ref(new Set<string>());
 const assistantError = ref<string | null>(null);
 const assistantTurns = ref(assistantSession.turns);
 const assistantQuestion = ref<string | null>(null);
@@ -243,6 +248,8 @@ let assistantResumeRequestId = 0;
 const assistantPreparing = ref(false);
 let assistantPreparationId = 0;
 const assistantBusy = computed(() => assistantPreparing.value || ["importing", "analyzing", "searching", "creating"].includes(assistantPhase.value));
+const assistantRetryTurn = computed(() => [...assistantSession.turns].reverse().find((turn) => turn.role === "user"));
+const assistantPhotoRetryTurn = computed(() => assistantRetryTurn.value?.attachments?.length ? assistantRetryTurn.value : undefined);
 
 function revealLatestAssistantEvent(): void {
   void nextTick(() => {
@@ -1134,7 +1141,7 @@ async function discoverChefConversation(): Promise<void> {
   }
 }
 
-function resumeChefConversation(): void {
+async function resumeChefConversation(): Promise<void> {
   const resume = assistantResumeConversation.value;
   // La carte n'est présente que sans tour actif. Reprendre ce journal local ne
   // dépend donc pas d'un indicateur transitoire d'une requête déjà invalidée.
@@ -1149,14 +1156,21 @@ function resumeChefConversation(): void {
     return;
   }
   assistantSession.hydrateConversation(hydrated.turns);
-  const restoredCards: AssistantThreadCard[] = hydrated.turns.flatMap((turn, index): AssistantThreadCard[] => (turn.cards ?? []).flatMap((card): AssistantThreadCard[] => {
+  assistantIdeasByTurnId.value = restoreChefIdeasFromTurns(hydrated.turns);
+  assistantNoCandidateTurnIds.value = restoreChefNoCandidateTurnIds(hydrated.turns);
+  const restoredCards: AssistantThreadCard[] = [];
+  for (const [index, turn] of hydrated.turns.entries()) for (const card of turn.cards ?? []) {
     if (card.kind === "preview") {
-      const preview = restoreAssistantPreview(card.preview, index + 1);
-      return [{ id: crypto.randomUUID(), turnCount: index + 1, kind: "preview" as const, preview, imageUrl: null, imageUnavailable: true }];
+      restoredCards.push({ id: crypto.randomUUID(), turnCount: index + 1, kind: "preview", preview: restoreAssistantPreview(card.preview, index + 1), imageUrl: null, imageUnavailable: true });
+      continue;
     }
-    const candidate = recipes.value.find((recipe) => recipe.id === card.recipeId);
-    return candidate ? [{ id: crypto.randomUUID(), turnCount: index + 1, kind: "candidate" as const, candidate }] : [{ id: crypto.randomUUID(), turnCount: index + 1, kind: "candidate-unavailable" as const, recipeId: card.recipeId }];
-  }));
+    // `recipes` peut ne pas être hydraté au retour d'une éviction mobile : la
+    // référence du fil doit être résolue directement dans le Cahier local.
+    const candidate = await db.recipes.get(card.recipeId);
+    restoredCards.push(candidate
+      ? { id: crypto.randomUUID(), turnCount: index + 1, kind: "candidate", candidate }
+      : { id: crypto.randomUUID(), turnCount: index + 1, kind: "candidate-unavailable", recipeId: card.recipeId });
+  }
   assistantThreadCards.value = restoredCards;
   assistantTurns.value = [...assistantSession.turns];
   assistantResumeConversation.value = null;
@@ -1177,6 +1191,32 @@ function declineChefConversationResume(): void {
   focusAssistantComposer();
 }
 
+async function retryAssistantRequest(): Promise<void> {
+  const checkpoint = assistantRetryTurn.value;
+  if (!checkpoint?.id || assistantBusy.value) return;
+  if (checkpoint.attachments?.length) {
+    const files = await getChefConversationAttachmentFiles(checkpoint.attachments);
+    if (!files) {
+      assistantAnnouncement.value = "Les photos de cette conversation ne sont plus disponibles localement.";
+      return;
+    }
+    clearSentAssistantAttachments();
+    assistantAttachments.value = files.map((file) => ({ file, name: file.name || "photo", previewUrl: URL.createObjectURL(file) }));
+  }
+  // Le texte et les assets sont ceux du checkpoint : ce retry ne crée donc ni
+  // second tour utilisateur ni nouvelles lignes d'assets.
+  assistantText.value = checkpoint.text;
+  // Le message d'échec précédent décrit un essai désormais remplacé. Le
+  // retirer avant le retry évite de laisser une panne contredite par son issue.
+  const latestTurn = assistantSession.turns.at(-1);
+  if (assistantError.value && latestTurn?.role === "assistant" && latestTurn.text === assistantError.value) {
+    assistantSession.replaceConversationTurns(assistantSession.turns.slice(0, -1));
+    assistantTurns.value = [...assistantSession.turns];
+  }
+  assistantError.value = null;
+  await prepareAssistantRequest(checkpoint.id);
+}
+
 async function persistChefConversation(files: readonly File[] = [], attachmentTurnId?: string): Promise<void> {
   const turns = assistantSession.persistableTurns();
   const record = chefSession.active ? chefSession.sync(turns) : chefSession.begin(turns);
@@ -1192,46 +1232,16 @@ async function persistChefConversation(files: readonly File[] = [], attachmentTu
   } else await db.chefConversations.put(record);
 }
 
-async function startNewChefConversation(): Promise<void> {
-  const active = chefSession.active;
-  if (!active) return;
-  // Empêcher toute réponse tardive avant l'écriture, sans perdre le fil si elle échoue.
-  assistantPreparationId += 1;
-  assistantPreparing.value = false;
-  stopAssistantDictation(false);
-  assistantSession.invalidate();
-  const closed = { ...active, closedAt: new Date().toISOString() };
-  try {
-    await db.chefConversations.put(closed);
-  } catch {
-    assistantPhase.value = assistantSession.phase;
-    assistantAnnouncement.value = "Impossible de clôturer cette conversation localement. Votre échange est conservé.";
-    return;
-  }
-  chefSession.close(new Date(closed.closedAt));
-  assistantSession.resetConversation();
-  assistantTurns.value = assistantSession.turns;
-  assistantText.value = "";
-  assistantAttachments.value.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
-  assistantAttachments.value = [];
-  assistantPreview.value = null;
-  assistantPreviewImageUrl.value = null;
-  assistantPreviewImageUnavailable.value = false;
-  assistantImageProgress.value = null;
-  assistantCandidatePreview.value = null;
-  assistantCandidatePreviews.value = [];
-  assistantThreadCards.value = [];
-  assistantError.value = null;
-  assistantQuestion.value = null;
-  assistantAnnouncement.value = "Nouvelle conversation prête.";
-  focusAssistantComposer();
-}
-
 function openNotebookFromAssistant(): void {
   stopAssistantDictation(false);
   clearMessages();
   viewMode.value = "LIST";
   void nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-nav")?.focus());
+}
+
+function refineAssistantRequest(): void {
+  assistantAnnouncement.value = "Précisez votre envie dans le Compositeur.";
+  focusAssistantComposer();
 }
 
 function useAssistantStarter(starter: string): void {
@@ -1322,7 +1332,7 @@ function onAssistantPaste(event: ClipboardEvent): void {
   }
 }
 
-async function prepareAssistantRequest(): Promise<void> {
+async function prepareAssistantRequest(retryTurnId?: string): Promise<void> {
   if (assistantBusy.value) return;
   const validation = validateAssistantComposer({
     text: assistantText.value,
@@ -1349,18 +1359,27 @@ async function prepareAssistantRequest(): Promise<void> {
   await nextTick();
   stopAssistantDictation(false);
   // Une URL seule et F2 sont des imports explicites : ils évitent le routage Chef.
-  // L'image reste jointe localement et n'est jamais ajoutée au fil.
+  // Une image, elle, devient un tour local checkpointé avant son analyse.
   try {
     const directImport = !assistantAttachments.value.length && (
       Boolean(tryParseRecipeShareF2Text(sentAssistantText, { sourceType: "TEXT" })) ||
       routeAssistantImport(sentAssistantText, []) === "url"
     );
-    if (!directImport) {
+    if (!directImport && !retryTurnId) {
       const visibleTurn = sentAssistantText.trim() || (sentAttachmentFiles.length > 1 ? "Images jointes à analyser" : "Image jointe à analyser");
       assistantSession.beginConversation(visibleTurn, false);
       assistantText.value = "";
       assistantTurns.value = [...assistantSession.turns];
       revealLatestAssistantEvent();
+      // Le checkpoint précède volontairement toute compression ou Vision : une
+      // éviction mobile ne peut donc pas perdre le tour ni ses fichiers bruts.
+      sentUserTurnId = assistantSession.turns[turnsBeforeRequest]?.id;
+      await persistChefConversation(sentAttachmentFiles, sentUserTurnId);
+      sentAttachmentsPersisted = sentAttachmentFiles.length > 0;
+    } else if (retryTurnId) {
+      sentUserTurnId = retryTurnId;
+      sentAttachmentsPersisted = true;
+      assistantText.value = "";
     }
     const importPromise = directImport
       ? assistantSession.import(sentAssistantText, null, assistantImportAdapter)
@@ -1391,6 +1410,8 @@ async function prepareAssistantRequest(): Promise<void> {
       assistantCandidatePreview.value = null;
       assistantCandidatePreviews.value = [];
       assistantThreadCards.value = [];
+      assistantIdeasByTurnId.value = {};
+      assistantNoCandidateTurnIds.value = new Set();
     }
     assistantError.value = null;
     nextTick(() => document.querySelector<HTMLButtonElement>(".assistant-import-progress button")?.focus());
@@ -1416,7 +1437,10 @@ async function prepareAssistantRequest(): Promise<void> {
     } else {
       assistantText.value = "";
     }
-    if (assistantSession.turns.length && !assistantSession.classification?.missing) {
+    // Une ambiguïté textuelle ne persiste pas un simple tour texte. Une photo
+    // déjà checkpointée conserve en revanche aussi son erreur Vision : elle
+    // doit rester compréhensible après une éviction mobile.
+    if (assistantSession.turns.length && (!assistantSession.classification?.missing || sentAttachmentFiles.length)) {
       try {
         sentUserTurnId ??= assistantSession.turns[turnsBeforeRequest]?.id;
         await persistChefConversation(sentAttachmentsPersisted ? [] : sentAttachmentFiles, sentUserTurnId);
@@ -1450,6 +1474,11 @@ async function prepareAssistantRequest(): Promise<void> {
       assistantError.value = error instanceof AssistantImageRequestError
         ? assistantImageErrorMessage(error)
         : "Je n’ai pas pu préparer votre demande. Vos images et votre texte sont conservés.";
+      try {
+        await persistChefConversation(sentAttachmentsPersisted ? [] : sentAttachmentFiles, sentUserTurnId);
+      } catch {
+        assistantAnnouncement.value = "Impossible d’enregistrer cette conversation localement.";
+      }
       assistantAnnouncement.value = assistantError.value;
     }
   } finally {
@@ -1542,60 +1571,104 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
           assistantSession.classification = classification;
           // Une ambiguïté réellement bloquante est la seule sortie qui arrête
           // le routage; aucun brouillon, recherche ou écriture ne s'ensuit.
-          if (classification.missing) {
+          // Une image valide est déjà une donnée exploitable : la classification
+          // textuelle ne peut pas empêcher Vision de l'examiner.
+          if (classification.missing && route !== "image") {
             assistantSession.markCurrentTurnEphemeral();
             assistantSession.showClarification(classification.missing.question, true);
             return { kind: "advice" as const };
           }
-        }
-        if (route !== "image") {
-          const advice = await requestChefAdvice({ request: text, context: await projectChefAdviceContext(signal) }, signal);
-          if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
-          if (advice.kind !== "recipe") {
-            const confidence = advice.kind === "advice" && advice.confidence.length
-              ? `\nRepères : ${advice.confidence.map((item) => item === "certain" ? "certain" : item === "suppose" ? "supposé" : "à vérifier").join(", ")}.`
-              : "";
-            const reply = advice.kind === "advice"
-              ? `${advice.recommendation}\n${advice.reason}${advice.alternative ? `\nAutre piste : ${advice.alternative}` : ""}${confidence}`
-              : advice.kind === "clarify" ? advice.question : advice.request;
-            if (advice.kind === "clarify" || advice.kind === "photo") assistantSession.showClarification(reply);
-            else assistantSession.addChefTurn(reply);
+          // Une photo d'ingrédients accompagnée d'une envie ouverte (« que
+          // faire avec ça ? ») appelle une recette sur mesure après Vision.
+          // Une recherche explicitement classée search reste, elle, bornée au
+          // Cahier et ne peut jamais créer une recette par défaut.
+          const classifiedRoute = routeChefIntentForRequest(classification, inputText, route === "image");
+          const intentRoute = route === "image" && classifiedRoute === "idea" ? "create" : classifiedRoute;
+          const searchNotebook = async () => {
+            progress("searching");
+            assistantPhase.value = assistantSession.phase;
+            const notebookSnapshot = await withinAssistantDeadline(buildNotebookSnapshot(), "cahier");
+            const candidates = notebookSnapshot.candidates;
+            for (const candidate of candidates) {
+              const recipe = notebookSnapshot.resolve(candidate.candidateRef);
+              if (recipe) candidateMap.set(candidate.candidateRef, recipe);
+            }
+            stage = "analyse_des_photos";
+            if (route === "image") assistantPhase.value = "analyzing";
+            const visualSummaries = route === "image" ? await summarizeAssistantImages(attachments, inputText, signal, (imageProgress) => { assistantImageProgress.value = imageProgress; }) : [];
+            const selectionRequest = buildAssistantSelectionRequest(text, visualSummaries);
+            stage = "decision";
+            return withinAssistantDeadline(selectNotebookRecipe(selectionRequest, candidates, signal), "decision");
+          };
+          const outcome = await runChefIntentOutcome(intentRoute, {
+            ideas: async () => {
+              const inspiration = await requestChefAdvice({ request: text, context: await projectChefAdviceContext(signal) }, signal);
+              if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+              if (inspiration.kind !== "ideas") throw new Error("assistant_stage:inspiration");
+              return inspiration.ideas;
+            },
+            create: async () => {
+              stage = "analyse_des_photos";
+              if (route === "image") assistantPhase.value = "analyzing";
+              const visualSummaries = route === "image"
+                ? await summarizeAssistantImages(attachments, inputText, signal, (imageProgress) => { assistantImageProgress.value = imageProgress; })
+                : [];
+              const requestWithConstraints = classification.constraints.length
+                ? `${text}\nContraintes connues : ${classification.constraints.join(", ")}`
+                : text;
+              generationRequest = buildAssistantSelectionRequest(requestWithConstraints, visualSummaries);
+              stage = "generation";
+              return withinAssistantDeadline(createNoCandidateAssistantPreview({
+                route,
+                selectionRequest: generationRequest,
+                sourceFiles: originalSourceFiles,
+                turns: projectAssistantTurnsForNetwork(assistantSession.turns),
+                signal,
+                creating: () => { progress("creating"); assistantPhase.value = assistantSession.phase; },
+                generate: generateAssistantRecipe
+              }), "generation", 25_000);
+            },
+            search: searchNotebook
+          });
+          if (outcome.kind === "ideas") {
+            assistantSession.addChefTurn(`${outcome.ideas.map((idea, index) => `${index + 1}. ${idea.title} — ${idea.description}`).join("\n")}\n\nDites-moi quelle piste vous attire pour la préciser.`);
+            const ideaTurnId = assistantSession.turns.at(-1)?.id;
+            if (ideaTurnId) assistantIdeasByTurnId.value = { ...assistantIdeasByTurnId.value, [ideaTurnId]: outcome.ideas };
             return { kind: "advice" as const };
           }
+          if (outcome.kind === "preview") {
+            return { kind: "draft" as const, ...outcome.preview };
+          }
+          if (outcome.kind === "search") {
+            if (outcome.result.kind === "candidates") return { kind: "candidates" as const, candidateRefs: outcome.result.candidates.map(({ candidateRef }) => candidateRef) };
+            if (outcome.result.kind === "noCandidate") return { kind: "noCandidate" as const };
+            throw new Error("selection unavailable");
+          } else if (route !== "image") {
+            const advice = await requestChefAdvice({ request: text, context: await projectChefAdviceContext(signal) }, signal);
+            if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+            if (advice.kind !== "recipe") {
+              if (advice.kind === "ideas") {
+                assistantSession.addChefTurn(`${advice.ideas.map((idea, index) => `${index + 1}. ${idea.title} — ${idea.description}`).join("\n")}\n\nChoisissez une piste pour poursuivre.`);
+                const ideaTurnId = assistantSession.turns.at(-1)?.id;
+                if (ideaTurnId) assistantIdeasByTurnId.value = { ...assistantIdeasByTurnId.value, [ideaTurnId]: advice.ideas };
+                return { kind: "advice" as const };
+              }
+              const confidence = advice.kind === "advice" && advice.confidence.length
+                ? `\nRepères : ${advice.confidence.map((item) => item === "certain" ? "certain" : item === "suppose" ? "supposé" : "à vérifier").join(", ")}.`
+                : "";
+              const reply = advice.kind === "advice"
+                ? `${advice.recommendation}\n${advice.reason}${advice.alternative ? `\nAutre piste : ${advice.alternative}` : ""}${confidence}`
+                : advice.kind === "clarify" ? advice.question : advice.request;
+              if (advice.kind === "clarify" || advice.kind === "photo") assistantSession.showClarification(reply);
+              else assistantSession.addChefTurn(reply);
+              return { kind: "advice" as const };
+            }
+          }
+          const choice = await searchNotebook();
+          if (choice.kind === "candidates") return { kind: "candidates" as const, candidateRefs: choice.candidates.map(({ candidateRef }) => candidateRef) };
+          if (choice.kind === "noCandidate") return { kind: "noCandidate" as const };
+          throw new Error("selection unavailable");
         }
-        progress("searching");
-        assistantPhase.value = assistantSession.phase;
-        const notebookSnapshot = await withinAssistantDeadline(buildNotebookSnapshot(), "cahier");
-        const candidates = notebookSnapshot.candidates;
-        for (const candidate of candidates) {
-          const recipe = notebookSnapshot.resolve(candidate.candidateRef);
-          if (recipe) candidateMap.set(candidate.candidateRef, recipe);
-        }
-        stage = "analyse_des_photos";
-        if (route === "image") assistantPhase.value = "analyzing";
-        const visualSummaries = route === "image" ? await summarizeAssistantImages(attachments, inputText, signal, (progress) => { assistantImageProgress.value = progress; }) : [];
-        const selectionRequest = buildAssistantSelectionRequest(text, visualSummaries);
-        stage = "decision";
-        const choice = await withinAssistantDeadline(selectNotebookRecipe(selectionRequest, candidates, signal), "decision");
-        if (choice.kind === "candidates") return { kind: "candidates" as const, candidateRefs: choice.candidates.map(({ candidateRef }) => candidateRef) };
-        if (choice.kind === "noCandidate") {
-          generationRequest = selectionRequest;
-          stage = "generation";
-          const preview = await withinAssistantDeadline(createNoCandidateAssistantPreview({
-            route,
-            selectionRequest: generationRequest,
-            sourceFiles: originalSourceFiles,
-            turns: projectAssistantTurnsForNetwork(assistantSession.turns),
-            signal,
-            creating: () => {
-              progress("creating");
-              assistantPhase.value = assistantSession.phase;
-            },
-            generate: generateAssistantRecipe
-          }), "generation", 25_000);
-          return { kind: "draft" as const, ...preview };
-        }
-        throw new Error("selection unavailable");
       } catch (error) {
         if ((error as Error).name === "AbortError") throw error;
         if (error instanceof AssistantImageRequestError) throw error;
@@ -1634,10 +1707,14 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
         assistantAnnouncement.value = "Aucune nouvelle recette du Cahier à proposer. Précisez votre demande ou réessayez.";
         nextTick(() => focusAssistantComposer());
       } else {
-        assistantSession.error = revalidated.length
-          ? "Aucune recette proposée ne respecte toutes vos contraintes. Réessayez en les assouplissant."
-          : "Cette recette n’est plus disponible. Réessayez votre demande.";
-        assistantSession.phase = "error";
+        assistantSession.phase = "idle";
+        assistantCandidatePreview.value = null;
+        assistantCandidatePreviews.value = [];
+        assistantSession.addChefTurn("Je n’ai trouvé aucune recette correspondante dans votre Cahier. Vous pouvez l’ouvrir ou préciser votre demande.");
+        const noCandidateTurnId = assistantSession.turns.at(-1)?.id;
+        if (noCandidateTurnId) assistantNoCandidateTurnIds.value = new Set([...assistantNoCandidateTurnIds.value, noCandidateTurnId]);
+        assistantTurns.value = [...assistantSession.turns];
+        assistantAnnouncement.value = "Aucune recette de votre Cahier ne correspond suffisamment à votre demande.";
       }
       return null;
     }
@@ -1654,6 +1731,10 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
   }
   if (result?.kind === "noCandidate") {
     assistantCandidatePreview.value = null;
+    assistantSession.addChefTurn("Je n’ai trouvé aucune recette correspondante dans votre Cahier. Vous pouvez l’ouvrir ou préciser votre demande.");
+    const noCandidateTurnId = assistantSession.turns.at(-1)?.id;
+    if (noCandidateTurnId) assistantNoCandidateTurnIds.value = new Set([...assistantNoCandidateTurnIds.value, noCandidateTurnId]);
+    assistantTurns.value = [...assistantSession.turns];
     assistantAnnouncement.value = "Aucune recette de votre Cahier ne correspond suffisamment à votre demande.";
   }
   if (result?.kind === "draft") {
@@ -3307,6 +3388,10 @@ onMounted(async () => {
   await refresh();
   await consumeShareTargetPayloadFromUrl();
   await discoverChefConversation();
+  // Chrome peut évincer un onglet mobile pendant un changement d'application.
+  // Dans ce seul cas, restaurer le fil actif évite une fausse remise à zéro ;
+  // une ouverture normale conserve le choix via le bouton Historique.
+  if (typeof document !== "undefined" && (document as Document & { wasDiscarded?: boolean }).wasDiscarded) await resumeChefConversation();
 });
 
 onUnmounted(() => {
@@ -3435,14 +3520,11 @@ onUnmounted(() => {
         <button
           type="button"
           class="assistant-notebook-link"
-          aria-label="Ouvrir le Cahier"
+          aria-label="Ouvrir le Cahier (votre conversation reste ouverte)"
           @click="openNotebookFromAssistant"
         >
           <i class="pi pi-book" aria-hidden="true" />
           Cahier
-        </button>
-        <button v-if="assistantTurns.length" type="button" class="assistant-new-conversation" :disabled="assistantBusy" @click="startNewChefConversation">
-          Nouvelle recette
         </button>
       </header>
 
@@ -3458,8 +3540,24 @@ onUnmounted(() => {
           <ol class="assistant-conversation" aria-label="Échange avec l’Assistant">
             <template v-for="(turn, index) in assistantTurns" :key="`${turn.role}-${index}-${turn.text}`">
               <li :class="`assistant-conversation-turn assistant-conversation-turn--${turn.role}`">
-                <span class="assistant-conversation-bubble">{{ turn.text }}</span>
+                <span class="assistant-conversation-bubble">
+                  <template v-if="turn.id && assistantIdeasByTurnId[turn.id]">
+                    <span class="assistant-idea-intro">Voici quelques idées :</span>
+                    <ol class="assistant-idea-list">
+                      <li v-for="idea in assistantIdeasByTurnId[turn.id]" :key="`${idea.title}-${idea.description}`" class="assistant-idea-item">
+                        <strong>{{ idea.title }}</strong>
+                        <span>{{ idea.description }}</span>
+                      </li>
+                    </ol>
+                    <span class="assistant-idea-prompt">Dites-moi quelle piste vous attire pour la préciser.</span>
+                  </template>
+                  <template v-else>{{ turn.text }}</template>
+                </span>
                 <ChefMessageAvatar v-if="turn.role === 'assistant'" />
+              </li>
+              <li v-if="turn.id && assistantNoCandidateTurnIds.has(turn.id)" class="assistant-no-candidate-actions">
+                <button type="button" class="assistant-text-link" @click="openNotebookFromAssistant"><i class="pi pi-book" aria-hidden="true" />Ouvrir le Cahier</button>
+                <button type="button" class="assistant-text-link" @click="refineAssistantRequest"><i class="pi pi-pencil" aria-hidden="true" />Affiner ma demande</button>
               </li>
               <li v-if="turn.attachments?.length" class="assistant-conversation-attachments" :aria-label="`${turn.attachments.length} photo(s) jointe(s)`">
                 <ChefConversationAttachment v-for="attachment in orderedChefAttachments(turn.attachments)" :key="attachment.assetId" :asset-id="attachment.assetId" :label="attachment.name ?? 'Photo jointe'" />
@@ -3505,6 +3603,10 @@ onUnmounted(() => {
                 </span>
               </div>
             </li>
+            <li v-if="assistantError" class="assistant-conversation-error" role="alert">
+              <span>{{ assistantError }}</span>
+              <button v-if="assistantRetryTurn" type="button" @click="() => void retryAssistantRequest()">{{ assistantPhotoRetryTurn ? 'Réessayer l’analyse' : 'Réessayer la demande' }}</button>
+            </li>
           </ol>
         </div>
         <div
@@ -3537,14 +3639,7 @@ onUnmounted(() => {
             </span>
           </div>
           <div class="assistant-composer-actions" :class="{ 'is-listening': assistantListening }">
-            <Button
-              v-if="assistantResumeConversation?.kind === 'available'"
-              aria-label="Reprendre le dernier échange"
-              icon="pi pi-history"
-              class="assistant-icon-action assistant-resume-action"
-              :disabled="assistantBusy"
-              @click="resumeChefConversation"
-            />
+            <Button v-if="assistantResumeConversation?.kind === 'available'" aria-label="Reprendre le dernier échange" icon="pi pi-history" class="assistant-icon-action assistant-resume-action" :disabled="assistantBusy" @click="resumeChefConversation" />
             <div class="assistant-photo-picker" @keydown="onAssistantPhotoMenuKeydown" @focusout="onAssistantPhotoMenuFocusout">
               <Button
                 ref="assistantPhotoButtonRef"
@@ -3570,7 +3665,7 @@ onUnmounted(() => {
               @click="toggleAssistantDictation"
             />
             <Button v-if="assistantBusy" aria-label="Annuler la demande" icon="pi pi-times" class="assistant-icon-action assistant-submit assistant-cancel-submit" @click="cancelAssistantImport" />
-            <Button v-else aria-label="Envoyer la demande" icon="pi pi-arrow-up" class="assistant-icon-action assistant-submit" @click="prepareAssistantRequest" />
+            <Button v-else aria-label="Envoyer la demande" icon="pi pi-arrow-up" class="assistant-icon-action assistant-submit" @click="() => void prepareAssistantRequest()" />
           </div>
           <input
             ref="assistantCameraInputRef"
@@ -3596,7 +3691,6 @@ onUnmounted(() => {
             {{ assistantAnnouncement }}
           </p>
         </div>
-        <p v-if="assistantError" class="assistant-import-error" role="alert">{{ assistantError }}</p>
       </section>
       </div>
 
@@ -3708,7 +3802,7 @@ onUnmounted(() => {
           @click="openAddChoice"
         />
         <Button
-          label="Assistant"
+          label="Retour au Chef"
           icon="pi pi-sparkles"
           severity="secondary"
           rounded

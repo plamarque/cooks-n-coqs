@@ -8,6 +8,7 @@ export type ChefAdviceTurnV1 = { role: "user" | "assistant"; text: string; cards
 export type ChefAdviceRequestV1 = { request: string; context?: { recipeTitle?: string; stepText?: string; servings?: number; ingredients?: string[]; turns?: ChefAdviceTurnV1[] } };
 export type ChefAdviceWireV1 =
   | { kind: "recipe" }
+  | { kind: "ideas"; ideas: Array<{ title: string; description: string }> }
   | { kind: "advice"; recommendation: string; reason: string; alternative?: string; confidence: ChefAdviceConfidence[] }
   | { kind: "clarify"; question: string }
   | { kind: "photo"; request: string };
@@ -49,6 +50,11 @@ export function isChefAdviceWireV1(value: unknown): value is ChefAdviceWireV1 {
   if (!value || typeof value !== "object") return false;
   const wire = value as Record<string, unknown>;
   if (wire.kind === "recipe") return Object.keys(wire).length === 1;
+  if (wire.kind === "ideas") return Object.keys(wire).length === 2
+    && Array.isArray(wire.ideas) && wire.ideas.length >= 1 && wire.ideas.length <= 3
+    && wire.ideas.every((idea) => !!idea && typeof idea === "object" && !Array.isArray(idea)
+      && Object.keys(idea as Record<string, unknown>).every((key) => key === "title" || key === "description")
+      && text((idea as Record<string, unknown>).title, 120) && text((idea as Record<string, unknown>).description, 320));
   if (wire.kind === "clarify") return Object.keys(wire).length === 2 && text(wire.question, 240);
   if (wire.kind === "photo") return Object.keys(wire).length === 2 && text(wire.request, 240);
   return wire.kind === "advice" && Object.keys(wire).every((key) => ["kind", "recommendation", "reason", "alternative", "confidence"].includes(key))

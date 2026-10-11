@@ -26,6 +26,7 @@ export function isChefAdviceWireV1(value) {
   if (!value || typeof value !== "object") return false;
   const wire = value;
   if (wire.kind === "recipe") return Object.keys(wire).length === 1;
+  if (wire.kind === "ideas") return Object.keys(wire).length === 2 && Array.isArray(wire.ideas) && wire.ideas.length >= 1 && wire.ideas.length <= 3 && wire.ideas.every((idea) => !!idea && typeof idea === "object" && !Array.isArray(idea) && Object.keys(idea).every((key) => key === "title" || key === "description") && text(idea.title, 120) && text(idea.description, 320));
   if (wire.kind === "clarify") return Object.keys(wire).length === 2 && text(wire.question, 240);
   if (wire.kind === "photo") return Object.keys(wire).length === 2 && text(wire.request, 240);
   return wire.kind === "advice" && Object.keys(wire).every((key) => ["kind", "recommendation", "reason", "alternative", "confidence"].includes(key)) && text(wire.recommendation, 500) && text(wire.reason, 240) && (wire.alternative === undefined || text(wire.alternative, 320)) && Array.isArray(wire.confidence) && wire.confidence.length >= 1 && wire.confidence.length <= 3 && new Set(wire.confidence).size === wire.confidence.length && wire.confidence.every((item) => item === "certain" || item === "suppose" || item === "a_verifier");

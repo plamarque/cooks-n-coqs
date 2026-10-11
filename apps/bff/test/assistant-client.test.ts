@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildChefAdviceUserContent, CHEF_ADVICE_SYSTEM_PROMPT, CHEF_TURN_CLASSIFICATION_SYSTEM_PROMPT, chooseNotebookRecipe, decodeChefAdviceWire, decodeChefTurnClassificationWire, getChefAdvice, isAssistantSelectionInput, isRetryableAssistantImageError, normalizeAssistantImageSummary, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
+import { buildChefAdviceUserContent, CHEF_ADVICE_SYSTEM_PROMPT, CHEF_TURN_CLASSIFICATION_SYSTEM_PROMPT, chooseNotebookRecipe, decodeChefAdviceWire, decodeChefTurnClassificationWire, getChefAdvice, isAssistantSelectionInput, isRetryableAssistantImageError, normalizeAssistantImageSummary, requiresAdviceForRecipeContext, retryAssistantImageSummary, validateAssistantRecipeDraft } from "../src/assistant-client.js";
 
 test("classification BFF : décode seulement le contrat fermé et impose la continuité", () => {
   assert.deepEqual(decodeChefTurnClassificationWire('{"intent":"adapt","confidence":"high","constraints":["au Cookeo","sans crème"]}'), { intent: "adapt", confidence: "high", constraints: ["au Cookeo", "sans crème"] });
@@ -14,6 +14,7 @@ test("conseil BFF : décode advice et recipe, et rejette un wire fournisseur inv
   assert.deepEqual(decodeChefAdviceWire('{"kind":"advice","recommendation":"Baisse le feu.","reason":"La sauce restera lisse.","confidence":["certain"]}'), { kind: "advice", recommendation: "Baisse le feu.", reason: "La sauce restera lisse.", confidence: ["certain"] });
   assert.equal(decodeChefAdviceWire('{"kind":"advice","recommendation":"x"}'), null);
   assert.equal(decodeChefAdviceWire('not json'), null);
+  assert.deepEqual(decodeChefAdviceWire('{"kind":"ideas","ideas":[{"title":"Tarte","description":"Pommes"}]}'), { kind: "ideas", ideas: [{ title: "Tarte", description: "Pommes" }] });
 });
 
 test("conseil BFF : les vignettes quittent le JSON texte pour des parties image low-detail", () => {
@@ -28,6 +29,15 @@ test("conseil BFF : une précision après question reçoit une recommandation sa
   assert.match(CHEF_ADVICE_SYSTEM_PROMPT, /réponse courte à ta question précédente/i);
   assert.match(CHEF_ADVICE_SYSTEM_PROMPT, /toujours advice/i);
   assert.match(CHEF_ADVICE_SYSTEM_PROMPT, /sans crème/i);
+  assert.match(CHEF_ADVICE_SYSTEM_PROMPT, /adaptation ou une variante, renvoie toujours advice, jamais ideas/i);
+  assert.match(CHEF_ADVICE_SYSTEM_PROMPT, /carte recette est présente[\s\S]*?ne renvoie jamais clarify ni photo/i);
+});
+
+test("conseil BFF : une question textuelle sur une recette projetée exige advice, sauf analyse d'image explicite", () => {
+  const context = { turns: [{ role: "assistant" as const, text: "Voici votre recette.", cards: [{ title: "Compote banane-citron vert", ingredients: ["Banane"], steps: ["Mixez."] }] }] };
+  assert.equal(requiresAdviceForRecipeContext({ request: "Puis-je utiliser de la crème ?", context }), true);
+  assert.equal(requiresAdviceForRecipeContext({ request: "Analyse cette nouvelle photo", context }), false);
+  assert.equal(requiresAdviceForRecipeContext({ request: "Puis-je utiliser de la crème ?" }), false);
 });
 
 test("conseil BFF : transmet réellement les parties image au fournisseur", async () => {

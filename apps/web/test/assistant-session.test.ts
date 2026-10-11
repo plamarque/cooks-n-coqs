@@ -56,6 +56,11 @@ test("classification Chef : la dernière vignette reste le secours quand aucune 
   });
 });
 
+test("classification Chef : génère-la reprend la dernière variation textuelle", () => {
+  const turns = [{ role: "assistant" as const, text: "Transformez-les en petits muffins banane-citron vert." }];
+  assert.match(buildChefTurnClassificationContext(turns, null, new Map(), "Génère-la")?.reference?.title ?? "", /muffins banane/);
+});
+
 const draft = { title: "Soupe", category: "SALE" as const, ingredients: [], steps: [], source: { type: "TEXT" as const, capturedAt: "2026-10-02" } };
 
 test("session Assistant : conversion et taille résiduelle ont des messages distincts", () => {
@@ -110,6 +115,41 @@ test("App.vue : une photo évite le wire Conseil textuel et part vers Vision", (
   assert.ok(requestPreparation, "prepareAssistantTextRequest est présent");
   assert.match(requestPreparation[0], /if \(route !== "image"\) \{[\s\S]*?requestChefAdvice/);
   assert.match(requestPreparation[0], /route === "image" \? await summarizeAssistantImages\(attachments/);
+});
+
+test("App.vue : create avec photo résume avant la preview, sans passer par le Cahier", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const requestPreparation = /async function prepareAssistantTextRequest[\s\S]*?\n}\n\nfunction cancelAssistantImport/.exec(app);
+  assert.ok(requestPreparation, "prepareAssistantTextRequest est présent");
+  const source = requestPreparation[0];
+  const create = /create: async \(\) => \{[\s\S]*?\n            \},\n            search: searchNotebook/.exec(source);
+  assert.ok(create, "la sortie create est branchée au routeur");
+  assert.match(create[0], /route === "image"[\s\S]*?summarizeAssistantImages\(attachments, inputText, signal/);
+  assert.match(create[0], /buildAssistantSelectionRequest\(requestWithConstraints, visualSummaries\)/);
+  assert.doesNotMatch(create[0], /selectNotebookRecipe|buildNotebookSnapshot/);
+});
+
+test("App.vue : le smoke mobile rend les sorties Chef visibles et laisse Vision examiner une photo", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const app = readFileSync(join(root, "src/App.vue"), "utf8");
+  const styles = readFileSync(join(root, "src/styles.css"), "utf8");
+  assert.match(app, /if \(classification\.missing && route !== "image"\)/);
+  assert.match(app, /route === "image" && classifiedRoute === "idea" \? "create" : classifiedRoute/);
+  assert.match(app, /assistantIdeasByTurnId[\s\S]*?assistant-idea-list[\s\S]*?<strong>\{\{ idea\.title \}\}<\/strong>[\s\S]*?\{\{ idea\.description \}\}/);
+  assert.match(app, /Je n’ai trouvé aucune recette correspondante dans votre Cahier[\s\S]*?assistantNoCandidateTurnIds/);
+  assert.match(app, /Ouvrir le Cahier[\s\S]*?Affiner ma demande/);
+  assert.match(app, /label="Retour au Chef"/);
+  assert.match(styles, /\.assistant-conversation-bubble \{[\s\S]*?white-space: pre-line;/);
+});
+
+test("App.vue : l’historique est l’unique action de continuité du compositeur", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const header = /<header class="assistant-header">[\s\S]*?<\/header>/.exec(app)?.[0] ?? "";
+  assert.match(app, /icon="pi pi-history" class="assistant-icon-action assistant-resume-action"/);
+  assert.doesNotMatch(header, />\s*Nouvelle recette\s*</);
+  assert.doesNotMatch(app, /function startNewChefConversation/);
 });
 
 test("App.vue : annuler une demande invalide le résultat sans effacer le fil", () => {
@@ -177,11 +217,71 @@ test("session Assistant : le tour affiché au départ n'est pas dupliqué pendan
 test("App.vue : un tour Chef est affiché avant la préparation locale", () => {
   const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
   const app = readFileSync(appPath, "utf8");
-  const submission = /async function prepareAssistantRequest\(\): Promise<void> \{[\s\S]*?\n}\n\nasync function prepareAssistantTextRequest/.exec(app);
+  const submission = /async function prepareAssistantRequest\(retryTurnId\?: string\): Promise<void> \{[\s\S]*?\n}\n\nasync function prepareAssistantTextRequest/.exec(app);
   assert.ok(submission, "prepareAssistantRequest est présent");
   assert.match(submission[0], /assistantSession\.beginConversation\(visibleTurn, false\)/);
   assert.match(submission[0], /assistantText\.value = "";/);
   assert.match(submission[0], /prepareAssistantTextRequest\(preparationId, sentAssistantText\)/);
+});
+
+test("App.vue : une photo est checkpointée avant préparation et un échec reste visible avec nouvel essai", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const submission = /async function prepareAssistantRequest\(retryTurnId\?: string\): Promise<void> \{[\s\S]*?\n}\n\nasync function prepareAssistantTextRequest/.exec(app);
+  assert.ok(submission, "prepareAssistantRequest est présent");
+  const source = submission[0];
+  assert.match(source, /assistantSession\.beginConversation\(visibleTurn, false\)[\s\S]*?await persistChefConversation\(sentAttachmentFiles, sentUserTurnId\)[\s\S]*?prepareAssistantTextRequest\(preparationId, sentAssistantText\)/);
+  assert.match(source, /!assistantSession\.classification\?\.missing \|\| sentAttachmentFiles\.length/);
+  assert.match(app, /aria-label="Reprendre le dernier échange"[\s\S]*?icon="pi pi-history"/);
+  assert.match(app, /assistant-conversation-error[\s\S]*?Réessayer l’analyse/);
+});
+
+test("App.vue : une erreur d’import est rendue une seule fois", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  assert.doesNotMatch(app, /assistantSession\.addChefTurn\(assistantError\.value\)/);
+  assert.doesNotMatch(app, /class="assistant-import-error"/);
+  assert.match(app, /<li v-if="assistantError" class="assistant-conversation-error"/);
+});
+
+test("App.vue : un retry rejoue le dernier tour et retire le message d’échec devenu obsolète", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const retry = /async function retryAssistantRequest\(\): Promise<void> \{[\s\S]*?\n\}/.exec(app);
+  assert.ok(retry, "retryAssistantRequest est présent");
+  assert.match(retry[0], /latestTurn\.text === assistantError\.value[\s\S]*?replaceConversationTurns\(assistantSession\.turns\.slice\(0, -1\)\)/);
+  assert.match(retry[0], /assistantText\.value = checkpoint\.text[\s\S]*?prepareAssistantRequest\(checkpoint\.id\)/);
+});
+
+test("App.vue : une recherche photo sans candidate reste un noCandidate, pas une erreur Vision", () => {
+  const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue"), "utf8");
+  assert.match(app, /if \(!found\.length\)[\s\S]*?assistantSession\.addChefTurn\("Je n’ai trouvé aucune recette correspondante/);
+  assert.match(app, /<button v-if="assistantRetryTurn"[\s\S]*?Réessayer l’analyse/);
+});
+
+test("App.vue : la reprise relit une candidate du Cahier local, même si la liste mémoire est vide", () => {
+  const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue"), "utf8");
+  const resume = /async function resumeChefConversation[\s\S]*?\n}\n\nfunction orderedChefAttachments/.exec(app);
+  assert.ok(resume);
+  assert.match(resume[0], /await db\.recipes\.get\(card\.recipeId\)/);
+});
+
+test("App.vue : une éviction Chrome restaure automatiquement le fil, sans changer l'ouverture normale", () => {
+  const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue"), "utf8");
+  assert.match(app, /wasDiscarded\) await resumeChefConversation\(\)/);
+});
+
+test("App.vue : le retry repart du checkpoint sans créer un second tour ni assets", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const retry = /async function retryAssistantRequest\(\): Promise<void> \{[\s\S]*?\n\}/.exec(app);
+  assert.ok(retry, "retryAssistantRequest est présent");
+  assert.match(retry[0], /getChefConversationAttachmentFiles\(checkpoint\.attachments\)/);
+  assert.match(retry[0], /prepareAssistantRequest\(checkpoint\.id\)/);
+  const submission = /async function prepareAssistantRequest\(retryTurnId\?: string\): Promise<void> \{[\s\S]*?\n}\n\nasync function prepareAssistantTextRequest/.exec(app);
+  assert.ok(submission, "prepareAssistantRequest accepte le tour checkpointé");
+  assert.match(submission[0], /if \(!directImport && !retryTurnId\)/);
+  assert.match(submission[0], /else if \(retryTurnId\) \{[\s\S]*?sentUserTurnId = retryTurnId;[\s\S]*?sentAttachmentsPersisted = true;/);
 });
 
 test("session Assistant : cancel abort réellement le signal de l'adaptateur", async () => {

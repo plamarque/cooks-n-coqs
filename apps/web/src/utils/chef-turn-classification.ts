@@ -32,7 +32,15 @@ export function resolveChefTurnReference(turns: readonly AssistantConversationTu
     if (title) return { title, source: "mentioned_recipe" };
   }
   const title = latestCardTitle(turns, candidateTitles);
-  return title ? { title, source: "latest_card" } : undefined;
+  if (title) return { title, source: "latest_card" };
+  // « génère-la » peut désigner la dernière variation textuelle du Chef,
+  // avant qu'elle ne devienne une carte. La transmettre comme référence
+  // temporaire évite une question artificielle au tour suivant.
+  if (currentMessage && /(?:g[ée]n[èe]re|recette)/iu.test(currentMessage)) {
+    const suggestion = [...turns].reverse().find((turn) => turn.role === "assistant" && turn.text.trim());
+    if (suggestion) return { title: suggestion.text.trim().slice(0, 180), source: "latest_card" };
+  }
+  return undefined;
 }
 
 function mentionedRecipeTitle(text: string, candidateTitles: ReadonlyMap<string, string>): string | undefined {

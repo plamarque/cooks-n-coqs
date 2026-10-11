@@ -24,6 +24,13 @@ test("conseil Chef : le wire est fermé et borné", () => {
   assert.equal(isChefAdviceWireV1({ kind: "advice", recommendation: "x", reason: "y", confidence: [] }), false);
   assert.equal(isChefAdviceWireV1({ kind: "advice", recommendation: "x", reason: "y", confidence: ["certain", "certain"] }), false);
   assert.equal(isChefAdviceWireV1({ kind: "recipe", extra: true }), false);
+  assert.equal(isChefAdviceWireV1({ kind: "ideas", ideas: [{ title: "Gratin de courge", description: "Une piste végétarienne au four." }] }), true);
+  assert.equal(isChefAdviceWireV1({ kind: "ideas", ideas: [] }), false);
+  assert.equal(isChefAdviceWireV1({ kind: "ideas", ideas: Array.from({ length: 4 }, () => ({ title: "x", description: "y" })) }), false);
+  assert.equal(isChefAdviceWireV1({ kind: "ideas", ideas: [{ description: "sans titre" }] }), false);
+  assert.equal(isChefAdviceWireV1({ kind: "ideas", ideas: [{ title: "sans description" }] }), false);
+  assert.equal(isChefAdviceWireV1({ kind: "ideas", ideas: [{ title: 42, description: [] }] }), false);
+  assert.equal(isChefAdviceWireV1({ kind: "ideas", ideas: [{ title: "x", description: "y", extra: true }] }), false);
 });
 
 test("conseil Chef : le contexte complet garde les rôles et refuse les champs locaux", () => {

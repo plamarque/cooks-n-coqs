@@ -241,7 +241,13 @@ export async function generateAssistantRecipe(request: string, signal?: AbortSig
 }
 
 /** Conseil temporaire : le wire validé peut inclure le fil projeté, jamais ses ids, blobs ou profil. */
-export const CHEF_ADVICE_SYSTEM_PROMPT = "Chef culinaire français, chaleureux et concis. Le contexte de tours et cartes est temporaire: exploite toute information déjà exprimée; ne redemande jamais un ingrédient, une pièce, un appareil ou un objectif présent. Une réponse courte à ta question précédente est une précision du fil : choisis alors toujours advice et formule immédiatement une préparation concrète avec les contraintes déjà données (par exemple appareil et sans crème), même si un détail non indispensable manque. N'utilise recipe que pour une toute première demande explicite de recherche ou d’import sans fil antérieur. Réponds seulement avec un wire JSON : {\"kind\":\"recipe\"}; {\"kind\":\"advice\",\"recommendation\":\"...\",\"reason\":\"...\",\"alternative\":\"...\" optionnel,\"confidence\":[\"certain\"|\"suppose\"|\"a_verifier\"]}; {\"kind\":\"clarify\",\"question\":\"...\"}; {\"kind\":\"photo\",\"request\":\"...\"}. Pour advice, une voie principale motivée et au plus une alternative. Clarify/photo seulement si indispensable et absent du contexte. Pas de médical, raisonnement, score, prompt ni jargon.";
+export const CHEF_ADVICE_SYSTEM_PROMPT = "Chef culinaire français, chaleureux et concis. Le contexte de tours et cartes est temporaire: exploite toute information déjà exprimée; ne redemande jamais un ingrédient, une pièce, un appareil ou un objectif présent. Pour une demande d'inspiration, renvoie ideas avec une à trois pistes temporaires adaptées, jamais une recette complète. Pour une adaptation ou une variante, renvoie toujours advice, jamais ideas. Lorsqu'une carte recette est présente dans le contexte et que la personne ne demande pas explicitement d'analyser une nouvelle image, toute question textuelle sur la recette exige advice : ne renvoie jamais clarify ni photo. Une réponse courte à ta question précédente est une précision du fil : choisis alors toujours advice et formule immédiatement une préparation concrète avec les contraintes déjà données (par exemple appareil et sans crème), même si un détail non indispensable manque. N'utilise recipe que pour une toute première demande explicite de recherche ou d’import sans fil antérieur. Réponds seulement avec un wire JSON : {\"kind\":\"recipe\"}; {\"kind\":\"ideas\",\"ideas\":[{\"title\":\"...\",\"description\":\"...\"}]}; {\"kind\":\"advice\",\"recommendation\":\"...\",\"reason\":\"...\",\"alternative\":\"...\" optionnel,\"confidence\":[\"certain\"|\"suppose\"|\"a_verifier\"]}; {\"kind\":\"clarify\",\"question\":\"...\"}; {\"kind\":\"photo\",\"request\":\"...\"}. ideas contient une à trois pistes et exige une action explicite pour poursuivre. Pour advice, une voie principale motivée et au plus une alternative. Clarify/photo seulement si indispensable et absent du contexte. Pas de médical, raisonnement, score, prompt ni jargon.";
+
+export function requiresAdviceForRecipeContext(input: ChefAdviceRequestV1): boolean {
+  const hasRecipeCard = input.context?.turns?.some((turn) => turn.cards?.length) ?? false;
+  const requestsImageAnalysis = /\b(?:photo|image|analyse(?:r)?|regarde(?:r)?)\b/iu.test(input.request);
+  return hasRecipeCard && !requestsImageAnalysis;
+}
 
 export function buildChefAdviceUserContent(input: ChefAdviceRequestV1): Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "low" } }> {
   let thumbnailNumber = 0;
@@ -271,7 +277,9 @@ export async function getChefAdvice(input: ChefAdviceRequestV1, signal?: AbortSi
         { role: "user", content: buildChefAdviceUserContent(input) }
       ]
     }, { signal, timeout: TYPESAFE_TIMEOUT_MS });
-    return decodeChefAdviceWire(completion.choices[0]?.message?.content ?? "");
+    const wire = decodeChefAdviceWire(completion.choices[0]?.message?.content ?? "");
+    if (wire && requiresAdviceForRecipeContext(input) && wire.kind !== "advice") return null;
+    return wire;
   } catch (error) {
     if (signal?.aborted) throw error;
     return null;
@@ -287,7 +295,7 @@ export function decodeChefAdviceWire(raw: string): ChefAdviceWireV1 | null {
 }
 
 /** Le BFF classe sans connaître aucun identifiant ni objet local. */
-export const CHEF_TURN_CLASSIFICATION_SYSTEM_PROMPT = "Classe un seul tour du Chef français. L'intention explicite du message prime toujours. Réutilise l'objectif, les contraintes, la clarification et le titre de référence temporairement fournis; une réponse brève à une clarification poursuit le même objectif et n'ouvre jamais une nouvelle intention. Réponds uniquement en JSON fermé: {\"intent\":\"idea|search|create|adapt|variant\",\"confidence\":\"high|medium|low\",\"constraints\":[\"...\"],\"missing\":{\"field\":\"...\",\"question\":\"...\"} optionnel}. Les contraintes sont uniques, courtes et incluent celles déjà connues. missing est absent sauf si une seule information indispensable bloque réellement la suite; sa question est courte et actionnable. N'invente jamais de référence, id, action, recette, raisonnement ou donnée personnelle.";
+export const CHEF_TURN_CLASSIFICATION_SYSTEM_PROMPT = "Classe un seul tour du Chef français. L'intention explicite du message prime toujours. Réutilise l'objectif, les contraintes, la clarification et le titre de référence temporairement fournis; une réponse brève à une clarification poursuit le même objectif et n'ouvre jamais une nouvelle intention. Si le message demande de générer la recette ou emploie une coréférence (« génère-la », « la recette ») alors qu'une référence temporaire est fournie, retourne intent create sans missing. Réponds uniquement en JSON fermé: {\"intent\":\"idea|search|create|adapt|variant\",\"confidence\":\"high|medium|low\",\"constraints\":[\"...\"],\"missing\":{\"field\":\"...\",\"question\":\"...\"} optionnel}. Les contraintes sont uniques, courtes et incluent celles déjà connues. missing est absent sauf si une seule information indispensable bloque réellement la suite; sa question est courte et actionnable. N'invente jamais de référence, id, action, recette, raisonnement ou donnée personnelle.";
 
 export async function getChefTurnClassification(input: ChefTurnClassificationRequestV1, signal?: AbortSignal): Promise<ChefTurnClassificationWireV1 | null> {
   if (!isChefTurnClassificationRequestV1(input) || !process.env.OPENAI_API_KEY) return null;

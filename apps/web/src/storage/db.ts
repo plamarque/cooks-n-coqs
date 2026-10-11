@@ -109,3 +109,23 @@ export async function getChefConversationAssetBlobUrl(assetId: string): Promise<
   const asset = await db.chefConversationAssets.get(assetId);
   return asset?.blob ? URL.createObjectURL(asset.blob) : undefined;
 }
+
+/**
+ * Recompose les fichiers d'un checkpoint dans l'ordre du tour. Les blobs ne
+ * quittent jamais IndexedDB : cette copie ne sert qu'à relancer Vision après
+ * une reprise mobile du même fil.
+ */
+export async function getChefConversationAttachmentFiles(
+  attachments: readonly { assetId: string; order: number; name?: string; mimeType: string }[]
+): Promise<File[] | null> {
+  const ordered = [...attachments].sort((left, right) => left.order - right.order);
+  const assets = await Promise.all(ordered.map(({ assetId }) => db.chefConversationAssets.get(assetId)));
+  if (assets.some((asset) => !asset?.blob)) return null;
+  return assets.map((asset, index) => {
+    const source = asset!;
+    const attachment = ordered[index];
+    return new File([source.blob], attachment.name ?? source.name ?? "photo", {
+      type: attachment.mimeType || source.mimeType || source.blob.type
+    });
+  });
+}

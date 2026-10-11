@@ -298,6 +298,14 @@ body {
   .assistant-import-progress-chef .chef-avatar-sprite, .assistant-import-progress-chef .chef-avatar-static-fallback { max-height: 5.5rem; }
 }
 .assistant-import-error { color: #a62c2b; font-weight: 700; }
+.assistant-conversation-error button {
+  min-height: 44px;
+  padding: .55rem .8rem;
+  border-radius: .7rem;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
 .assistant-preview-card-wrap { position: relative; z-index: 1; width: 100%; height: 276px; margin: 0 0 12px; overflow: hidden; border-radius: 1.25rem; animation: assistant-preview-arrive .42s cubic-bezier(.2,.85,.25,1); }
 .assistant-candidate-card-wrap { width: 100%; }
 .assistant-thread-card-wrap { margin-top: 12px; }
@@ -3058,9 +3066,31 @@ select {
   padding: .7rem .85rem;
   border-radius: .9rem;
   line-height: 1.35;
+  white-space: pre-line;
 }
 
+.assistant-idea-intro,
+.assistant-idea-prompt { display: block; }
+.assistant-idea-list { display: grid; gap: .55rem; margin: .65rem 0; padding: 0; list-style: none; }
+.assistant-idea-item { display: grid; gap: .12rem; padding: .55rem .6rem; border-radius: .65rem; background: rgb(255 255 255 / .58); }
+.assistant-idea-item strong { color: #1f4f46; }
+.assistant-no-candidate-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: -.1rem 0 .35rem; padding-left: clamp(2.8rem, 12vw, 3.55rem); list-style: none; }
+.assistant-no-candidate-actions .assistant-text-link { display: inline-flex; align-items: center; min-height: 44px; gap: .35rem; padding: .45rem .7rem; border: 1px solid #cbd8d0; border-radius: 999px; background: #fffdf8; color: #1f4f46; font-weight: 800; }
+
 .assistant-conversation-card { list-style: none; }
+.assistant-conversation-error {
+  display: grid;
+  justify-items: start;
+  gap: .55rem;
+  padding: .75rem .85rem;
+  border: 1px solid #e3b6af;
+  border-radius: .9rem;
+  background: #fff4f1;
+  color: #8e2928;
+  font-weight: 700;
+  list-style: none;
+}
+.assistant-conversation-error button { border: 1px solid #c66a60; background: #fffdf9; color: #8e2928; }
 
 .assistant-conversation-turn--user {
   justify-self: end;

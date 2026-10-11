@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ChefSession } from "../src/utils/chef-session";
 import { restoreAssistantPreview, snapshotAssistantPreview } from "../src/utils/assistant-session";
-import { selectLastResumableChefConversation } from "../src/storage/db";
+import { db, getChefConversationAttachmentFiles, selectLastResumableChefConversation } from "../src/storage/db";
 
 test("ChefSession ne crée un fil qu'au premier envoi et le clôture sans l'effacer", () => {
   const session = new ChefSession();
@@ -47,6 +47,35 @@ test("le dernier journal reprenable est le plus récent valide et les lignes inv
 test("la reprise distingue aucun fil d'un journal illisible", () => {
   assert.deepEqual(selectLastResumableChefConversation([]), { kind: "none" });
   assert.deepEqual(selectLastResumableChefConversation([{ id: "broken", createdAt: "invalid", turns: [] }]), { kind: "unavailable" });
+});
+
+test("ChefSession hydrate un checkpoint photo sans réinterpréter ses références locales", () => {
+  const session = new ChefSession();
+  const source = {
+    id: "photo-checkpoint", createdAt: "2026-10-10T10:00:00.000Z",
+    turns: [{ id: "turn-photo", role: "user" as const, text: "Image jointe à analyser", attachments: [{ assetId: "asset-photo", order: 0, name: "plat.jpg", mimeType: "image/jpeg" }] }]
+  };
+  const hydrated = session.hydrate(source);
+  assert.deepEqual(hydrated?.turns[0]?.attachments, source.turns[0]?.attachments);
+  assert.notEqual(hydrated?.turns[0]?.attachments, source.turns[0]?.attachments);
+});
+
+test("le retry recompose les fichiers checkpointés dans leur ordre", async () => {
+  const originalGet = db.chefConversationAssets.get.bind(db.chefConversationAssets);
+  const rows = new Map([
+    ["asset-1", { id: "asset-1", name: "premiere.jpg", mimeType: "image/jpeg", blob: new Blob(["one"], { type: "image/jpeg" }) }],
+    ["asset-2", { id: "asset-2", name: "seconde.png", mimeType: "image/png", blob: new Blob(["two"], { type: "image/png" }) }]
+  ]);
+  db.chefConversationAssets.get = (async (id: string) => rows.get(id)) as typeof db.chefConversationAssets.get;
+  try {
+    const files = await getChefConversationAttachmentFiles([
+      { assetId: "asset-2", order: 1, mimeType: "image/png" },
+      { assetId: "asset-1", order: 0, mimeType: "image/jpeg" }
+    ]);
+    assert.deepEqual(files?.map((file) => file.name), ["premiere.jpg", "seconde.png"]);
+  } finally {
+    db.chefConversationAssets.get = originalGet;
+  }
 });
 
 test("la reprise refuse une preview riche dont le draft ne peut pas être ouvert", () => {

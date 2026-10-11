@@ -84,6 +84,12 @@ test("assistant advice HTTP: wire fermé, route isolée et indisponibilité", as
     const context = { turns: [{ role: "user", text: "porc" }, { role: "assistant", text: "Avec des cèpes ?" }, { role: "user", text: "échine et cèpes", cards: [{ title: "Échine aux cèpes", ingredients: ["porc", "cèpes"], steps: ["Mijoter"] }] }, { role: "user", text: "au Cookeo" }] };
     assert.deepEqual(await (await post(base, "/api/assistant/advice", { request: "au Cookeo", context })).json(), { kind: "advice", recommendation: "Mijote l'échine avec les cèpes au Cookeo.", reason: "Le fil confirme déjà la viande, les champignons et l'appareil.", confidence: ["certain"] });
     assert.deepEqual(received, { request: "au Cookeo", context });
+    assistantDependencies.advice = async () => ({ kind: "ideas", ideas: [{ title: "Tarte fine", description: "Pommes et cannelle." }] });
+    assert.deepEqual(await (await post(base, "/api/assistant/advice", { request: "Une idée avec des pommes" })).json(), { kind: "ideas", ideas: [{ title: "Tarte fine", description: "Pommes et cannelle." }] });
+    assistantDependencies.advice = async () => ({ kind: "ideas", ideas: [{ title: "Réponse invalide" }] } as never);
+    const invalidIdeas = await post(base, "/api/assistant/advice", { request: "Une idée" });
+    assert.equal(invalidIdeas.status, 503);
+    assert.deepEqual(await invalidIdeas.json(), { error: "UPSTREAM_UNAVAILABLE" });
     assert.equal((await post(base, "/api/assistant/advice", { request: "x", context: { turns: [{ role: "user", text: "x", id: "local" }] } })).status, 400);
     assistantDependencies.advice = async () => null;
     assert.equal((await post(base, "/api/assistant/advice", { request: "Ma sauce bout" })).status, 503);

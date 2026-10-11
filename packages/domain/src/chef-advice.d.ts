@@ -5,6 +5,6 @@ export type ChefAdviceConfidence = "certain" | "suppose" | "a_verifier";
 export type ChefAdviceCardV1 = { title: string; ingredients: string[]; steps: string[]; thumbnail?: string };
 export type ChefAdviceTurnV1 = { role: "user" | "assistant"; text: string; cards?: ChefAdviceCardV1[] };
 export type ChefAdviceRequestV1 = { request: string; context?: { recipeTitle?: string; stepText?: string; servings?: number; ingredients?: string[]; turns?: ChefAdviceTurnV1[] } };
-export type ChefAdviceWireV1 = { kind: "recipe" } | { kind: "advice"; recommendation: string; reason: string; alternative?: string; confidence: ChefAdviceConfidence[] } | { kind: "clarify"; question: string } | { kind: "photo"; request: string };
+export type ChefAdviceWireV1 = { kind: "recipe" } | { kind: "ideas"; ideas: Array<{ title: string; description: string }> } | { kind: "advice"; recommendation: string; reason: string; alternative?: string; confidence: ChefAdviceConfidence[] } | { kind: "clarify"; question: string } | { kind: "photo"; request: string };
 export function isChefAdviceRequestV1(value: unknown): value is ChefAdviceRequestV1;
 export function isChefAdviceWireV1(value: unknown): value is ChefAdviceWireV1;

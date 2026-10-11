@@ -34,3 +34,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-tags-recettes-envies-categories.md`
   summary: Afficher les catégories personnelles sur les vues de recette pertinentes, après avoir défini la hiérarchie visuelle et les usages de lecture.
   evidence: La Story 1 couvre la saisie et le filtre; l’affichage des catégories sur cartes ou fiche est une décision de présentation distincte.
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-2-trouver-une-idee-retrouver-au-cahier-ou-creer-sur-mesure.md`
+  summary: Réconcilier `apps/bff/test/image-benchmark.test.ts` avec le rapport de benchmark versionné après décision humaine.
+  evidence: La clôture 9.2 a confirmé les parcours Chef ciblés et le smoke Tailscale, mais `npm run test:unit` échoue hors sandbox sur une attente historique de statut `awaiting-operator` alors que le rapport consigne déjà une décision validée; aucun fichier benchmark n’est modifié dans cette story.
