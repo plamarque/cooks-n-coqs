@@ -149,8 +149,10 @@ seront introduits par leurs stories dédiées sans modifier ces contrats v1.
 
 Un fil Chef local peut conserver, dans l'ordre de ses tours, des références à des
 photos locales, une `AssistantPreview` sérialisée et une référence vers une
-recette existante du Cahier. La preview reste éditable et ne crée jamais de
-`Recipe` avant `Sauvegarder`; la carte Cahier ouvre sa recette source en lecture
+recette existante du Cahier. Une carte de preview affiche sa durée totale quand
+elle est connue ; sa fiche est en lecture seule et ne crée jamais de `Recipe`
+avant `Sauvegarder`. Une fois enregistrée, la recette rejoint le Cahier et peut
+être modifiée par son parcours v1. La carte Cahier ouvre sa recette source en lecture
 seule. Les blobs de conversation sont stockés dans un espace IndexedDB dédié,
 jamais dans les médias d'une recette. Un asset ou une recette manquant reste
 signalé lisiblement sans fetch, génération ni appel BFF.

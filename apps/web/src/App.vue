@@ -99,6 +99,7 @@ import { buildYouTubeEmbedUrl } from "./utils/youtube-embed";
 import {
   collectStepImageIdsFromRecipe,
   draftsFromParsedStepMedia,
+  isAllowedVideoUrl,
   type FormStepMedium,
   stepMediaToFormDrafts,
   stepVideoEmbedSrc,
@@ -3151,12 +3152,19 @@ function formatRecipeTime(recipe: Recipe): string {
 
 /** La preview ne passe jamais par IndexedDB, mais conserve les mêmes repères de temps que la fiche. */
 function formatAssistantPreviewTime(draft: ParsedRecipeDraft): string {
-  const total = (draft.prepTimeMin ?? 0) + (draft.cookTimeMin ?? 0) + (draft.restTimeMin ?? 0);
+  const durations = [draft.prepTimeMin, draft.cookTimeMin, draft.restTimeMin];
+  if (!durations.every((duration) => duration == null || Number.isFinite(duration))) return "";
+  const total = durations.reduce<number>((sum, duration) => sum + (duration ?? 0), 0);
   if (total <= 0) return "";
   if (total < 60) return `${total}'`;
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
   return minutes > 0 ? `${hours}h${String(minutes).padStart(2, "0")}` : `${hours}h`;
+}
+
+function isAllowedPreviewImageUrl(url: string): boolean {
+  const trimmed = url.trim();
+  return trimmed.startsWith("data:image/") || isAllowedVideoUrl(trimmed);
 }
 
 function assistantPreviewCategoryLabel(category: RecipeCategory): string {
@@ -3574,7 +3582,7 @@ onUnmounted(() => {
                         </span>
                         <span v-else class="assistant-preview-card-image assistant-preview-card-image--placeholder"><i class="pi pi-book" aria-hidden="true" /></span>
                       </span>
-                      <span class="assistant-preview-card-copy"><span class="assistant-preview-card-status">Recette sur mesure</span><span class="assistant-preview-card-title">{{ card.preview.draft.title }}</span><span class="assistant-preview-card-meta">{{ assistantPreviewCategoryLabel(card.preview.draft.category) }} · {{ card.preview.draft.ingredients.length }} ingrédients</span></span>
+                      <span class="assistant-preview-card-copy"><span class="assistant-preview-card-status">Recette sur mesure</span><span class="assistant-preview-card-title">{{ card.preview.draft.title }}</span><span class="assistant-preview-card-meta">{{ assistantPreviewCategoryLabel(card.preview.draft.category) }} · {{ card.preview.draft.ingredients.length }} ingrédients</span><span v-if="formatAssistantPreviewTime(card.preview.draft)" class="assistant-preview-card-time"><i class="pi pi-stopwatch" aria-hidden="true" /> Temps total : {{ formatAssistantPreviewTime(card.preview.draft) }}</span></span>
                       <span class="assistant-preview-card-open">Voir la recette <i class="pi pi-arrow-right" aria-hidden="true" /></span>
                     </button>
                   </template>
@@ -3754,7 +3762,6 @@ onUnmounted(() => {
     </section>
 
     <section v-else-if="viewMode === 'ASSISTANT_PREVIEW' && assistantPreview" class="panel detail assistant-preview-detail" aria-labelledby="assistant-preview-title">
-      <fieldset class="assistant-preview-editor" :disabled="assistantPreviewSaving">
       <div class="recipe-detail-header">
         <img v-if="assistantPreviewImageUrl" class="recipe-detail-image" :src="assistantPreviewImageUrl" :alt="`Illustration de ${assistantPreview.draft.title}`" />
         <div v-else class="recipe-detail-image-placeholder" :class="{ 'recipe-detail-image-placeholder--loading': !assistantPreviewImageUnavailable }">
@@ -3771,22 +3778,19 @@ onUnmounted(() => {
       </div>
       <div class="recipe-detail-meta">
         <p class="assistant-preview-origin">Prévisualisation temporaire · Importé depuis {{ assistantPreview.source?.type?.toLowerCase() ?? 'le Compositeur' }}</p>
-        <label class="sr-only" for="assistant-preview-title">Titre de la recette</label>
-        <input id="assistant-preview-title" v-model="assistantPreview.draft.title" class="recipe-detail-title assistant-preview-input" type="text" />
-        <div class="assistant-preview-fields"><label>Catégorie <select v-model="assistantPreview.draft.category"><option value="SALE">Salé</option><option value="SUCRE">Sucré</option></select></label><label>Portions <input v-model.number="assistantPreview.draft.servingsBase" type="number" min="1" /></label></div>
+        <h1 id="assistant-preview-title" class="recipe-detail-title">{{ assistantPreview.draft.title }}</h1>
+        <p class="assistant-preview-summary">{{ assistantPreviewCategoryLabel(assistantPreview.draft.category) }}<template v-if="assistantPreview.draft.servingsBase"> · {{ assistantPreview.draft.servingsBase }} portions</template><template v-if="formatAssistantPreviewTime(assistantPreview.draft)"> · <i class="pi pi-stopwatch" aria-hidden="true" /> {{ formatAssistantPreviewTime(assistantPreview.draft) }}</template></p>
       </div>
-      <div class="assistant-preview-section-heading"><h2>Ingrédients</h2><Button text size="small" label="Ajouter" icon="pi pi-plus" @click="addAssistantPreviewIngredient" /></div>
+      <div class="assistant-preview-section-heading"><h2>Ingrédients</h2></div>
       <div class="ingredient-grid assistant-preview-ingredients">
-        <div v-for="(ingredient, ingredientIndex) in assistantPreview.draft.ingredients" :key="ingredient.id" class="ingredient-card assistant-preview-ingredient-card">
+        <div v-for="ingredient in assistantPreview.draft.ingredients" :key="ingredient.id" class="ingredient-card assistant-preview-ingredient-card">
           <div class="ingredient-card-image-wrap"><i class="pi pi-shopping-basket" aria-hidden="true" /></div>
-          <input v-model="ingredient.label" class="ingredient-card-name assistant-preview-input" type="text" aria-label="Ingrédient" />
-          <input :value="assistantPreviewIngredientQuantityText(ingredient)" class="ingredient-card-qty assistant-preview-input" type="text" aria-label="Quantité ou précision" placeholder="Quantité ou précision" @input="updateAssistantPreviewIngredientQuantity(ingredient, $event)" />
-          <Button text severity="danger" size="small" icon="pi pi-trash" aria-label="Retirer cet ingrédient" @click="removeAssistantPreviewIngredient(ingredientIndex)" />
+          <span class="ingredient-card-name">{{ ingredient.label }}</span>
+          <span class="ingredient-card-qty">{{ assistantPreviewIngredientQuantityText(ingredient) }}</span>
         </div>
       </div>
-      <div class="assistant-preview-section-heading"><h2>Préparation</h2><Button text size="small" label="Ajouter" icon="pi pi-plus" @click="addAssistantPreviewStep" /></div>
-      <ol class="prep-steps-list"><li v-for="(step, stepIndex) in assistantPreview.draft.steps" :key="step.id" class="prep-step"><div class="prep-step-row"><div class="prep-step-content"><strong class="prep-step-num">Étape {{ stepIndex + 1 }}</strong><textarea v-model="step.text" class="assistant-preview-input" :aria-label="`Texte de l’étape ${stepIndex + 1}`" /></div><Button text severity="danger" size="small" icon="pi pi-trash" :aria-label="`Retirer l’étape ${stepIndex + 1}`" @click="removeAssistantPreviewStep(stepIndex)" /></div><div v-for="(medium, mediumIndex) in step.media" :key="mediumIndex" class="assistant-preview-medium"><input v-if="medium.type === 'image'" v-model="medium.imageUrl" class="assistant-preview-input" type="url" placeholder="URL de l’image" aria-label="URL de l’image d’étape" /><input v-else v-model="medium.url" class="assistant-preview-input" type="url" placeholder="URL de la vidéo" aria-label="URL de la vidéo d’étape" /><Button text severity="danger" size="small" icon="pi pi-times" aria-label="Retirer ce média" @click="removeAssistantPreviewStepMedium(step, mediumIndex)" /></div><div class="assistant-preview-medium-actions"><Button text size="small" label="Image" icon="pi pi-image" @click="addAssistantPreviewStepMedium(step, 'image')" /><Button text size="small" label="Vidéo" icon="pi pi-video" @click="addAssistantPreviewStepMedium(step, 'video')" /></div></li></ol>
-      </fieldset>
+      <div class="assistant-preview-section-heading"><h2>Préparation</h2></div>
+      <ol class="prep-steps-list"><li v-for="(step, stepIndex) in assistantPreview.draft.steps" :key="step.id" class="prep-step"><div class="prep-step-content"><strong class="prep-step-num">Étape {{ stepIndex + 1 }}</strong><p class="assistant-preview-step-text">{{ step.text }}</p></div><div v-for="(medium, mediumIndex) in step.media" :key="mediumIndex" class="assistant-preview-medium"><img v-if="medium.type === 'image' && isAllowedPreviewImageUrl(medium.imageUrl)" :src="medium.imageUrl" alt="" /><span v-else-if="medium.type === 'image'" class="assistant-preview-medium-unavailable">Image indisponible</span><a v-else-if="isAllowedVideoUrl(medium.url)" :href="medium.url" target="_blank" rel="noopener noreferrer">Voir la vidéo de l’étape {{ stepIndex + 1 }}</a><span v-else class="assistant-preview-medium-unavailable">Vidéo indisponible</span></div></li></ol>
     </section>
 
     <section v-else-if="viewMode === 'LIST'" class="list-view">

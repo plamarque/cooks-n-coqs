@@ -19,9 +19,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-1-demarrer-et-cloturer-une-conversation-assistant.md`
   summary: Reconnaître une demande de modification d'une recette générée dans le fil et créer une variante de cette recette plutôt qu'une nouvelle recette sans rapport.
   evidence: Après « Mousse au chocolat noir », « avec de l'orange amère » a généré des crêpes Suzette ; le contrat actuel ne fournit ni la recette proposée ni l'intention de la modifier au routeur/générateur.
-- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-demarrer-et-cloturer-une-conversation-assistant.md`
-  summary: Afficher le temps de préparation sur les vignettes de recettes lorsque cette donnée est disponible.
-  evidence: Les vignettes du fil n'affichent aujourd'hui que la catégorie et le nombre d'ingrédients, ce qui ne permet pas d'évaluer immédiatement l'effort requis.
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-3-garder-les-messages-riches-dans-le-fil.md`
   summary: Rendre l'analyse vision Assistant plus résiliente aux indisponibilités fournisseur : retry temporisé, diagnostic corrélé et reprise du lot sans réanalyser les images déjà réussies.
   evidence: Le lot est traité séquentiellement et la troisième photo valide a reçu un 503 `UPSTREAM_UNAVAILABLE` après les deux essais actuels espacés de 400 ms ; l'URL Tailscale, le BFF et les JPEG ont été vérifiés.

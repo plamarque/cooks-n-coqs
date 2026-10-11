@@ -91,25 +91,25 @@ async function expectAssistantPreviewGeometry(card) {
     };
     return {
       card: box(element),
-      composer: box(element.closest(".assistant-composer")),
+      composer: box(element.closest(".assistant-composer-section")),
       suggestions: box(document.querySelector(".assistant-starters")),
       children: [
         ".assistant-preview-card-status",
         ".assistant-preview-card-title",
         ".assistant-preview-card-meta",
-        ".assistant-preview-card-ingredients",
         ".assistant-preview-card-open"
       ].map((selector) => box(element.querySelector(selector)))
     };
   });
   expect(layout.card).toBeTruthy();
   expect(layout.composer).toBeTruthy();
-  expect(layout.suggestions).toBeTruthy();
   expect(layout.card.top).toBeGreaterThanOrEqual(layout.composer.top - renderingTolerance);
   expect(layout.card.bottom).toBeLessThanOrEqual(layout.composer.bottom + renderingTolerance);
   expect(layout.card.left).toBeGreaterThanOrEqual(layout.composer.left - renderingTolerance);
   expect(layout.card.right).toBeLessThanOrEqual(layout.composer.right + renderingTolerance);
-  expect(layout.suggestions.top).toBeGreaterThanOrEqual(layout.card.bottom - renderingTolerance);
+  if (layout.suggestions) {
+    expect(layout.suggestions.top).toBeGreaterThanOrEqual(layout.card.bottom - renderingTolerance);
+  }
   for (const child of layout.children) {
     expect(child).toBeTruthy();
     expect(child.top).toBeGreaterThanOrEqual(layout.card.top - renderingTolerance);
@@ -772,6 +772,8 @@ test.describe("Cookies & Coquillettes v1", () => {
   test("Assistant : carte F2, détail, fermeture et aucune écriture IndexedDB", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 844 });
     await page.goto("/");
+    await page.route("**/api/assistant/classify-turn", (route) => route.fulfill({ json: { intent: "create", confidence: "high", constraints: [] } }));
+    await page.route("**/api/assistant/advice", (route) => route.fulfill({ json: { kind: "recipe" } }));
     await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
       title: "Soupe express", category: "SALE", ingredients: [{ id: "ingredient-1", label: "oignon", isScalable: false }], steps: [{ id: "step-1", order: 1, text: "Mixer." }]
@@ -802,25 +804,20 @@ test.describe("Cookies & Coquillettes v1", () => {
     const card = page.getByRole("button", { name: /Prévisualisation prête/ });
     await expect(card).toBeVisible();
     await expect(card).toBeFocused();
+    await expect(card.locator(".assistant-preview-card-time")).toHaveCount(0);
     await expectAssistantPreviewGeometry(card);
     await card.press("Enter");
-    await expect(page.getByRole("textbox", { name: "Titre de la recette" })).toHaveValue("Soupe express");
-    await expect(page.getByRole("textbox", { name: "Ingrédient" })).toHaveValue("1 oignon");
-    await expect(page.getByRole("textbox", { name: "Texte de l’étape 1" })).toHaveValue("Mixer.");
+    await expect(page.getByRole("heading", { name: "Soupe express" })).toBeVisible();
+    await expect(page.getByText("1 oignon", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Mixer.", { exact: true })).toBeVisible();
+    await expect(page.locator(".assistant-preview-detail input, .assistant-preview-detail select, .assistant-preview-detail textarea")).toHaveCount(0);
+    await expect(page.locator(".assistant-preview-detail button")).toHaveCount(2);
     await expect(page.getByRole("button", { name: "Sauvegarder", exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Fermer la prévisualisation" })).toBeVisible();
     expect(await countStores()).toEqual(before);
     await page.getByRole("button", { name: "Fermer la prévisualisation" }).click();
-    await page.getByRole("button", { name: "Fermer", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "On mange quoi ?" })).toBeVisible();
-    const composer = page.locator(".assistant-composer");
-    await expect(composer).not.toHaveClass(/assistant-composer--with-preview/);
-    const returnedLayout = await page.locator(".assistant-composer-section").evaluate((section) => {
-      const composer = section.querySelector(".assistant-composer")?.getBoundingClientRect();
-      const suggestions = document.querySelector(".assistant-starters")?.getBoundingClientRect();
-      return { composerBottom: composer?.bottom, suggestionsTop: suggestions?.top };
-    });
-    expect(returnedLayout.suggestionsTop).toBeGreaterThanOrEqual(returnedLayout.composerBottom);
+    await expect(page.getByRole("list", { name: "Échange avec l’Assistant" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Prévisualisation prête — ouvrir Soupe express/ })).toBeVisible();
     await expect(field).toBeFocused();
     expect(await countStores()).toEqual(before);
   });
@@ -828,6 +825,8 @@ test.describe("Cookies & Coquillettes v1", () => {
   test("Assistant : noCandidate Jev conserve l’illustration avant de confirmer la recette sur mobile", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
+    await page.route("**/api/assistant/classify-turn", (route) => route.fulfill({ json: { intent: "create", confidence: "high", constraints: [] } }));
+    await page.route("**/api/assistant/advice", (route) => route.fulfill({ json: { kind: "recipe" } }));
     const savedRecipeImageId = () => page.evaluate(async () => {
       const database = await new Promise((resolve, reject) => {
         const request = indexedDB.open("cookies-et-coquilettes");
@@ -846,7 +845,7 @@ test.describe("Cookies & Coquillettes v1", () => {
     });
     await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
-      title: "Crumble pommes", category: "SUCRE", ingredients: [{ id: "ingredient-1", label: "pommes", isScalable: true }], steps: [{ id: "step-1", order: 1, text: "Cuire 25 minutes." }]
+      title: "Crumble pommes", category: "SUCRE", prepTimeMin: 15, cookTimeMin: 25, ingredients: [{ id: "ingredient-1", label: "pommes", isScalable: true }], steps: [{ id: "step-1", order: 1, text: "Cuire 25 minutes." }]
     } }));
     await page.route("**/api/generate-recipe-image", (route) => route.fulfill({ json: { imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3C/svg%3E" } }));
     await page.getByLabel("Votre demande").fill("un dessert fruité d'automne réconfortant");
@@ -854,9 +853,13 @@ test.describe("Cookies & Coquillettes v1", () => {
     const card = page.getByRole("button", { name: /Prévisualisation prête/ });
     await expect(card).toBeVisible();
     await expect(card.locator("img")).toBeVisible();
+    await expect(card.locator(".assistant-preview-card-time")).toHaveText("Temps total : 40'");
     await expectAssistantPreviewGeometry(card);
     await card.click();
-    await expect(page.getByRole("textbox", { name: "Titre de la recette" })).toHaveValue("Crumble pommes");
+    await expect(page.getByRole("heading", { name: "Crumble pommes" })).toBeVisible();
+    await expect(page.locator(".assistant-preview-detail input, .assistant-preview-detail select, .assistant-preview-detail textarea")).toHaveCount(0);
+    await expect(page.locator(".assistant-preview-detail .assistant-preview-summary")).toContainText("40'");
+    await expect(page.locator(".assistant-preview-detail button")).toHaveCount(2);
     await expectAssistantPreviewDetailGeometry(page.locator(".assistant-preview-detail"), ".recipe-detail-image");
     const imageBox = await page.locator(".assistant-preview-detail .recipe-detail-image").boundingBox();
     const actionsBox = await page.locator(".assistant-preview-detail .recipe-detail-header-actions").boundingBox();
@@ -874,6 +877,8 @@ test.describe("Cookies & Coquillettes v1", () => {
   test("Assistant : une preview desktop avec illustration aligne la carte, le header et l’image", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 844 });
     await page.goto("/");
+    await page.route("**/api/assistant/classify-turn", (route) => route.fulfill({ json: { intent: "create", confidence: "high", constraints: [] } }));
+    await page.route("**/api/assistant/advice", (route) => route.fulfill({ json: { kind: "recipe" } }));
     await page.route("**/api/assistant/select", (route) => route.fulfill({ json: { kind: "noCandidate" } }));
     await page.route("**/api/assistant/recipe", (route) => route.fulfill({ json: {
       title: "Risotto aux champignons", category: "SALE", ingredients: [{ id: "ingredient-1", label: "riz", isScalable: true }], steps: [{ id: "step-1", order: 1, text: "Cuire doucement." }]
@@ -884,7 +889,8 @@ test.describe("Cookies & Coquillettes v1", () => {
     const card = page.getByRole("button", { name: /Prévisualisation prête/ });
     await expect(card.locator("img")).toBeVisible();
     await card.click();
-    await expect(page.getByRole("textbox", { name: "Titre de la recette" })).toHaveValue("Risotto aux champignons");
+    await expect(page.getByRole("heading", { name: "Risotto aux champignons" })).toBeVisible();
+    await expect(page.locator(".assistant-preview-detail input, .assistant-preview-detail select, .assistant-preview-detail textarea")).toHaveCount(0);
     await expectAssistantPreviewDetailGeometry(page.locator(".assistant-preview-detail"), ".recipe-detail-image");
   });
 

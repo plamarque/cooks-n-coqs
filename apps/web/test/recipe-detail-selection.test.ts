@@ -120,17 +120,17 @@ test("Assistant : candidate Cahier en lecture seule dans le fil", () => {
   assert.doesNotMatch(app, /assistant-composer--with-candidates/);
 });
 
-test("Assistant : la preview est éditable en mémoire avant Sauvegarder", () => {
+test("Assistant : la preview est en lecture seule avant Sauvegarder", () => {
   const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
   const app = readFileSync(appPath, "utf8");
   const previewSection = app.match(/viewMode === 'ASSISTANT_PREVIEW'[\s\S]*?<\/section>/);
   assert.ok(previewSection);
-  assert.match(previewSection[0], /v-model="assistantPreview\.draft\.title"/);
-  assert.match(previewSection[0], /v-model="ingredient\.label"/);
-  assert.match(previewSection[0], /v-model="step\.text"/);
-  assert.match(previewSection[0], /addAssistantPreviewStepMedium/);
-  assert.match(previewSection[0], /:disabled="assistantPreviewSaving"/);
-  assert.match(previewSection[0], /<fieldset class="assistant-preview-editor" :disabled="assistantPreviewSaving">/);
+  assert.match(previewSection[0], /<h1 id="assistant-preview-title" class="recipe-detail-title">{{ assistantPreview\.draft\.title }}<\/h1>/);
+  assert.match(previewSection[0], /{{ ingredient\.label }}/);
+  assert.match(previewSection[0], /<p class="assistant-preview-step-text">{{ step\.text }}<\/p>/);
+  assert.match(previewSection[0], /v-for="\(medium, mediumIndex\) in step\.media"/);
+  assert.match(previewSection[0], /@click="saveAssistantPreview"/);
+  assert.doesNotMatch(previewSection[0], /v-model=|<fieldset|addAssistantPreview|removeAssistantPreview/);
   const closePreview = app.match(/async function closeAssistantPreview\([\s\S]*?\n\}/);
   assert.ok(closePreview);
   assert.match(closePreview[0], /if \(assistantPreviewSaving\.value\) return/);

@@ -182,6 +182,14 @@ test("App.vue : l'illustration asynchrone de la prévisualisation montre le Chef
   assert.doesNotMatch(app, /assistant-preview-card-loading-mark|Illustration en préparation/);
 });
 
+test("App.vue : la vignette Chef affiche la durée connue de sa prévisualisation", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  assert.match(app, /v-if="formatAssistantPreviewTime\(card\.preview\.draft\)" class="assistant-preview-card-time"/);
+  assert.match(app, /pi-stopwatch[\s\S]*?Temps total[\s\S]*?formatAssistantPreviewTime\(card\.preview\.draft\)/);
+  assert.match(app, /Number\.isFinite\(duration\)/);
+});
+
 test("ChefAvatar : un sprite indisponible garde une pose statique de secours", () => {
   const avatarPath = join(dirname(fileURLToPath(import.meta.url)), "../src/components/ChefAvatar.vue");
   const avatar = readFileSync(avatarPath, "utf8");

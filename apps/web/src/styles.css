@@ -330,6 +330,7 @@ body {
 .assistant-preview-card-copy { display: grid; min-height: 0; align-content: start; gap: 5px; min-width: 0; overflow: hidden; padding: 14px 17px 58px; }
 .assistant-preview-card-status, .assistant-preview-origin { color: #52665e; font-size: .82rem; }
 .assistant-preview-card-meta, .assistant-preview-summary { margin: 0; color: #52665e; font-size: .9rem; line-height: 1.35; }
+.assistant-preview-card-time { display: inline-flex; align-items: center; gap: .35rem; margin-top: .2rem; color: #38554c; font-size: .86rem; font-weight: 800; }
 .assistant-preview-card-ingredients { display: grid; gap: 3px; margin-top: 5px; color: #38554c; font-size: .82rem; line-height: 1.25; }
 .assistant-preview-card-ingredients > span::before { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: #79a06b; content: ""; }
 .assistant-preview-card-ingredients-more { color: #5d7b72; font-weight: 800; }.assistant-preview-card-ingredients-more::before { background: #e0b34b !important; }
@@ -340,6 +341,7 @@ body {
 .assistant-preview-detail .recipe-detail-image, .assistant-preview-detail .recipe-detail-image-placeholder { border-radius: 1rem 1rem 0 0; max-height: 320px; }
 .assistant-preview-save { min-width: 44px; min-height: 44px; padding-inline: 0; }
 .assistant-preview-ingredient-card { cursor: default; }
+.assistant-preview-ingredient-card .ingredient-card-name, .assistant-preview-ingredient-card .ingredient-card-qty { overflow-wrap: anywhere; }
 .assistant-preview-ingredient-card .ingredient-card-image-wrap { display: grid; place-items: center; color: rgba(31,79,70,.42); font-size: 1.5rem; }
 .assistant-preview-time { margin-inline: 0; }
 @media (prefers-reduced-motion: reduce) { .assistant-preview-card-wrap, .assistant-preview-card-image--loading *, .assistant-import-progress * { animation: none !important; } }
@@ -357,6 +359,9 @@ body {
 .assistant-preview-section-heading h2 { margin: 0; }
 .assistant-preview-medium { margin-top: .5rem; }
 .assistant-preview-medium-actions { margin-top: .25rem; }
+.assistant-preview-step-text { white-space: pre-wrap; }
+.assistant-preview-medium img { display: block; width: 100%; max-height: 16rem; border-radius: .75rem; object-fit: cover; }
+.assistant-preview-medium-unavailable { color: #52665e; font-size: .9rem; font-style: italic; }
 
 @media (max-width: 560px) {
   .panel.assistant-preview-detail { margin: 0; padding: 0 16px 24px; overflow: hidden; }
