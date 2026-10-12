@@ -16,6 +16,32 @@ test("ChefAgent poursuit un outil local autorisé puis finalise sans écriture",
   assert.equal(result.kind === "final" && result.toolResults.length, 1);
 });
 
+test("ChefAgent transmet la continuité minimale à chaque décision", async () => {
+  const requests: Array<{ context?: unknown }> = [];
+  let calls = 0;
+  const agent = new ChefAgent({
+    decide: async (request) => {
+      requests.push(request);
+      return ++calls === 1
+        ? { kind: "tool", tool: "get-recipe-context", input: { referenceTitle: "Soupe de cèpes" } }
+        : { kind: "final", output: "advice" };
+    },
+    execute: async () => ({ recipe: { title: "Soupe de cèpes", ingredients: ["cèpes"], steps: ["Cuire"] } })
+  });
+  await agent.run("Au Cookeo et sans crème", ["chef-core", "adapter-une-recette"], undefined, {
+    objective: "Des cèpes",
+    constraints: ["au Cookeo", "sans crème"],
+    clarification: "Quel appareil utilisez-vous ?",
+    reference: { title: "Soupe de cèpes" }
+  });
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests.map(({ context }) => context), [
+    { objective: "Des cèpes", constraints: ["au Cookeo", "sans crème"], clarification: "Quel appareil utilisez-vous ?", reference: { title: "Soupe de cèpes" } },
+    { objective: "Des cèpes", constraints: ["au Cookeo", "sans crème"], clarification: "Quel appareil utilisez-vous ?", reference: { title: "Soupe de cèpes" } }
+  ]);
+  assert.equal(JSON.stringify(requests).includes("recipeId"), false);
+});
+
 test("ChefAgent poursuit une relance sans recette locale vers le conseil", async () => {
   let step = 0;
   const calls: string[] = [];

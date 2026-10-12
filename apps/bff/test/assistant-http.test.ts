@@ -21,13 +21,48 @@ async function post(base: string, path: string, body: unknown): Promise<Response
 test.afterEach(() => Object.assign(assistantDependencies, original));
 
 test("agent BFF : accepte seulement le wire fermé, sans état", async () => {
-  assistantDependencies.chefAgent = async () => ({ kind: "final", output: "advice", text: "Réduisez la crème." });
+  let received: unknown;
+  assistantDependencies.chefAgent = async (input) => { received = input; return { kind: "final", output: "advice", text: "Réduisez la crème." }; };
   await withServer(async (base) => {
-    const response = await post(base, "/api/assistant/agent", { message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"] });
+    const context = { objective: "des cèpes", constraints: ["sans crème"], clarification: "Quel appareil ?", reference: { title: "Soupe de cèpes" } };
+    const response = await post(base, "/api/assistant/agent", { message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"], context });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { kind: "final", output: "advice", text: "Réduisez la crème." });
+    assert.deepEqual(received, { message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"], context });
+    assert.equal((await post(base, "/api/assistant/agent", { message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"], context: { recipeId: "local" } })).status, 400);
     const invalid = await post(base, "/api/assistant/agent", { message: "x", skills: ["réseau"], tools: [] });
     assert.equal(invalid.status, 400);
+  });
+});
+
+test("agent BFF : l'abandon client annule le raisonneur et n'émet aucune finale tardive", async () => {
+  let receivedSignal: AbortSignal | undefined;
+  let release!: () => void;
+  let started!: () => void;
+  const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+  const decisionPromise = new Promise<void>((resolve) => { release = resolve; });
+  assistantDependencies.chefAgent = async (_input, signal) => {
+    receivedSignal = signal;
+    started();
+    await decisionPromise;
+    return { kind: "final", output: "advice", text: "Réponse trop tardive." };
+  };
+  await withServer(async (base) => {
+    const controller = new AbortController();
+    const request = fetch(`${base}/api/assistant/agent`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"] }),
+      signal: controller.signal
+    });
+    await startedPromise;
+    controller.abort();
+    await assert.rejects(request, { name: "AbortError" });
+    // La fermeture socket arrive après le rejet local de fetch : laisser le
+    // serveur observer l'événement `aborted` avant de vérifier son signal.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(receivedSignal?.aborted, true);
+    release();
   });
 });
 

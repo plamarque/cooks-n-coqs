@@ -252,6 +252,16 @@ test("App.vue : un tour Chef est affiché avant la préparation locale", () => {
   assert.match(submission[0], /prepareAssistantTextRequest\(preparationId, sentAssistantText\)/);
 });
 
+test("App.vue : une preview active ne court-circuite pas ChefAgent après une clarification ouverte", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  const resolution = /const activePreviewAtEntry = latestTemporaryPreview\(\);[\s\S]*?let classification: ChefTurnClassificationV1 \| null = agentClassification;/.exec(app);
+  assert.ok(resolution, "la branche preview/clarification est présente");
+  assert.match(resolution[0], /const continuationContext = previousClarification\s*\? buildChefTurnClassificationContext\([\s\S]*?\)\s*: undefined;/);
+  assert.match(resolution[0], /if \(activePreviewAtEntry && !previousClarification && !explicitNotebookSearchAtEntry && !explicitRecipeCreationAtEntry\) \{[\s\S]*?agentFinal = \{ output: "advice" \};/);
+  assert.match(resolution[0], /agent\.run\([\s\S]*?signal,[\s\S]*?continuationContext/);
+});
+
 test("App.vue : une photo est checkpointée avant préparation et un échec reste visible avec nouvel essai", () => {
   const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
   const app = readFileSync(appPath, "utf8");

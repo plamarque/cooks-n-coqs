@@ -1,4 +1,4 @@
-import type { ChefAgentDecisionV1, ChefAgentFinalV1, ChefAgentRequestV1, ChefAgentToolInputV1, ChefAgentToolResultV1, ChefMcpToolNameV1, ChefSkillIdV1 } from "@cookies-et-coquilettes/domain";
+import type { ChefAgentContextV1, ChefAgentDecisionV1, ChefAgentFinalV1, ChefAgentRequestV1, ChefAgentToolInputV1, ChefAgentToolResultV1, ChefMcpToolNameV1, ChefSkillIdV1 } from "@cookies-et-coquilettes/domain";
 import { CHEF_AGENT_MAX_STEPS, CHEF_AGENT_MAX_TOOLS, isChefAgentToolInputForTool } from "@cookies-et-coquilettes/domain";
 import { allowedChefTools } from "./chef-skills";
 
@@ -16,7 +16,7 @@ export class ChefAgent {
 
   cancel(): void { this.controller?.abort(); this.controller = null; this.requestId += 1; }
 
-  async run(message: string, skills: readonly ChefSkillIdV1[] = ["chef-core", "adapter-une-recette"], parentSignal?: AbortSignal): Promise<ChefAgentResult> {
+  async run(message: string, skills: readonly ChefSkillIdV1[] = ["chef-core", "adapter-une-recette"], parentSignal?: AbortSignal, context?: ChefAgentContextV1): Promise<ChefAgentResult> {
     this.cancel();
     const requestId = ++this.requestId;
     const controller = new AbortController(); this.controller = controller;
@@ -29,7 +29,7 @@ export class ChefAgent {
     let repeatedDecisionCount = 0;
     try {
       for (let step = 0; step < CHEF_AGENT_MAX_STEPS; step += 1) {
-        const decision = await this.dependencies.decide({ message, skills: [...skills], tools, ...(results.length ? { results } : {}) }, controller.signal);
+        const decision = await this.dependencies.decide({ message, skills: [...skills], tools, ...(context ? { context } : {}), ...(results.length ? { results } : {}) }, controller.signal);
         if (controller.signal.aborted || requestId !== this.requestId) return { kind: "stopped", reason: "cancelled" };
         if (decision.kind === "final") return { kind: "final", final: decision, toolResults: results };
         if (!tools.includes(decision.tool) || !isChefAgentToolInputForTool(decision.tool, decision.input) || results.length >= CHEF_AGENT_MAX_TOOLS) return { kind: "stopped", reason: "invalid_tool" };
