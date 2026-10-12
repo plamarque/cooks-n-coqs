@@ -1663,14 +1663,25 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
           const explicitNotebookSearchAtEntry = /\b(?:cherche|recherche|retrouve)\b|\bdans (?:mon|le) cahier\b/iu.test(text);
           const explicitRecipeCreationAtEntry = /\b(?:cr[ée]e|g[ée]n[èe]re|fais|propose)\b[^.\n]{0,80}\b(?:recette|variante)\b/iu.test(text) || requestsRecipePreview(text);
           const activePreviewAtEntry = latestTemporaryPreview();
+          // Seule la réponse à une clarification ouverte peut reprendre son
+          // objectif et sa référence. Un nouveau tour reste volontairement
+          // vierge de tout contexte des cartes précédentes.
+          const continuationContext = previousClarification
+            ? buildChefTurnClassificationContext(assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text)
+            : undefined;
           // Une carte active donne un contexte non ambigu aux questions et
           // remarques suivantes. Cette règle locale précède le raisonneur :
           // aucun faux « create » ou « search » ne peut alors la remplacer.
-          if (activePreviewAtEntry && !explicitNotebookSearchAtEntry && !explicitRecipeCreationAtEntry) {
+          if (activePreviewAtEntry && !previousClarification && !explicitNotebookSearchAtEntry && !explicitRecipeCreationAtEntry) {
             recipeContext = toChefRecipeExcerpt(activePreviewAtEntry);
             agentFinal = { output: "advice" };
           } else try {
-            const agentResult = await agent.run(text, ["chef-core", "adapter-une-recette"], signal);
+            const agentResult = await agent.run(
+              text,
+              ["chef-core", "adapter-une-recette"],
+              signal,
+              continuationContext
+            );
             if (agentResult.kind !== "final") {
               if (agentResult.reason === "cancelled") throw signal.reason ?? new DOMException("Aborted", "AbortError");
               // Le raisonneur peut s'arrêter proprement sans finale (absence de
