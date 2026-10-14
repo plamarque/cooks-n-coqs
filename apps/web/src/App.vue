@@ -87,11 +87,12 @@ import { ChefSession } from "./utils/chef-session";
 import { buildChefTurnClassificationContext, requestsRecipePreview, resolveChefTurnClassification } from "./utils/chef-turn-classification";
 import { restoreChefIdeasFromTurns, restoreChefNoCandidateTurnIds, routeChefIntentForRequest, type ChefIdea } from "./utils/chef-intent-router";
 import { preserveChef92Outcome, runChefAgentOutcome } from "./utils/chef-agent-outcome";
-import { ChefAgent } from "./utils/chef-agent";
+import { ChefRuntimeV2 } from "./utils/chef-agent";
+import { ContextResolver } from "./utils/context-resolver";
 import { toChefRecipeExcerpt } from "./utils/chef-mcp-local";
 import { createNoCandidateAssistantPreview } from "./utils/assistant-no-candidate";
 import { buildNotebookSnapshot, candidateMeetsLiteralConstraints } from "./utils/notebook-search";
-import { AssistantImageRequestError, AssistantRecipeRequestError, buildAssistantSelectionRequest, classifyChefTurn, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, requestChefAgentDecision, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
+import { AssistantImageRequestError, AssistantRecipeRequestError, buildAssistantSelectionRequest, classifyChefTurn, generateAssistantRecipe, prepareAssistantImages, requestChefAdvice, requestChefAgentDecisionV2, selectNotebookRecipe, summarizeAssistantImages } from "./services/assistant-service";
 import { hydrateStepMediaFromDraft, resolveFormStepMediaForSave } from "./services/step-media-import";
 import {
   getCookingStepImageBlobUrl,
@@ -1613,22 +1614,21 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
             const match = snapshot.candidates.find((candidate) => matchesReferenceTitle(candidate.title, inferredTitle) || messageMentionsRecipe(candidate.title, text));
             return match ? snapshot.resolve(match.candidateRef) ?? null : null;
           };
-          // Le modèle ne voit que les capacités annoncées. Chaque lecture
-          // IndexedDB reste locale et revient sous forme d'extrait redacted.
-          const agent = new ChefAgent({
-            decide: requestChefAgentDecision,
+          const agent = new ChefRuntimeV2({
+            decide: requestChefAgentDecisionV2,
             execute: async (tool, input, toolSignal) => {
-              if (tool === "classify-turn" && "message" in input) {
+              if (tool === "classify-turn" && typeof input.message === "string") {
                 const wire = await classifyChefTurn({ message: input.message, context: buildChefTurnClassificationContext(assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text) }, toolSignal);
                 agentClassification = resolveChefTurnClassification(wire, assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text);
                 return { intent: wire.intent, constraints: wire.constraints };
               }
-              if (tool === "search-notebook" && "query" in input) {
+              if (tool === "search-notebook" && typeof input.query === "string") {
                 const snapshot = await buildNotebookSnapshot();
-                return { titles: snapshot.candidates.filter((candidate) => candidate.title.toLocaleLowerCase("fr-FR").includes(input.query.toLocaleLowerCase("fr-FR"))).slice(0, 3).map((candidate) => candidate.title) };
+                const query = input.query;
+                return { titles: snapshot.candidates.filter((candidate) => candidate.title.toLocaleLowerCase("fr-FR").includes(query.toLocaleLowerCase("fr-FR"))).slice(0, 3).map((candidate) => candidate.title) };
               }
               if (tool === "get-recipe-context") {
-                const referenceTitle = "referenceTitle" in input ? input.referenceTitle : undefined;
+                const referenceTitle = typeof input.referenceTitle === "string" ? input.referenceTitle : undefined;
                 const recipe = await resolveReferencedRecipe(referenceTitle ?? agentClassification?.reference?.title);
                 // Une relance sur une idée textuelle n'a pas nécessairement
                 // de carte ou de recette du Cahier. C'est une absence de
@@ -1638,7 +1638,7 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
                 recipeContext = toChefRecipeExcerpt(recipe);
                 return { recipe: recipeContext };
               }
-              if (tool === "prepare-preview" && "request" in input) {
+              if (tool === "prepare-preview" && typeof input.request === "string") {
                 if (!recipeContext) {
                   const recipe = await resolveReferencedRecipe(agentClassification?.reference?.title);
                   if (recipe) recipeContext = toChefRecipeExcerpt(recipe);
@@ -1647,7 +1647,7 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
                 previewPrepared = true;
                 return { prepared: true };
               }
-              if (tool === "assistant-advice" && "request" in input) {
+              if (tool === "assistant-advice" && typeof input.request === "string") {
                 const advice = await requestChefAdvice({
                   request: input.request,
                   context: recipeContext
@@ -1658,29 +1658,40 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
                 return { text: `${advice.recommendation}\n${advice.reason}${advice.alternative ? `\nAutre piste : ${advice.alternative}` : ""}`.slice(0, 600) };
               }
               throw new Error("tool refusé");
-            }
+            },
+            audit: (event) => console.warn("chef_runtime_limit", event)
           });
           const explicitNotebookSearchAtEntry = /\b(?:cherche|recherche|retrouve)\b|\bdans (?:mon|le) cahier\b/iu.test(text);
           const explicitRecipeCreationAtEntry = /\b(?:cr[ée]e|g[ée]n[èe]re|fais|propose)\b[^.\n]{0,80}\b(?:recette|variante)\b/iu.test(text) || requestsRecipePreview(text);
           const activePreviewAtEntry = latestTemporaryPreview();
-          // Seule la réponse à une clarification ouverte peut reprendre son
-          // objectif et sa référence. Un nouveau tour reste volontairement
-          // vierge de tout contexte des cartes précédentes.
+          // La projection est construite une fois par son propriétaire local.
+          // Le runtime V2 construit ensuite tous les wires et garde le registre fermé.
           const continuationContext = previousClarification
             ? buildChefTurnClassificationContext(assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text)
             : undefined;
+          const resolution = new ContextResolver().resolve({
+            currentMessage: text,
+            recentThread: assistantSession.turns.slice(0, -1).map(({ role, text: turnText }) => ({ role, text: turnText })),
+            closed: !!chefSession.active?.closedAt,
+            context: continuationContext
+          });
           // Une carte active donne un contexte non ambigu aux questions et
           // remarques suivantes. Cette règle locale précède le raisonneur :
           // aucun faux « create » ou « search » ne peut alors la remplacer.
-          if (activePreviewAtEntry && !previousClarification && !explicitNotebookSearchAtEntry && !explicitRecipeCreationAtEntry) {
+          if (resolution.kind === "refused") {
+            // Un refus de sécurité ou un fil clos est une frontière locale :
+            // aucun repli classifieur/BFF ne doit réintroduire ce contenu.
+            agentFinal = { output: "clarify", text: "Cette conversation ne peut pas être reprise ici." };
+          } else if (activePreviewAtEntry && !previousClarification && !explicitNotebookSearchAtEntry && !explicitRecipeCreationAtEntry) {
             recipeContext = toChefRecipeExcerpt(activePreviewAtEntry);
             agentFinal = { output: "advice" };
           } else try {
             const agentResult = await agent.run(
               text,
               ["chef-core", "adapter-une-recette"],
+              resolution.context,
               signal,
-              continuationContext
+              resolution.recentExcerpt
             );
             if (agentResult.kind !== "final") {
               if (agentResult.reason === "cancelled") throw signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -1691,7 +1702,7 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
               agentUnavailable = true;
             } else {
               const adviceResult = [...agentResult.toolResults].reverse().find((entry) => entry.tool === "assistant-advice" && "text" in entry.result);
-              const adviceText = adviceResult && "text" in adviceResult.result ? adviceResult.result.text : undefined;
+              const adviceText = adviceResult && typeof adviceResult.result.text === "string" ? adviceResult.result.text : undefined;
               const normalizedFinal = preserveChef92Outcome(agentResult.final);
               agentFinal = { ...normalizedFinal, ...(normalizedFinal.output === "advice" && !normalizedFinal.text && adviceText ? { text: adviceText } : {}) };
             }
@@ -1704,7 +1715,7 @@ async function prepareAssistantTextRequest(preparationId: number, submittedText:
           // arrêté sans finale. Une finale ou une classification agentique ne
           // repasse jamais par le classifieur préalable.
           let classification: ChefTurnClassificationV1 | null = agentClassification;
-          if (agentUnavailable) {
+          if (agentUnavailable && resolution.kind === "resolved") {
             const classificationWire = await classifyChefTurn({
               message: text,
               context: buildChefTurnClassificationContext(assistantSession.turns.slice(0, -1), previousClarification, candidateTitles, text)

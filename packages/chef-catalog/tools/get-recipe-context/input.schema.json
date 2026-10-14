@@ -1,0 +1,1 @@
+{"type":"object","additionalProperties":false,"properties":{"referenceTitle":{"type":"string","maxLength":180}}}

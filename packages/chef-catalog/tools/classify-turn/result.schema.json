@@ -1,0 +1,1 @@
+{"type":"object","additionalProperties":false,"required":["intent","constraints"],"properties":{"intent":{"type":"string","maxLength":20},"constraints":{"type":"array","maxItems":12,"items":{"type":"string","maxLength":180}}}}

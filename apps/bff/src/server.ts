@@ -25,10 +25,11 @@ import {
   generateRecipeImage
 } from "./image-generator.js";
 import { detectStepTimerDurationSeconds } from "./step-timer-detector.js";
-import { chooseNotebookRecipe, generateAssistantRecipe, getChefAdvice, getChefAgentDecision, getChefTurnClassification, isAssistantRecipeInput, isAssistantSelectionInput, summarizeAssistantImage, validateAssistantRecipeDraft, writeAssistantClarification } from "./assistant-client.js";
+import { chooseNotebookRecipe, generateAssistantRecipe, getChefAdvice, getChefAgentDecisionV2, getChefTurnClassification, isAssistantRecipeInput, isAssistantSelectionInput, summarizeAssistantImage, validateAssistantRecipeDraft, writeAssistantClarification } from "./assistant-client.js";
 import { isChefAdviceRequestV1, isChefAdviceWireV1 } from "@cookies-et-coquilettes/domain/chef-advice";
 import { isChefTurnClassificationRequestV1, isChefTurnClassificationWireV1 } from "@cookies-et-coquilettes/domain/chef-turn-classification";
-import { isChefAgentDecisionV1, isChefAgentRequestV1 } from "@cookies-et-coquilettes/domain/chef-agent";
+import { isChefAgentDecisionV2, isChefAgentTurnWireV2 } from "@cookies-et-coquilettes/domain/chef-agent";
+import { CHEF_CATALOG_REVISION, chefCatalogToolsForSkills, resolveChefSkillClosure, validateChefCatalogToolValue } from "@cookies-et-coquilettes/domain/chef-catalog";
 
 /** Point d’injection réservé aux tests HTTP : aucun fournisseur réel n’est appelé. */
 export const assistantDependencies = {
@@ -38,7 +39,7 @@ export const assistantDependencies = {
   generate: generateAssistantRecipe,
   advice: getChefAdvice,
   classifyTurn: getChefTurnClassification,
-  chefAgent: getChefAgentDecision
+  chefAgentV2: getChefAgentDecisionV2
 };
 
 export const app = express();
@@ -282,25 +283,37 @@ app.post("/api/assistant/classify-turn", async (req, res) => {
 app.post("/api/assistant/agent", async (req, res) => {
   const requestId = assistantRequestId(req);
   const startedAt = Date.now();
-  if (!isChefAgentRequestV1(req.body)) {
-    traceAssistant({ stage: "agent", provider: "none", errorClass: "invalid_input", httpStatus: 400, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
-    assistantError(res, requestId, 400, { error: "INVALID_INPUT" }); return;
-  }
-  const controller = new AbortController();
-  req.once("aborted", () => controller.abort());
-  res.once("close", () => { if (!res.writableEnded) controller.abort(); });
-  try {
-    const decision = await assistantDependencies.chefAgent(req.body, controller.signal);
-    if (controller.signal.aborted) { traceAssistant({ stage: "agent", provider: "openai", errorClass: "cancelled", durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); return; }
-    if (!decision || !isChefAgentDecisionV1(decision)) {
-      traceAssistant({ stage: "agent", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
-      assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); return;
+  if (isChefAgentTurnWireV2(req.body)) {
+    const input = req.body;
+    const closure = resolveChefSkillClosure(input.activeSkills);
+    if (input.catalogRevision !== CHEF_CATALOG_REVISION || !closure || closure.length !== input.activeSkills.length || closure.some((skill, index) => skill !== input.activeSkills[index])) {
+      traceAssistant({ stage: "agent", provider: "none", errorClass: "invalid_input", httpStatus: 409, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+      assistantError(res, requestId, 409, { error: "catalog_mismatch" }); return;
     }
-    traceAssistant({ stage: "agent", provider: "openai", errorClass: "none", httpStatus: 200, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
-    res.setHeader("x-request-id", requestId); res.json(decision);
-  } catch {
-    if (!controller.signal.aborted) { traceAssistant({ stage: "agent", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); }
+    const declaredTools = chefCatalogToolsForSkills(input.activeSkills) ?? [];
+    if (input.results?.some((entry) => !declaredTools.includes(entry.tool) || !validateChefCatalogToolValue(entry.tool, "result", entry.result))) {
+      traceAssistant({ stage: "agent", provider: "none", errorClass: "invalid_input", httpStatus: 400, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+      assistantError(res, requestId, 400, { error: "INVALID_INPUT" }); return;
+    }
+    const controller = new AbortController();
+    req.once("aborted", () => controller.abort());
+    res.once("close", () => { if (!res.writableEnded) controller.abort(); });
+    try {
+      const decision = await assistantDependencies.chefAgentV2(input, controller.signal);
+      if (controller.signal.aborted) return;
+      const valid = !!decision && isChefAgentDecisionV2(decision)
+        && (decision.kind !== "tool" || declaredTools.includes(decision.tool) && validateChefCatalogToolValue(decision.tool, "input", decision.input))
+        && (decision.kind !== "activate_skill" || !input.activeSkills.includes(decision.skill) && (() => { const next = resolveChefSkillClosure([...input.activeSkills, decision.skill]); return !!next && next.length <= 4; })());
+      if (!valid) { traceAssistant({ stage: "agent", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); return; }
+      traceAssistant({ stage: "agent", provider: "openai", errorClass: "none", httpStatus: 200, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+      res.setHeader("x-request-id", requestId); res.json(decision);
+    } catch {
+      if (!controller.signal.aborted) { traceAssistant({ stage: "agent", provider: "openai", errorClass: "upstream_unavailable", httpStatus: 503, durationMs: Date.now() - startedAt, candidateCount: 0, requestId }); assistantError(res, requestId, 503, { error: "UPSTREAM_UNAVAILABLE" }); }
+    }
+    return;
   }
+  traceAssistant({ stage: "agent", provider: "none", errorClass: "invalid_input", httpStatus: 400, durationMs: Date.now() - startedAt, candidateCount: 0, requestId });
+  assistantError(res, requestId, 400, { error: "INVALID_INPUT" });
 });
 
 app.post("/api/import/url", async (req, res) => {

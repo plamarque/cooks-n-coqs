@@ -259,7 +259,10 @@ test("App.vue : une preview active ne court-circuite pas ChefAgent après une cl
   assert.ok(resolution, "la branche preview/clarification est présente");
   assert.match(resolution[0], /const continuationContext = previousClarification\s*\? buildChefTurnClassificationContext\([\s\S]*?\)\s*: undefined;/);
   assert.match(resolution[0], /if \(activePreviewAtEntry && !previousClarification && !explicitNotebookSearchAtEntry && !explicitRecipeCreationAtEntry\) \{[\s\S]*?agentFinal = \{ output: "advice" \};/);
-  assert.match(resolution[0], /agent\.run\([\s\S]*?signal,[\s\S]*?continuationContext/);
+  assert.match(resolution[0], /new ContextResolver\(\)\.resolve\(\{[\s\S]*?currentMessage: text,[\s\S]*?recentThread: assistantSession\.turns\.slice\(0, -1\)/);
+  assert.match(resolution[0], /agent\.run\([\s\S]*?text,[\s\S]*?\["chef-core", "adapter-une-recette"\],[\s\S]*?resolution\.context,[\s\S]*?signal,[\s\S]*?resolution\.recentExcerpt/);
+  assert.match(resolution[0], /if \(resolution\.kind === "refused"\)[\s\S]*?agentFinal = \{ output: "clarify"/);
+  assert.match(app, /if \(agentUnavailable && resolution\.kind === "resolved"\)/);
 });
 
 test("App.vue : une photo est checkpointée avant préparation et un échec reste visible avec nouvel essai", () => {

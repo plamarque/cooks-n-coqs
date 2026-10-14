@@ -53,3 +53,39 @@ export function isChefAgentDecisionV1(value: unknown): value is ChefAgentDecisio
     && (value.text === undefined || isText(value.text, 600))
     && (value.createVariant === undefined || typeof value.createVariant === "boolean");
 }
+
+/** Contrat V2 fermé : le navigateur ne transmet qu'une projection temporaire. */
+export const CHEF_RUNTIME_LIMITS_V1 = Object.freeze({ maxSteps: 6, maxActiveSkills: 4, maxProjectionChars: 2_400, maxResultChars: 1_200, maxTotalResultChars: 2_400, highWaterRatio: 0.8 });
+export type ChefRuntimeLimitKeyV1 = keyof Omit<typeof CHEF_RUNTIME_LIMITS_V1, "highWaterRatio">;
+export type ChefRuntimeLimitAuditEventV1 = Readonly<{ catalogRevision: string; step: number; key: ChefRuntimeLimitKeyV1; configured: number; observed: number; action: "observe" | "truncate" | "evict" | "omit" | "fallback"; outcome: "limit_high_water" | "limit_enforced" }>;
+export type ChefAgentProjectionV2 = Readonly<{ message: string; recentExcerpt?: string; context?: ChefAgentContextV1 }>;
+export type ChefAgentTurnWireV2 = Readonly<{ catalogRevision: string; nonce: string; step: number; activeSkills: string[]; projection: ChefAgentProjectionV2; results?: Array<{ tool: string; result: Record<string, unknown> }> }>;
+export type ChefAgentDecisionV2 = Readonly<{ kind: "final"; output: ChefAgentFinalV1["output"]; text?: string }> | Readonly<{ kind: "tool"; tool: string; input: Record<string, unknown> }> | Readonly<{ kind: "activate_skill"; skill: string }>;
+
+const v2Skill = (value: unknown): value is string => typeof value === "string" && /^[a-z][a-z0-9-]{1,63}$/.test(value);
+const safeNonce = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9_-]{16,96}$/.test(value);
+const hasForbiddenData = (value: unknown): boolean => {
+  if (typeof value === "string") return /(?:blob:|data:|\b(?:indexeddb|dexie|file|blob)\b|\b(?:recipe|candidate|conversation)[_-]?id\s*[:=]|\b(?:api|secret|token)[_-]?(?:key|token|secret)\b|\b(?:api|secret|token|sk)[_-]?[a-z0-9]{12,})/iu.test(value);
+  if (!isObject(value)) return Array.isArray(value) && value.some(hasForbiddenData);
+  return Object.entries(value).some(([key, child]) => /(?:^|[_-])(?:id|file|blob|binary|profile|cahier|prompt|reasoning)(?:$|[_-])/iu.test(key) || hasForbiddenData(child));
+};
+export function isChefAgentTurnWireV2(value: unknown): value is ChefAgentTurnWireV2 {
+  if (!isObject(value) || !closed(value, ["catalogRevision", "nonce", "step", "activeSkills", "projection", "results"])) return false;
+  if (!isText(value.catalogRevision, 120) || !safeNonce(value.nonce) || typeof value.step !== "number" || !Number.isInteger(value.step) || value.step < 0 || value.step >= CHEF_RUNTIME_LIMITS_V1.maxSteps) return false;
+  if (!Array.isArray(value.activeSkills) || !value.activeSkills.length || value.activeSkills.length > CHEF_RUNTIME_LIMITS_V1.maxActiveSkills || new Set(value.activeSkills).size !== value.activeSkills.length || !value.activeSkills.every(v2Skill)) return false;
+  if (!isObject(value.projection) || !closed(value.projection, ["message", "recentExcerpt", "context"]) || !isText(value.projection.message, CHEF_RUNTIME_LIMITS_V1.maxProjectionChars) || (value.projection.recentExcerpt !== undefined && !isText(value.projection.recentExcerpt, CHEF_RUNTIME_LIMITS_V1.maxProjectionChars)) || hasForbiddenData(value.projection)) return false;
+  const contextWire = value.projection.context === undefined || isChefAgentRequestV1({ message: value.projection.message, skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"], context: value.projection.context });
+  if (!contextWire) return false;
+  return value.results === undefined || Array.isArray(value.results) && value.results.length <= CHEF_RUNTIME_LIMITS_V1.maxSteps && value.results.every((entry) => isObject(entry) && closed(entry, ["tool", "result"]) && v2Skill(entry.tool) && isObject(entry.result) && !hasForbiddenData(entry.result));
+}
+export function isChefAgentDecisionV2(value: unknown): value is ChefAgentDecisionV2 {
+  if (!isObject(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "activate_skill") return closed(value, ["kind", "skill"]) && v2Skill(value.skill);
+  if (value.kind === "tool") return closed(value, ["kind", "tool", "input"]) && v2Skill(value.tool) && isObject(value.input) && !hasForbiddenData(value.input);
+  return value.kind === "final" && closed(value, ["kind", "output", "text"]) && ["ideas", "search", "preview", "advice", "clarify"].includes(value.output as string) && (value.text === undefined || isText(value.text, 600) && !hasForbiddenData(value.text));
+}
+export function chefRuntimeLimitAudit(catalogRevision: string, step: number, key: ChefRuntimeLimitKeyV1, observed: number, action: ChefRuntimeLimitAuditEventV1["action"]): ChefRuntimeLimitAuditEventV1 | null {
+  const configured = CHEF_RUNTIME_LIMITS_V1[key];
+  if (observed < Math.ceil(configured * CHEF_RUNTIME_LIMITS_V1.highWaterRatio)) return null;
+  return { catalogRevision, step, key, configured, observed, action, outcome: observed > configured ? "limit_enforced" : "limit_high_water" };
+}

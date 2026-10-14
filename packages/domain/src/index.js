@@ -4,3 +4,4 @@ export * from "./import-source-dedup.js";
 export * from "./notebook-selection.js";
 export * from "./chef-advice.js";
 export * from "./chef-turn-classification.js";
+export * from "./chef-agent.js";

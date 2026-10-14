@@ -1,0 +1,1 @@
+{"type":"object","additionalProperties":false,"required":["titles"],"properties":{"titles":{"type":"array","maxItems":3,"items":{"type":"string","maxLength":180}}}}

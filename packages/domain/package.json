@@ -24,6 +24,13 @@
     "./chef-agent": {
       "types": "./src/chef-agent.d.ts",
       "default": "./src/chef-agent.js"
+    },
+    "./chef-catalog": {
+      "types": "./src/chef-catalog.d.ts",
+      "default": "./src/chef-catalog.js"
     }
+  },
+  "dependencies": {
+    "ajv": "^8.18.0"
   }
 }

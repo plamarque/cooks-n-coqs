@@ -1,4 +1,4 @@
-import { decodeAssistantDraftWireV1, isChefAdviceRequestV1, isChefAdviceWireV1, isChefAgentDecisionV1, isChefAgentRequestV1, isChefTurnClassificationRequestV1, isChefTurnClassificationWireV1, isNotebookSelectionRequestV1, isNotebookSelectionWireV1, NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH, type AssistantConversationTurnV1, type ChefAdviceRequestV1, type ChefAdviceWireV1, type ChefAgentDecisionV1, type ChefAgentRequestV1, type ChefTurnClassificationRequestV1, type ChefTurnClassificationWireV1, type NotebookCandidateWireV1, type NotebookSelectionWireV1, type ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
+import { decodeAssistantDraftWireV1, isChefAdviceRequestV1, isChefAdviceWireV1, isChefAgentDecisionV1, isChefAgentDecisionV2, isChefAgentRequestV1, isChefAgentTurnWireV2, isChefTurnClassificationRequestV1, isChefTurnClassificationWireV1, isNotebookSelectionRequestV1, isNotebookSelectionWireV1, NOTEBOOK_SELECTION_REQUEST_MAX_LENGTH, type AssistantConversationTurnV1, type ChefAdviceRequestV1, type ChefAdviceWireV1, type ChefAgentDecisionV1, type ChefAgentDecisionV2, type ChefAgentRequestV1, type ChefAgentTurnWireV2, type ChefTurnClassificationRequestV1, type ChefTurnClassificationWireV1, type NotebookCandidateWireV1, type NotebookSelectionWireV1, type ParsedRecipeDraft } from "@cookies-et-coquilettes/domain";
 import { compressImageForTransfer, ImageTransferPreparationError } from "./import-service";
 
 function defaultBffUrl(): string {
@@ -148,6 +148,19 @@ export async function requestChefAgentDecision(input: ChefAgentRequestV1, signal
   let wire: unknown;
   try { wire = await response.json(); } catch { throw new AssistantRecipeRequestError("invalid"); }
   if (!isChefAgentDecisionV1(wire)) throw new AssistantRecipeRequestError("invalid");
+  return wire;
+}
+
+/** Transport V2 : le BFF reconstruit toujours ses capacités depuis le catalogue embarqué. */
+export async function requestChefAgentDecisionV2(input: ChefAgentTurnWireV2, signal: AbortSignal): Promise<ChefAgentDecisionV2> {
+  if (!isChefAgentTurnWireV2(input)) throw new AssistantRecipeRequestError("invalid");
+  let response: Response;
+  try { response = await fetch(`${API_BASE_URL}/api/assistant/agent`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal }); }
+  catch (error) { if ((error as Error).name === "AbortError") throw error; throw new AssistantRecipeRequestError("unavailable"); }
+  if (!response.ok) throw new AssistantRecipeRequestError("unavailable");
+  let wire: unknown;
+  try { wire = await response.json(); } catch { throw new AssistantRecipeRequestError("invalid"); }
+  if (!isChefAgentDecisionV2(wire)) throw new AssistantRecipeRequestError("invalid");
   return wire;
 }
 

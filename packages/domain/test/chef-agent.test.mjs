@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isChefAgentDecisionV1, isChefAgentRequestV1 } from "../src/chef-agent.js";
+import { CHEF_RUNTIME_LIMITS_V1, chefRuntimeLimitAudit, isChefAgentDecisionV1, isChefAgentDecisionV2, isChefAgentRequestV1, isChefAgentTurnWireV2 } from "../src/chef-agent.js";
 
 const skills = ["chef-core", "adapter-une-recette"];
 const tools = ["search-notebook", "assistant-advice", "classify-turn", "get-recipe-context", "prepare-preview"];
@@ -31,4 +31,24 @@ test("ChefAgent : chaque tool impose son schéma d’entrée", () => {
   assert.equal(isChefAgentDecisionV1({ kind: "tool", tool: "get-recipe-context", input: {} }), true);
   assert.equal(isChefAgentDecisionV1({ kind: "tool", tool: "classify-turn", input: { request: "Adapte" } }), false);
   assert.equal(isChefAgentDecisionV1({ kind: "tool", tool: "classify-turn", input: { message: "Adapte" } }), true);
+});
+
+test("ChefAgent V2 : le wire ferme révision, nonce, projection et résultats", () => {
+  const wire = { catalogRevision: "chef-catalog-v1-09170f6ee3cb4ddc", nonce: "nonce_temporaire_1234", step: 0, activeSkills: ["chef-core"], projection: { message: "Sans crème", recentExcerpt: "Je cuisine une sauce", context: { objective: "une sauce" } } };
+  assert.equal(isChefAgentTurnWireV2(wire), true);
+  assert.equal(isChefAgentTurnWireV2({ ...wire, recipeId: "dexie-local" }), false);
+  assert.equal(isChefAgentTurnWireV2({ ...wire, projection: { message: "blob:https://local/secret" } }), false);
+  assert.equal(isChefAgentTurnWireV2({ ...wire, step: CHEF_RUNTIME_LIMITS_V1.maxSteps }), false);
+});
+
+test("ChefAgent V2 : les limites produisent seulement un audit redacted", () => {
+  assert.equal(chefRuntimeLimitAudit("revision", 1, "maxResultChars", 100, "truncate"), null);
+  assert.deepEqual(chefRuntimeLimitAudit("revision", 1, "maxResultChars", 960, "truncate"), { catalogRevision: "revision", step: 1, key: "maxResultChars", configured: 1200, observed: 960, action: "truncate", outcome: "limit_high_water" });
+  assert.deepEqual(chefRuntimeLimitAudit("revision", 1, "maxResultChars", 1201, "fallback"), { catalogRevision: "revision", step: 1, key: "maxResultChars", configured: 1200, observed: 1201, action: "fallback", outcome: "limit_enforced" });
+});
+
+test("ChefAgent V2 : une finale ne peut pas renvoyer d'identifiant ou de secret brut", () => {
+  assert.equal(isChefAgentDecisionV2({ kind: "final", output: "advice", text: "Ajoutez du thym." }), true);
+  assert.equal(isChefAgentDecisionV2({ kind: "final", output: "advice", text: "recipeId: dexie-local" }), false);
+  assert.equal(isChefAgentDecisionV2({ kind: "final", output: "advice", text: "secretToken supersecretvalue" }), false);
 });

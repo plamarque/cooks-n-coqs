@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { app, assistantDependencies } from "../src/server.js";
 import { buildCachedImageUrl } from "../src/image-cache.js";
+import { CHEF_CATALOG_REVISION } from "@cookies-et-coquilettes/domain/chef-catalog";
 
 const original = { ...assistantDependencies };
 const candidate = { candidateRef: "candidate-1", title: "Tarte", ingredientLabels: ["pomme"], durationMin: 30 };
@@ -18,30 +19,62 @@ async function withServer(run: (base: string) => Promise<void>): Promise<void> {
 async function post(base: string, path: string, body: unknown): Promise<Response> {
   return fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
+const agentWire = (overrides: Record<string, unknown> = {}) => ({ catalogRevision: CHEF_CATALOG_REVISION, nonce: "nonce_temporaire_1234", step: 0, activeSkills: ["chef-core"], projection: { message: "sans crème" }, ...overrides });
 test.afterEach(() => Object.assign(assistantDependencies, original));
 
-test("agent BFF : accepte seulement le wire fermé, sans état", async () => {
+test("agent BFF : accepte seulement le wire V2 fermé, sans état", async () => {
   let received: unknown;
-  assistantDependencies.chefAgent = async (input) => { received = input; return { kind: "final", output: "advice", text: "Réduisez la crème." }; };
+  assistantDependencies.chefAgentV2 = async (input) => { received = input; return { kind: "final", output: "advice", text: "Réduisez la crème." }; };
   await withServer(async (base) => {
-    const context = { objective: "des cèpes", constraints: ["sans crème"], clarification: "Quel appareil ?", reference: { title: "Soupe de cèpes" } };
-    const response = await post(base, "/api/assistant/agent", { message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"], context });
+    const wire = agentWire({ projection: { message: "sans crème", context: { objective: "des cèpes", constraints: ["sans crème"], clarification: "Quel appareil ?", reference: { title: "Soupe de cèpes" } } } });
+    const response = await post(base, "/api/assistant/agent", wire);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { kind: "final", output: "advice", text: "Réduisez la crème." });
-    assert.deepEqual(received, { message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"], context });
-    assert.equal((await post(base, "/api/assistant/agent", { message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"], context: { recipeId: "local" } })).status, 400);
+    assert.deepEqual(received, wire);
+    assert.equal((await post(base, "/api/assistant/agent", agentWire({ projection: { message: "sans crème", context: { objective: "x", recipeId: "local" } } }))).status, 400);
     const invalid = await post(base, "/api/assistant/agent", { message: "x", skills: ["réseau"], tools: [] });
     assert.equal(invalid.status, 400);
   });
 });
 
-test("agent BFF : l'abandon client annule le raisonneur et n'émet aucune finale tardive", async () => {
+test("agent BFF V2 : un catalogue divergent ne contacte pas le modèle ni ne persiste", async () => {
+  let calls = 0;
+  assistantDependencies.chefAgentV2 = async () => { calls += 1; return { kind: "final", output: "advice" }; };
+  await withServer(async (base) => {
+    const mismatch = await post(base, "/api/assistant/agent", agentWire({ catalogRevision: "ancienne-revision" }));
+    assert.equal(mismatch.status, 409);
+    assert.deepEqual(await mismatch.json(), { error: "catalog_mismatch" });
+    assert.equal(calls, 0);
+    const valid = await post(base, "/api/assistant/agent", agentWire());
+    assert.equal(valid.status, 200);
+    assert.deepEqual(await valid.json(), { kind: "final", output: "advice" });
+    assert.equal(calls, 1);
+  });
+});
+
+test("agent BFF V2 : valide les résultats entrants et les inputs proposés aux frontières", async () => {
+  let calls = 0;
+  assistantDependencies.chefAgentV2 = async () => { calls += 1; return { kind: "final", output: "advice" }; };
+  await withServer(async (base) => {
+    const invalidResult = await post(base, "/api/assistant/agent", agentWire({ results: [{ tool: "search-notebook", result: { titles: ["Soupe"], extra: "interdit" } }] }));
+    assert.equal(invalidResult.status, 400);
+    assert.equal((await post(base, "/api/assistant/agent", agentWire({ results: [{ tool: "get-recipe-context", result: {} }] }))).status, 400);
+    assert.equal(calls, 0);
+    assistantDependencies.chefAgentV2 = async () => ({ kind: "tool", tool: "search-notebook", input: { query: "soupe", extra: "interdit" } });
+    const invalidDecision = await post(base, "/api/assistant/agent", agentWire());
+    assert.equal(invalidDecision.status, 503);
+    assistantDependencies.chefAgentV2 = async () => ({ kind: "final", output: "advice", text: "recipeId: dexie-local" });
+    assert.equal((await post(base, "/api/assistant/agent", agentWire())).status, 503);
+  });
+});
+
+test("agent BFF V2 : l'abandon client annule le raisonneur et n'émet aucune finale tardive", async () => {
   let receivedSignal: AbortSignal | undefined;
   let release!: () => void;
   let started!: () => void;
   const startedPromise = new Promise<void>((resolve) => { started = resolve; });
   const decisionPromise = new Promise<void>((resolve) => { release = resolve; });
-  assistantDependencies.chefAgent = async (_input, signal) => {
+  assistantDependencies.chefAgentV2 = async (_input, signal) => {
     receivedSignal = signal;
     started();
     await decisionPromise;
@@ -52,7 +85,7 @@ test("agent BFF : l'abandon client annule le raisonneur et n'émet aucune finale
     const request = fetch(`${base}/api/assistant/agent`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "sans crème", skills: ["chef-core"], tools: ["search-notebook", "assistant-advice", "classify-turn"] }),
+      body: JSON.stringify(agentWire()),
       signal: controller.signal
     });
     await startedPromise;

@@ -937,6 +937,29 @@ afin de ne pas perdre mon temps ni ma saisie.
 **alors** sa saisie est conservée,
 **et** elle peut reprendre ou reformuler sans perdre le fil ni déclencher une écriture implicite.
 
+### Story 9.5: Fonder le runtime Chef modulaire et contextuel local
+
+En tant que personne qui échange avec le Chef,
+je veux que ses skills, tools et contextes soient compilés et contrôlés localement,
+afin que la continuité reste utile, inspectable et privée sans faire confiance à des capacités déclarées par le navigateur.
+
+**Critères d'acceptation:**
+
+**Étant donné** un catalogue local de skills, tools et schémas,
+**quand** la PWA ou le BFF démarre un tour Chef,
+**alors** ils partagent une révision compilée et n'autorisent que les capacités déclarées,
+**et** une divergence de catalogue bloque le tour avant tout outil, persistance ou appel modèle.
+
+**Étant donné** une reprise du fil courant,
+**quand** le runtime construit sa projection temporaire,
+**alors** il sépare le message courant d'un extrait utilisateur borné et redacted,
+**et** il refuse localement un fil clos, un identifiant, un blob, un profil ou le Cahier complet.
+
+**Étant donné** une limite opérationnelle approchée ou atteinte,
+**quand** le runtime applique son plafond,
+**alors** il émet un audit redacted avec la révision, l'étape, la clé et l'action effective,
+**et** il applique le fallback 9.2 sans masquer le réglage ni compromettre l'annulation.
+
 ## Epic 1: Importer et préparer une recette depuis l'Assistant
 
 L'utilisateur peut démarrer depuis un accueil assistant-first, apporter une recette (URL, image, texte ou partage), l'importer dans un flux annulable, la relire en prévisualisation puis la sauvegarder explicitement, tout en conservant les parcours v1.

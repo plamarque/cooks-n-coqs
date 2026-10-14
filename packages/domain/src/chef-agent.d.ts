@@ -13,3 +13,12 @@ export type ChefAgentRequestV1 = { message: string; skills: ChefSkillIdV1[]; too
 export declare function isChefAgentToolInputForTool(tool: ChefMcpToolNameV1, value: unknown): value is ChefAgentToolInputV1;
 export declare function isChefAgentRequestV1(value: unknown): value is ChefAgentRequestV1;
 export declare function isChefAgentDecisionV1(value: unknown): value is ChefAgentDecisionV1;
+export declare const CHEF_RUNTIME_LIMITS_V1: Readonly<{ maxSteps: 6; maxActiveSkills: 4; maxProjectionChars: 2400; maxResultChars: 1200; maxTotalResultChars: 2400; highWaterRatio: 0.8; }>;
+export type ChefRuntimeLimitKeyV1 = "maxSteps" | "maxActiveSkills" | "maxProjectionChars" | "maxResultChars" | "maxTotalResultChars";
+export type ChefRuntimeLimitAuditEventV1 = Readonly<{ catalogRevision: string; step: number; key: ChefRuntimeLimitKeyV1; configured: number; observed: number; action: "observe" | "truncate" | "evict" | "omit" | "fallback"; outcome: "limit_high_water" | "limit_enforced"; }>;
+export type ChefAgentProjectionV2 = Readonly<{ message: string; recentExcerpt?: string; context?: ChefAgentContextV1; }>;
+export type ChefAgentTurnWireV2 = Readonly<{ catalogRevision: string; nonce: string; step: number; activeSkills: string[]; projection: ChefAgentProjectionV2; results?: Array<{ tool: string; result: Record<string, unknown>; }>; }>;
+export type ChefAgentDecisionV2 = Readonly<{ kind: "final"; output: ChefAgentFinalV1["output"]; text?: string; }> | Readonly<{ kind: "tool"; tool: string; input: Record<string, unknown>; }> | Readonly<{ kind: "activate_skill"; skill: string; }>;
+export declare function isChefAgentTurnWireV2(value: unknown): value is ChefAgentTurnWireV2;
+export declare function isChefAgentDecisionV2(value: unknown): value is ChefAgentDecisionV2;
+export declare function chefRuntimeLimitAudit(catalogRevision: string, step: number, key: ChefRuntimeLimitKeyV1, observed: number, action: ChefRuntimeLimitAuditEventV1["action"]): ChefRuntimeLimitAuditEventV1 | null;
