@@ -113,6 +113,24 @@ test("BFF : le proxy TLS local transmet HTTPS à la requête qui construit les U
   });
 });
 
+test("cache-key HTTP : le repli image fait varier la clé", async () => {
+  const key = "AI_IMAGE_FALLBACK_MODEL_INGREDIENT";
+  const saved = process.env[key];
+  try {
+    await withServer(async (base) => {
+      process.env[key] = "gpt-image-2.5-flare";
+      const first = await post(base, "/api/generated-images/cache-key/ingredient-image", { label: "basilic" });
+      process.env[key] = "provider-image-v1";
+      const second = await post(base, "/api/generated-images/cache-key/ingredient-image", { label: "basilic" });
+      assert.equal(first.status, 200);
+      assert.equal(second.status, 200);
+      assert.notEqual((await first.json() as { key: string }).key, (await second.json() as { key: string }).key);
+    });
+  } finally {
+    if (saved === undefined) delete process.env[key]; else process.env[key] = saved;
+  }
+});
+
 test("assistant select HTTP: entrée invalide, candidats, absence et indisponible", async () => {
   await withServer(async (base) => {
     assert.equal((await post(base, "/api/assistant/select", {})).status, 400);

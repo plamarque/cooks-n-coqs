@@ -113,7 +113,7 @@ rapport et décidé une bascule distincte.
 
 **Décision finale :** conserver `gpt-image-1-mini` comme primaire ; ne pas remplacer Mini par FLUX ni par Flare ; préparer uniquement un repli Flare contrôlé dans la story 3.3, avant le 1er décembre 2026.
 
-**Run de référence :** `apps/bff/benchmark-results/2026-10-03T14-14-21-397Z-0fn9it/manifest.json` — 30 tentatives réussies.
+**Run de référence :** `apps/bff/benchmark-results/2026-10-03T14-14-21-397Z-0fn9it/manifest.json` — 30 tentatives réussies (Mini 9/9, Flare 12/12, FLUX Schnell 9/9).
 **Nom, date et accord de l'opérateur :** Patrice — 2026-10-04
 
 ## Passage opérateur après validation

@@ -48,6 +48,46 @@ test("une sortie Mini vide déclenche exactement un repli Flare avec les mêmes 
   assert.equal(calls[0].quality, calls[1].quality);
 }));
 
+test("une erreur 503 Mini déclenche un succès Flare", async () => withImageEnv(async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  imageGenerationDependencies.createClient = () => ({ images: { generate: async (options) => {
+    calls.push(options);
+    if (calls.length === 1) throw Object.assign(new Error("unavailable"), { status: 503 });
+    return { data: [{ b64_json: "flare" }] };
+  } } });
+  assert.equal(await generateIngredientImage({ label: "basilic" }), "data:image/png;base64,flare");
+  assert.deepEqual(calls.map((call) => call.model), ["gpt-image-1-mini", "gpt-image-2.5-flare"]);
+}));
+
+test("une erreur Mini définitive ne déclenche pas Flare", async () => withImageEnv(async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const warnings: unknown[][] = [];
+  const savedWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args);
+  imageGenerationDependencies.createClient = () => ({ images: { generate: async (options) => {
+    calls.push(options);
+    throw Object.assign(new Error("unauthorized"), { status: 401 });
+  } } });
+  try {
+    assert.equal(await generateIngredientImage({ label: "basilic" }), undefined);
+    assert.deepEqual(calls.map((call) => call.model), ["gpt-image-1-mini"]);
+    assert.deepEqual(warnings.at(-1), ["Image generation failed without fallback", { useCase: "ingredient", primaryModel: "gpt-image-1-mini", primaryCause: "provider_definitive" }]);
+  } finally {
+    console.warn = savedWarn;
+  }
+}));
+
+test("un fallback non-GPT utilise une URL et response_format", async () => withImageEnv(async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  process.env.AI_IMAGE_FALLBACK_MODEL_INGREDIENT = "provider-image-v1";
+  imageGenerationDependencies.createClient = () => ({ images: { generate: async (options) => {
+    calls.push(options);
+    return calls.length === 1 ? { data: [] } : { data: [{ url: "https://images.test/fallback.png" }] };
+  } } });
+  assert.equal(await generateIngredientImage({ label: "basilic" }), "https://images.test/fallback.png");
+  assert.equal(calls[1].response_format, "url");
+}));
+
 test("un b64 Mini vide est traité comme une sortie vide et déclenche Flare", async () => withImageEnv(async () => {
   const calls: Array<Record<string, unknown>> = [];
   imageGenerationDependencies.createClient = () => ({ images: { generate: async (options) => {
@@ -87,7 +127,7 @@ test("un repli identique au primaire n'est pas réessayé", async () => withImag
   process.env.AI_IMAGE_FALLBACK_MODEL_INGREDIENT = "gpt-image-1-mini";
   imageGenerationDependencies.createClient = () => ({ images: { generate: async (options) => {
     calls.push(options);
-    throw new Error("provider unavailable");
+    throw Object.assign(new Error("provider unavailable"), { status: 503 });
   } } });
   try {
     assert.equal(await generateIngredientImage({ label: "basilic" }), undefined);
@@ -105,7 +145,7 @@ test("deux échecs fournisseur restent un soft-fail sans troisième tentative", 
   console.warn = (...args: unknown[]) => warnings.push(args);
   imageGenerationDependencies.createClient = () => ({ images: { generate: async (options) => {
     calls.push(options);
-    throw new Error("provider unavailable");
+    throw Object.assign(new Error("provider unavailable"), { status: 503 });
   } } });
   try {
     assert.equal(await generateIngredientImage({ label: "basilic" }), undefined);

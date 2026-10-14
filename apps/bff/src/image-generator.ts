@@ -60,8 +60,17 @@ type ImageClient = {
 export const imageGenerationDependencies: {
   createClient: (apiKey: string) => ImageClient;
 } = {
-  createClient: (apiKey) => new OpenAI({ apiKey }) as unknown as ImageClient
+  createClient: (apiKey) => new OpenAI({ apiKey, maxRetries: 0 }) as unknown as ImageClient
 };
+
+function isTransientImageError(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  if (!error || typeof error !== "object") return false;
+  const status = "status" in error && typeof error.status === "number" ? error.status : undefined;
+  if (status === 429 || (status !== undefined && status >= 500)) return true;
+  const code = "code" in error && typeof error.code === "string" ? error.code : "";
+  return /^(ECONN|ENOTFOUND|ETIMEDOUT|EAI_AGAIN)/.test(code);
+}
 
 async function generateImageWithPolicy(
   useCase: ImageUseCase,
@@ -71,7 +80,7 @@ async function generateImageWithPolicy(
   const { primaryModel, fallbackModel } = getImageGenerationPolicy(useCase);
   const client = imageGenerationDependencies.createClient(apiKey);
 
-  const tryModel = async (model: string): Promise<{ url?: string; cause?: "provider_error" | "empty_response" }> => {
+  const tryModel = async (model: string): Promise<{ url?: string; cause?: "provider_error" | "empty_response" | "provider_definitive"; canFallback: boolean }> => {
     const { size, quality, style } = buildImageParams(useCase, model);
     try {
       const baseOptions = {
@@ -87,17 +96,22 @@ async function generateImageWithPolicy(
       ) as { data?: Array<{ b64_json?: unknown; url?: unknown }> };
       const first = response.data?.[0];
       if (isGptImageModel(model) && typeof first?.b64_json === "string" && first.b64_json.trim()) {
-        return { url: `data:image/png;base64,${first.b64_json}` };
+        return { url: `data:image/png;base64,${first.b64_json}`, canFallback: false };
       }
-      return typeof first?.url === "string" && first.url.trim() ? { url: first.url } : { cause: "empty_response" };
-    } catch {
-      return { cause: "provider_error" };
+      return typeof first?.url === "string" && first.url.trim() ? { url: first.url, canFallback: false } : { cause: "empty_response", canFallback: true };
+    } catch (error) {
+      return isTransientImageError(error) ? { cause: "provider_error", canFallback: true } : { cause: "provider_definitive", canFallback: false };
     }
   };
 
   const primaryResult = await tryModel(primaryModel);
   if (primaryResult.url) {
     return primaryResult.url;
+  }
+  if (!primaryResult.canFallback) {
+    // eslint-disable-next-line no-console
+    console.warn("Image generation failed without fallback", { useCase, primaryModel, primaryCause: primaryResult.cause });
+    return undefined;
   }
 
   // Le repli est intentionnellement limité au modèle configuré : pas de reprise réseau globale.

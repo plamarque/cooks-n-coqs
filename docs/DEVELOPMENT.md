@@ -167,7 +167,7 @@ Les modèles utilisés (images et chat) sont configurables via variables d'envir
 
 Chaîne de résolution chat : override use-case → `AI_CHAT_MODEL` (si posé) → défaut code du use-case (ex. `parse` → terra, pas luna).
 
-Chaque usage image résout indépendamment son primaire, son repli et sa qualité. Le BFF tente le primaire une fois, puis le repli une fois seulement après une erreur fournisseur ou une sortie sans image ; les deux utilisent la même clé OpenAI. Ce mécanisme ne protège donc pas une indisponibilité globale OpenAI, de compte ou de réseau. Toute configuration Render reste hors de cette story : contrôler séparément les trois primaires Mini et les trois replis Flare avant un déploiement explicitement autorisé.
+Chaque usage image résout indépendamment son primaire, son repli et sa qualité. Le BFF tente le primaire une fois, puis le repli une fois seulement après une erreur transitoire du fournisseur ou une sortie sans image ; les deux utilisent la même clé OpenAI. Ce mécanisme ne protège donc pas une indisponibilité globale OpenAI, de compte ou de réseau. Toute configuration Render reste hors de cette story : contrôler séparément les trois primaires Mini et les trois replis Flare avant un déploiement explicitement autorisé.
 
 Les sept appels `chat.completions.create` omettent volontairement `temperature`, y compris lorsqu’un override résout un modèle historique. Ne pas la réintroduire par variable d’environnement : l’absence du champ est le contrat de compatibilité pour tout modèle Chat résolu.
 
@@ -181,7 +181,7 @@ Le benchmark décisionnel compare le corpus culinaire public versionné à `gpt-
 npm run benchmark:images -w @cookies-et-coquilettes/bff
 ```
 
-Le run produit 18 essais comparables à `1024x1024` et trois essais Flare ingrédients `816x816`, revus à `64x64`. Les artefacts restent locaux dans `apps/bff/benchmark-results/<horodatage>-<suffixe>/` (ignorés par Git) : images, `manifest.json` identifié par hash du corpus et `review.html` avec agrégats modèle × usage. Le manifeste sépare tokens API, estimation standard tarifaire datée explicitement non facturée et jugement humain ; sans tokens complets, coût et tokens sont `indisponible`, jamais zéro. Ne transmettez ni résultats ni cache à Render/R2.
+Le run de référence produit 30 essais comparables : Mini `9/9`, Flare `12/12` et FLUX Schnell `9/9`; les comparaisons `1024x1024` sont revues à `64x64`. Les artefacts restent locaux dans `apps/bff/benchmark-results/<horodatage>-<suffixe>/` (ignorés par Git) : images, `manifest.json` identifié par hash du corpus et `review.html` avec agrégats modèle × usage. Le manifeste sépare tokens API, estimation standard tarifaire datée explicitement non facturée et jugement humain ; sans tokens complets, coût et tokens sont `indisponible`, jamais zéro. Ne transmettez ni résultats ni cache à Render/R2.
 
 Après l'exécution, suivre le [protocole de validation des modèles d'images](IMAGE_MODEL_VALIDATION.md) : renseigner le rapport versionné à partir du manifeste et de la revue locale, puis le faire valider par un humain. L'exécution, le remplissage du rapport, sa validation et toute éventuelle bascule des variables Render sont des opérations humaines distinctes ; le benchmark ne modifie aucune configuration de production.
 

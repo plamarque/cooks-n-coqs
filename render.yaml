@@ -18,12 +18,23 @@ services:
         value: .cache/generated-images
       - key: GENERATED_IMAGE_BASE_URL
         sync: false
-      # Modèles IA (optionnel — défauts code : terra/luna ; recipe=gpt-image-2 ; ingredient/cooking_step=gpt-image-1-mini)
+      # Modèles IA (optionnel — défauts code : terra/luna ; images Mini puis Flare)
       - key: AI_IMAGE_MODEL_RECIPE
+        value: gpt-image-1-mini
         sync: false
       - key: AI_IMAGE_MODEL_INGREDIENT
+        value: gpt-image-1-mini
         sync: false
       - key: AI_IMAGE_MODEL_COOKING_STEP
+        value: gpt-image-1-mini
+      - key: AI_IMAGE_FALLBACK_MODEL_RECIPE
+        value: gpt-image-2.5-flare
+        sync: false
+      - key: AI_IMAGE_FALLBACK_MODEL_INGREDIENT
+        value: gpt-image-2.5-flare
+        sync: false
+      - key: AI_IMAGE_FALLBACK_MODEL_COOKING_STEP
+        value: gpt-image-2.5-flare
         sync: false
       - key: AI_IMAGE_QUALITY_RECIPE
         sync: false
@@ -41,4 +52,3 @@ services:
         sync: false
       - key: AI_CHAT_MODEL_EXTRACT
         sync: false
-
