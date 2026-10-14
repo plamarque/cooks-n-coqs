@@ -18,7 +18,7 @@ import {
   getCachedImageByKey,
   resolveCachedImageUrl
 } from "./image-cache.js";
-import { getImageModel, getImageQuality } from "./ai-config.js";
+import { getImageGenerationPolicy } from "./ai-config.js";
 import {
   generateCookingStepImage,
   generateIngredientImage,
@@ -489,7 +489,7 @@ app.post("/api/generate-recipe-image", async (req, res) => {
       : []
   };
 
-  const imageOpts = { model: getImageModel("recipe"), quality: getImageQuality("recipe") };
+  const imageOpts = getImageGenerationPolicy("recipe");
   const cacheKey = buildRecipeImageCacheKey(input, imageOpts);
   const imageUrl = await resolveCachedImageUrl(cacheKey, req, () => generateRecipeImage(input));
 
@@ -522,7 +522,7 @@ app.post("/api/generated-images/cache-key/recipe-image", (req, res) => {
       : []
   };
 
-  const imageOpts = { model: getImageModel("recipe"), quality: getImageQuality("recipe") };
+  const imageOpts = getImageGenerationPolicy("recipe");
   const key = buildRecipeImageCacheKey(input, imageOpts);
   res.json({ key });
 });
@@ -535,7 +535,7 @@ app.post("/api/generated-images/cache-key/cooking-step-image", (req, res) => {
   }
 
   const input = { stepText: stepText.trim() };
-  const imageOpts = { model: getImageModel("cooking_step"), quality: getImageQuality("cooking_step") };
+  const imageOpts = getImageGenerationPolicy("cooking_step");
   const key = buildCookingStepImageCacheKey(input, imageOpts);
   res.json({ key });
 });
@@ -548,7 +548,7 @@ app.post("/api/generated-images/cache-key/ingredient-image", (req, res) => {
   }
 
   const input = { label: label.trim() };
-  const imageOpts = { model: getImageModel("ingredient"), quality: getImageQuality("ingredient") };
+  const imageOpts = getImageGenerationPolicy("ingredient");
   const key = buildIngredientImageCacheKey(input, imageOpts);
   res.json({ key });
 });
@@ -561,7 +561,7 @@ app.post("/api/generate-ingredient-image", async (req, res) => {
   }
 
   const input = { label: label.trim() };
-  const imageOpts = { model: getImageModel("ingredient"), quality: getImageQuality("ingredient") };
+  const imageOpts = getImageGenerationPolicy("ingredient");
   const cacheKey = buildIngredientImageCacheKey(input, imageOpts);
   const imageUrl = await resolveCachedImageUrl(cacheKey, req, () =>
     generateIngredientImage(input)
@@ -582,7 +582,7 @@ app.post("/api/generate-cooking-step-image", async (req, res) => {
   }
 
   const input = { stepText: stepText.trim() };
-  const imageOpts = { model: getImageModel("cooking_step"), quality: getImageQuality("cooking_step") };
+  const imageOpts = getImageGenerationPolicy("cooking_step");
   const cacheKey = buildCookingStepImageCacheKey(input, imageOpts);
   const imageUrl = await resolveCachedImageUrl(cacheKey, req, () =>
     generateCookingStepImage(input)
@@ -641,7 +641,7 @@ app.post("/api/admin/generated-images/purge-ingredient", async (req, res) => {
     return;
   }
 
-  const imageOpts = { model: getImageModel("ingredient"), quality: getImageQuality("ingredient") };
+  const imageOpts = getImageGenerationPolicy("ingredient");
   const key = buildIngredientImageCacheKey({ label }, imageOpts);
   const deleted = await deleteCachedImageByKey(key);
   res.json({ key, label, deleted });

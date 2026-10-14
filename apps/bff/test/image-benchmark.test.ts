@@ -103,7 +103,7 @@ test("continue après un échec fournisseur et une erreur de préparation", asyn
   assert.equal(manifest.attempts.length, 30); assert.equal(manifest.attempts[1].status, "failed"); assert.match(manifest.attempts[1].error ?? "", /provider failure/);
 });
 
-test("le rapport versionné couvre la grille, les indisponibilités et attend l'opérateur", async () => {
+test("le rapport versionné couvre la grille, les indisponibilités et la décision validée", async () => {
   const report = await readFile(fileURLToPath(new URL("../../../docs/IMAGE_MODEL_VALIDATION.md", import.meta.url)), "utf8");
 
   assert.match(report, /## Identité obligatoire de l'exécution/);
@@ -119,7 +119,7 @@ test("le rapport versionné couvre la grille, les indisponibilités et attend l'
   assert.match(report, /jamais zéro/); assert.match(report, /`failed`/); assert.match(report, /`error`/);
 
   assert.match(report, /## Décision par usage/);
-  for (const useCase of ["recipe", "ingredient", "cooking_step"]) assert.match(report, new RegExp("\\| `" + useCase + "` \\|[^\\n]*\\| `awaiting-operator` \\|"));
-  assert.match(report, /\*\*Décision finale :\*\* `awaiting-operator`/);
+  for (const useCase of ["recipe", "ingredient", "cooking_step"]) assert.match(report, new RegExp("\\| `" + useCase + "` \\|[^\\n]*Mini conservé"));
+  assert.match(report, /\*\*Décision finale :\*\* conserver `gpt-image-1-mini` comme primaire/);
   assert.match(report, /Aucune configuration de production n'a été modifiée/);
 });

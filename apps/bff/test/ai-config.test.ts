@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getChatModel, getImageModel, getImageQuality } from "../src/ai-config.js";
+import { getChatModel, getImageFallbackModel, getImageGenerationPolicy, getImageModel, getImageQuality } from "../src/ai-config.js";
 
 const AI_ENV_KEYS = [
   "AI_CHAT_MODEL",
@@ -11,6 +11,9 @@ const AI_ENV_KEYS = [
   "AI_IMAGE_MODEL_RECIPE",
   "AI_IMAGE_MODEL_INGREDIENT",
   "AI_IMAGE_MODEL_COOKING_STEP",
+  "AI_IMAGE_FALLBACK_MODEL_RECIPE",
+  "AI_IMAGE_FALLBACK_MODEL_INGREDIENT",
+  "AI_IMAGE_FALLBACK_MODEL_COOKING_STEP",
   "AI_IMAGE_QUALITY_RECIPE",
   "AI_IMAGE_QUALITY_INGREDIENT",
   "AI_IMAGE_QUALITY_COOKING_STEP"
@@ -42,12 +45,28 @@ test("défauts chat/image sans override env (matrice CAP-5)", () => {
     assert.equal(getChatModel("step_timer"), "gpt-5.6-luna");
     assert.equal(getChatModel("reorder"), "gpt-5.6-luna");
     assert.equal(getChatModel("extract"), "gpt-5.6-luna");
-    assert.equal(getImageModel("recipe"), "gpt-image-2");
+    assert.equal(getImageModel("recipe"), "gpt-image-1-mini");
     assert.equal(getImageModel("ingredient"), "gpt-image-1-mini");
     assert.equal(getImageModel("cooking_step"), "gpt-image-1-mini");
+    assert.equal(getImageFallbackModel("recipe"), "gpt-image-2.5-flare");
+    assert.equal(getImageFallbackModel("ingredient"), "gpt-image-2.5-flare");
+    assert.equal(getImageFallbackModel("cooking_step"), "gpt-image-2.5-flare");
     assert.equal(getImageQuality("recipe"), "low");
     assert.equal(getImageQuality("ingredient"), "low");
     assert.equal(getImageQuality("cooking_step"), "low");
+  });
+});
+
+test("les overrides primaire et repli sont indépendants et forment la politique cacheable", () => {
+  withClearedAiEnv(() => {
+    process.env.AI_IMAGE_MODEL_RECIPE = "legacy-primary";
+    process.env.AI_IMAGE_FALLBACK_MODEL_RECIPE = "configured-fallback";
+    process.env.AI_IMAGE_QUALITY_RECIPE = "medium";
+    assert.deepEqual(getImageGenerationPolicy("recipe"), {
+      primaryModel: "legacy-primary",
+      fallbackModel: "configured-fallback",
+      quality: "medium"
+    });
   });
 });
 

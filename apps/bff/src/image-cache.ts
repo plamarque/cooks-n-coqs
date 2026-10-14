@@ -241,7 +241,8 @@ async function ensureCacheDir(): Promise<void> {
 }
 
 export interface ImageCacheKeyOptions {
-  model: string;
+  primaryModel: string;
+  fallbackModel: string;
   quality: string;
 }
 
@@ -254,7 +255,8 @@ export function buildRecipeImageCacheKey(
     ingredients: input.ingredients.map((item) => normalizeText(item.label)).filter(Boolean).slice(0, 20),
     steps: input.steps.map((item) => normalizeText(item.text)).filter(Boolean).slice(0, 20)
   };
-  if (options?.model) payload.model = options.model;
+  if (options?.primaryModel) payload.primaryModel = options.primaryModel;
+  if (options?.fallbackModel) payload.fallbackModel = options.fallbackModel;
   if (options?.quality) payload.quality = options.quality;
   return keyFromPayload("recipe", payload);
 }
@@ -266,7 +268,8 @@ export function buildIngredientImageCacheKey(
   const payload: Record<string, unknown> = {
     label: normalizeText(input.label)
   };
-  if (options?.model) payload.model = options.model;
+  if (options?.primaryModel) payload.primaryModel = options.primaryModel;
+  if (options?.fallbackModel) payload.fallbackModel = options.fallbackModel;
   if (options?.quality) payload.quality = options.quality;
   return keyFromPayload("ingredient", payload);
 }
@@ -278,7 +281,8 @@ export function buildCookingStepImageCacheKey(
   const payload: Record<string, unknown> = {
     stepText: normalizeText(input.stepText)
   };
-  if (options?.model) payload.model = options.model;
+  if (options?.primaryModel) payload.primaryModel = options.primaryModel;
+  if (options?.fallbackModel) payload.fallbackModel = options.fallbackModel;
   if (options?.quality) payload.quality = options.quality;
   return keyFromPayload("cooking-step", payload);
 }

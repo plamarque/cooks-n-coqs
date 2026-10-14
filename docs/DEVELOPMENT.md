@@ -152,9 +152,12 @@ Les modèles utilisés (images et chat) sont configurables via variables d'envir
 
 | Variable | Défaut | Usage |
 |----------|--------|-------|
-| `AI_IMAGE_MODEL_RECIPE` | gpt-image-2 | Photos de recettes |
+| `AI_IMAGE_MODEL_RECIPE` | gpt-image-1-mini | Photos de recettes |
 | `AI_IMAGE_MODEL_INGREDIENT` | gpt-image-1-mini | Icônes ingrédients |
 | `AI_IMAGE_MODEL_COOKING_STEP` | gpt-image-1-mini | Illustrations étapes cuisine |
+| `AI_IMAGE_FALLBACK_MODEL_RECIPE` | gpt-image-2.5-flare | Repli image recette après échec ou sortie vide du primaire |
+| `AI_IMAGE_FALLBACK_MODEL_INGREDIENT` | gpt-image-2.5-flare | Repli icône ingrédient après échec ou sortie vide du primaire |
+| `AI_IMAGE_FALLBACK_MODEL_COOKING_STEP` | gpt-image-2.5-flare | Repli illustration étape après échec ou sortie vide du primaire |
 | `AI_IMAGE_QUALITY_*` | low | Qualité GPT Image : low/medium/high |
 | `AI_CHAT_MODEL` | — (pas de défaut code dédié) | Fallback global **recommandé** `gpt-5.6-luna` quand la var est posée ; n’est pas le défaut de `parse` |
 | `AI_CHAT_MODEL_PARSE` | gpt-5.6-terra | Parsing URL + screenshot |
@@ -163,6 +166,8 @@ Les modèles utilisés (images et chat) sont configurables via variables d'envir
 | `AI_CHAT_MODEL_EXTRACT` | gpt-5.6-luna | Filets micro-extraits (use-case `extract`) |
 
 Chaîne de résolution chat : override use-case → `AI_CHAT_MODEL` (si posé) → défaut code du use-case (ex. `parse` → terra, pas luna).
+
+Chaque usage image résout indépendamment son primaire, son repli et sa qualité. Le BFF tente le primaire une fois, puis le repli une fois seulement après une erreur fournisseur ou une sortie sans image ; les deux utilisent la même clé OpenAI. Ce mécanisme ne protège donc pas une indisponibilité globale OpenAI, de compte ou de réseau. Toute configuration Render reste hors de cette story : contrôler séparément les trois primaires Mini et les trois replis Flare avant un déploiement explicitement autorisé.
 
 Les sept appels `chat.completions.create` omettent volontairement `temperature`, y compris lorsqu’un override résout un modèle historique. Ne pas la réintroduire par variable d’environnement : l’absence du champ est le contrat de compatibilité pour tout modèle Chat résolu.
 

@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { getImageModel, getImageQuality } from "./ai-config.js";
+import { getImageGenerationPolicy } from "./ai-config.js";
 import type { ImageUseCase } from "./ai-config.js";
 
 export interface GenerateRecipeImageInput {
@@ -20,14 +20,13 @@ function isGptImageModel(model: string): boolean {
   return model.startsWith("gpt-image-");
 }
 
-export function buildImageParams(useCase: ImageUseCase): {
+export function buildImageParams(useCase: ImageUseCase, model = getImageGenerationPolicy(useCase).primaryModel): {
   model: string;
   size: "1024x1024";
   quality: string;
   style?: "natural" | "vivid";
 } {
-  const model = getImageModel(useCase);
-  const quality = getImageQuality(useCase);
+  const { quality } = getImageGenerationPolicy(useCase);
 
   const base: { model: string; size: "1024x1024"; quality: string; style?: "natural" | "vivid" } = {
     model,
@@ -49,6 +48,72 @@ export function buildImageParams(useCase: ImageUseCase): {
   }
 
   return base;
+}
+
+type ImageClient = {
+  images: {
+    generate: (options: Record<string, unknown>) => Promise<unknown>;
+  };
+};
+
+/** Injection réservée aux tests : le navigateur ne reçoit jamais la clé BFF. */
+export const imageGenerationDependencies: {
+  createClient: (apiKey: string) => ImageClient;
+} = {
+  createClient: (apiKey) => new OpenAI({ apiKey }) as unknown as ImageClient
+};
+
+async function generateImageWithPolicy(
+  useCase: ImageUseCase,
+  prompt: string,
+  apiKey: string
+): Promise<string | undefined> {
+  const { primaryModel, fallbackModel } = getImageGenerationPolicy(useCase);
+  const client = imageGenerationDependencies.createClient(apiKey);
+
+  const tryModel = async (model: string): Promise<{ url?: string; cause?: "provider_error" | "empty_response" }> => {
+    const { size, quality, style } = buildImageParams(useCase, model);
+    try {
+      const baseOptions = {
+        model,
+        prompt,
+        n: 1 as const,
+        size,
+        quality: quality as "low" | "medium" | "high" | "standard" | "hd",
+        ...(style && { style })
+      };
+      const response = await client.images.generate(
+        isGptImageModel(model) ? baseOptions : { ...baseOptions, response_format: "url" }
+      ) as { data?: Array<{ b64_json?: unknown; url?: unknown }> };
+      const first = response.data?.[0];
+      if (isGptImageModel(model) && typeof first?.b64_json === "string" && first.b64_json.trim()) {
+        return { url: `data:image/png;base64,${first.b64_json}` };
+      }
+      return typeof first?.url === "string" && first.url.trim() ? { url: first.url } : { cause: "empty_response" };
+    } catch {
+      return { cause: "provider_error" };
+    }
+  };
+
+  const primaryResult = await tryModel(primaryModel);
+  if (primaryResult.url) {
+    return primaryResult.url;
+  }
+
+  // Le repli est intentionnellement limité au modèle configuré : pas de reprise réseau globale.
+  // eslint-disable-next-line no-console
+  console.warn("Image generation fallback", { useCase, primaryModel, fallbackModel, primaryCause: primaryResult.cause });
+  if (fallbackModel === primaryModel) {
+    // eslint-disable-next-line no-console
+    console.warn("Image generation failed after fallback", { useCase, primaryModel, fallbackModel, fallbackCause: "same_as_primary" });
+    return undefined;
+  }
+  const fallbackResult = await tryModel(fallbackModel);
+  if (!fallbackResult.url) {
+    // eslint-disable-next-line no-console
+    console.warn("Image generation failed after fallback", { useCase, primaryModel, fallbackModel, fallbackCause: fallbackResult.cause });
+  }
+  return fallbackResult.url;
 }
 
 export function buildRecipeImagePrompt(input: GenerateRecipeImageInput): string {
@@ -80,36 +145,7 @@ export async function generateRecipeImage(
 
   const prompt = buildRecipeImagePrompt(input);
 
-  const { model, size, quality, style } = buildImageParams("recipe");
-
-  try {
-    const client = new OpenAI({ apiKey });
-    const useGptImage = isGptImageModel(model);
-    const baseOptions = {
-      model,
-      prompt,
-      n: 1 as const,
-      size,
-      quality: quality as "low" | "medium" | "high" | "standard" | "hd",
-      ...(style && { style })
-    };
-    const response = await client.images.generate(
-      useGptImage ? baseOptions : { ...baseOptions, response_format: "url" }
-    );
-    const data = "data" in response ? response.data : undefined;
-    const first = data?.[0];
-    let url: string | undefined;
-    if (useGptImage && first && "b64_json" in first && typeof first.b64_json === "string") {
-      url = `data:image/png;base64,${first.b64_json}`;
-    } else if (first && "url" in first && typeof first.url === "string") {
-      url = first.url;
-    }
-    return typeof url === "string" ? url : undefined;
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn("Recipe image generation failed", err);
-    return undefined;
-  }
+  return generateImageWithPolicy("recipe", prompt, apiKey);
 }
 
 /**
@@ -128,36 +164,7 @@ export async function generateIngredientImage(
     return undefined;
   }
 
-  const { model, size, quality, style } = buildImageParams("ingredient");
-
-  try {
-    const client = new OpenAI({ apiKey });
-    const useGptImage = isGptImageModel(model);
-    const baseOptions = {
-      model,
-      prompt,
-      n: 1 as const,
-      size,
-      quality: quality as "low" | "medium" | "high" | "standard" | "hd",
-      ...(style && { style })
-    };
-    const response = await client.images.generate(
-      useGptImage ? baseOptions : { ...baseOptions, response_format: "url" }
-    );
-    const data = "data" in response ? response.data : undefined;
-    const first = data?.[0];
-    let url: string | undefined;
-    if (useGptImage && first && "b64_json" in first && typeof first.b64_json === "string") {
-      url = `data:image/png;base64,${first.b64_json}`;
-    } else if (first && "url" in first && typeof first.url === "string") {
-      url = first.url;
-    }
-    return typeof url === "string" ? url : undefined;
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn("Ingredient image generation failed", err);
-    return undefined;
-  }
+  return generateImageWithPolicy("ingredient", prompt, apiKey);
 }
 
 /**
@@ -176,34 +183,5 @@ export async function generateCookingStepImage(
     return undefined;
   }
 
-  const { model, size, quality, style } = buildImageParams("cooking_step");
-
-  try {
-    const client = new OpenAI({ apiKey });
-    const useGptImage = isGptImageModel(model);
-    const baseOptions = {
-      model,
-      prompt,
-      n: 1 as const,
-      size,
-      quality: quality as "low" | "medium" | "high" | "standard" | "hd",
-      ...(style && { style })
-    };
-    const response = await client.images.generate(
-      useGptImage ? baseOptions : { ...baseOptions, response_format: "url" }
-    );
-    const data = "data" in response ? response.data : undefined;
-    const first = data?.[0];
-    let url: string | undefined;
-    if (useGptImage && first && "b64_json" in first && typeof first.b64_json === "string") {
-      url = `data:image/png;base64,${first.b64_json}`;
-    } else if (first && "url" in first && typeof first.url === "string") {
-      url = first.url;
-    }
-    return typeof url === "string" ? url : undefined;
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn("Cooking step image generation failed", err);
-    return undefined;
-  }
+  return generateImageWithPolicy("cooking_step", prompt, apiKey);
 }

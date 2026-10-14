@@ -4,14 +4,19 @@
  */
 
 export type ImageUseCase = "recipe" | "ingredient" | "cooking_step";
+export interface ImageGenerationPolicy {
+  primaryModel: string;
+  fallbackModel: string;
+  quality: string;
+}
 export type ChatUseCase = "parse" | "step_timer" | "reorder" | "extract" | "assistant_recipe" | "assistant_clarify" | "assistant_advice";
 
 const DEFAULTS = {
   image: {
-    recipe: { model: "gpt-image-2", quality: "low" },
-    ingredient: { model: "gpt-image-1-mini", quality: "low" },
-    cooking_step: { model: "gpt-image-1-mini", quality: "low" }
-  } as Record<ImageUseCase, { model: string; quality: string }>,
+    recipe: { primaryModel: "gpt-image-1-mini", fallbackModel: "gpt-image-2.5-flare", quality: "low" },
+    ingredient: { primaryModel: "gpt-image-1-mini", fallbackModel: "gpt-image-2.5-flare", quality: "low" },
+    cooking_step: { primaryModel: "gpt-image-1-mini", fallbackModel: "gpt-image-2.5-flare", quality: "low" }
+  } as Record<ImageUseCase, ImageGenerationPolicy>,
   chat: {
     parse: "gpt-5.6-terra",
     step_timer: "gpt-5.6-luna",
@@ -34,7 +39,17 @@ const IMAGE_MODEL_KEYS: Record<ImageUseCase, string> = {
 };
 
 export function getImageModel(useCase: ImageUseCase): string {
-  return getEnv(IMAGE_MODEL_KEYS[useCase]) ?? DEFAULTS.image[useCase].model;
+  return getEnv(IMAGE_MODEL_KEYS[useCase]) ?? DEFAULTS.image[useCase].primaryModel;
+}
+
+const IMAGE_FALLBACK_MODEL_KEYS: Record<ImageUseCase, string> = {
+  recipe: "AI_IMAGE_FALLBACK_MODEL_RECIPE",
+  ingredient: "AI_IMAGE_FALLBACK_MODEL_INGREDIENT",
+  cooking_step: "AI_IMAGE_FALLBACK_MODEL_COOKING_STEP"
+};
+
+export function getImageFallbackModel(useCase: ImageUseCase): string {
+  return getEnv(IMAGE_FALLBACK_MODEL_KEYS[useCase]) ?? DEFAULTS.image[useCase].fallbackModel;
 }
 
 const IMAGE_QUALITY_KEYS: Record<ImageUseCase, string> = {
@@ -45,6 +60,14 @@ const IMAGE_QUALITY_KEYS: Record<ImageUseCase, string> = {
 
 export function getImageQuality(useCase: ImageUseCase): string {
   return getEnv(IMAGE_QUALITY_KEYS[useCase]) ?? DEFAULTS.image[useCase].quality;
+}
+
+export function getImageGenerationPolicy(useCase: ImageUseCase): ImageGenerationPolicy {
+  return {
+    primaryModel: getImageModel(useCase),
+    fallbackModel: getImageFallbackModel(useCase),
+    quality: getImageQuality(useCase)
+  };
 }
 
 const CHAT_MODEL_KEYS: Record<ChatUseCase, string> = {
