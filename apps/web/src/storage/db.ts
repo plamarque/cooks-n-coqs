@@ -32,6 +32,7 @@ export type ChefConversationResume =
 
 export function selectLastResumableChefConversation(records: readonly unknown[]): ChefConversationResume {
   const conversations = records.filter(isChefConversation)
+    .filter((conversation) => !conversation.closedAt && conversation.turns.length > 0)
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   if (conversations[0]) return { kind: "available", conversation: conversations[0] };
   return records.length ? { kind: "unavailable" } : { kind: "none" };
@@ -127,5 +128,17 @@ export async function getChefConversationAttachmentFiles(
     return new File([source.blob], attachment.name ?? source.name ?? "photo", {
       type: attachment.mimeType || source.mimeType || source.blob.type
     });
+  });
+}
+
+/**
+ * Suppression volontaire, limitée au journal Chef et à ses blobs privés.
+ * Les tables recettes/images du Cahier ne participent volontairement jamais
+ * à cette transaction.
+ */
+export async function deleteChefConversation(conversationId: string): Promise<void> {
+  await db.transaction("rw", db.chefConversations, db.chefConversationAssets, async () => {
+    await db.chefConversationAssets.where("conversationId").equals(conversationId).delete();
+    await db.chefConversations.delete(conversationId);
   });
 }

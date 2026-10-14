@@ -157,6 +157,10 @@ seule. Les blobs de conversation sont stockés dans un espace IndexedDB dédié,
 jamais dans les médias d'une recette. Un asset ou une recette manquant reste
 signalé lisiblement sans fetch, génération ni appel BFF.
 
+## Résilience des fils Chef (story 4.4)
+
+Annuler invalide seulement le traitement courant : les tours déjà checkpointés et leurs assets restent lisibles et réessayables. Démarrer une nouvelle conversation clôt le fil actif (`closedAt`) sans le purger; seuls les journaux valides, non vides et non clos sont proposés à la reprise. La suppression, après confirmation, est atomique et limitée au fil ciblé et à ses assets privés : elle ne touche jamais les recettes ni les images du Cahier. Les écritures asynchrones invalidées ne peuvent pas réactiver un fil clos ou supprimé.
+
 ## Import Assistant éphémère (story 1.2)
 
 Depuis le seul Compositeur Assistant, une image est prioritaire sur une URL HTTP(S), elle-même prioritaire sur le texte (dont F2). L'import réemploie le parseur existant mais produit une prévisualisation en mémoire, annulable : ni recette, ni fichier, ni état Assistant n'est écrit dans IndexedDB, l'URL ou `sessionStorage`. Annuler ou fermer détruit la prévisualisation et ignore les réponses tardives tout en conservant texte, curseur et image dans le Compositeur. La sauvegarde explicite est hors de cette story ; les flux v1 `parse → create → détail` restent inchangés.

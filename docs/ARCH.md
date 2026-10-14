@@ -179,6 +179,8 @@ Tables minimales :
 - `cookingStepImages` (illustrations d'étapes en mode cuisine, cache local)
 - `chefConversations` : journal Chef minimal v4 (`id`, `createdAt`, `closedAt`, tours texte ordonnés), distinct de `recipes` et des médias ; profil et données riches restent définis par leurs stories
 
+Les écritures Chef sont protégées par une génération locale : une fermeture ou suppression invalide les I/O antérieures. La suppression est une transaction Dexie qui ne joint que `chefConversations` et `chefConversationAssets`.
+
 Index minimaux :
 - `category`
 - `favorite`

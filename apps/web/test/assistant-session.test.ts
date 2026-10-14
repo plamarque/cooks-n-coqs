@@ -169,7 +169,7 @@ test("App.vue : l’historique est l’unique action de continuité du composite
   const header = /<header class="assistant-header">[\s\S]*?<\/header>/.exec(app)?.[0] ?? "";
   assert.match(app, /icon="pi pi-history" class="assistant-icon-action assistant-resume-action"/);
   assert.doesNotMatch(header, />\s*Nouvelle recette\s*</);
-  assert.doesNotMatch(app, /function startNewChefConversation/);
+  assert.match(app, /async function startNewChefConversation\(\): Promise<void>/);
 });
 
 test("App.vue : annuler une demande invalide le résultat sans effacer le fil", () => {
@@ -250,6 +250,19 @@ test("App.vue : un tour Chef est affiché avant la préparation locale", () => {
   assert.match(submission[0], /assistantSession\.beginConversation\(visibleTurn, false\)/);
   assert.match(submission[0], /assistantText\.value = "";/);
   assert.match(submission[0], /prepareAssistantTextRequest\(preparationId, sentAssistantText\)/);
+});
+
+test("App.vue : les transitions de fil bloquent fermeture, suppression et nouvel envoi jusqu'à Dexie", () => {
+  const appPath = join(dirname(fileURLToPath(import.meta.url)), "../src/App.vue");
+  const app = readFileSync(appPath, "utf8");
+  assert.match(app, /const assistantTransitioning = ref\(false\);/);
+  assert.match(app, /const assistantBusy = computed\(\(\) => assistantTransitioning\.value/);
+  assert.match(app, /if \(!chefPersistence\.beginTransition\(\)\) return;/);
+  assert.match(app, /await chefPersistence\.transition\(/);
+  assert.match(app, /if \(assistantTransitioning\.value\) return;/);
+  assert.match(app, /<Button v-else aria-label="Envoyer la demande"[\s\S]*?@click="\(\) => void prepareAssistantRequest\(\)"/);
+  assert.match(app, /:disabled="assistantBusy" @click="\(\) => void startNewChefConversation\(\)"/);
+  assert.match(app, /:disabled="assistantBusy" @click="\(\) => void deleteActiveChefConversation\(\)"/);
 });
 
 test("App.vue : une preview active ne court-circuite pas ChefAgent après une clarification ouverte", () => {
@@ -459,7 +472,7 @@ test("session Assistant : création annulée ou invalidée quitte immédiatement
   }
 });
 
-test("session Assistant : fil volatile, deux précisions puis remise à zéro", () => {
+test("session Assistant : annuler conserve le fil et ses précisions", () => {
   const session = new AssistantSession();
   session.beginConversation("salade d'automne");
   session.showClarification("Pour combien de personnes ?");
@@ -468,8 +481,8 @@ test("session Assistant : fil volatile, deux précisions puis remise à zéro", 
   assert.equal(session.clarificationCount, 2);
   assert.equal(session.turns.length, 4);
   session.cancel();
-  assert.deepEqual(session.turns, []);
-  assert.equal(session.question, null);
+  assert.equal(session.turns.length, 4);
+  assert.equal(session.question, "Vous préférez sucré ou salé ?");
 });
 
 test("session Assistant : une candidate refusée reste exclue jusqu’à la fin de la séance", () => {
@@ -479,7 +492,7 @@ test("session Assistant : une candidate refusée reste exclue jusqu’à la fin 
   assert.equal(session.isCandidateRejected("cahier-1"), true);
 
   session.cancel();
-  assert.equal(session.isCandidateRejected("cahier-1"), false);
+  assert.equal(session.isCandidateRejected("cahier-1"), true);
 
   session.rejectCandidate("cahier-1");
   session.closePreview();

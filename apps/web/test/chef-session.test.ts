@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ChefSession } from "../src/utils/chef-session";
+import { ChefConversationPersistenceCoordinator, ChefSession } from "../src/utils/chef-session";
 import { restoreAssistantPreview, snapshotAssistantPreview } from "../src/utils/assistant-session";
-import { db, getChefConversationAttachmentFiles, selectLastResumableChefConversation } from "../src/storage/db";
+import { db, deleteChefConversation, getChefConversationAttachmentFiles, selectLastResumableChefConversation } from "../src/storage/db";
 
 test("ChefSession ne crée un fil qu'au premier envoi et le clôture sans l'effacer", () => {
   const session = new ChefSession();
@@ -23,14 +23,15 @@ test("ChefSession conserve l'ordre des tours sans créer un second fil", () => {
   assert.deepEqual(updated?.turns.map(({ role }) => role), ["user", "assistant"]);
 });
 
-test("ChefSession hydrate strictement un journal texte sans le muter", () => {
+test("ChefSession refuse un journal clos et hydrate un journal ouvert sans le muter", () => {
   const session = new ChefSession();
-  const source = { id: "chef-1", createdAt: "2026-10-04T10:00:00.000Z", closedAt: "2026-10-04T10:01:00.000Z", turns: [{ role: "user" as const, text: "Bonjour" }, { role: "assistant" as const, text: "Bonjour !" }] };
+  const source = { id: "chef-1", createdAt: "2026-10-04T10:00:00.000Z", turns: [{ role: "user" as const, text: "Bonjour" }, { role: "assistant" as const, text: "Bonjour !" }] };
   const hydrated = session.hydrate(source);
   assert.deepEqual(hydrated?.turns, source.turns);
   assert.notEqual(hydrated?.turns, source.turns);
   assert.equal(hydrated?.closedAt, undefined);
   assert.equal(session.sync([...source.turns, { role: "user", text: "Encore" }])?.id, source.id);
+  assert.equal(session.hydrate({ ...source, closedAt: "2026-10-04T10:01:00.000Z" }), null);
   assert.equal(session.hydrate({ id: "broken", createdAt: "not-a-date", turns: [] }), null);
 });
 
@@ -47,6 +48,52 @@ test("le dernier journal reprenable est le plus récent valide et les lignes inv
 test("la reprise distingue aucun fil d'un journal illisible", () => {
   assert.deepEqual(selectLastResumableChefConversation([]), { kind: "none" });
   assert.deepEqual(selectLastResumableChefConversation([{ id: "broken", createdAt: "invalid", turns: [] }]), { kind: "unavailable" });
+});
+
+test("la reprise refuse un journal clos même s'il est le plus récent", () => {
+  const closed = { id: "closed", createdAt: "2026-10-08T10:00:00.000Z", closedAt: "2026-10-08T10:01:00.000Z", turns: [{ role: "user" as const, text: "Clos" }] };
+  assert.deepEqual(selectLastResumableChefConversation([closed]), { kind: "unavailable" });
+});
+
+test("la suppression transactionnelle ne touche que le fil Chef et ses assets", async () => {
+  const originalTransaction = db.transaction;
+  const originalConversationDelete = db.chefConversations.delete;
+  const originalAssetWhere = db.chefConversationAssets.where;
+  const calls: string[] = [];
+  db.transaction = (async (_mode: unknown, ...args: unknown[]) => {
+    const tables = args.slice(0, -1);
+    assert.deepEqual(tables, [db.chefConversations, db.chefConversationAssets]);
+    await (args.at(-1) as () => Promise<void>)();
+  }) as typeof db.transaction;
+  db.chefConversations.delete = (async (id: string) => { calls.push(`conversation:${id}`); return 1; }) as typeof db.chefConversations.delete;
+  db.chefConversationAssets.where = ((key: string) => {
+    assert.equal(key, "conversationId");
+    return { equals: (id: string) => ({ delete: async () => { calls.push(`assets:${id}`); return 1; } }) };
+  }) as typeof db.chefConversationAssets.where;
+  try {
+    await deleteChefConversation("chef-1");
+    assert.deepEqual(calls, ["assets:chef-1", "conversation:chef-1"]);
+  } finally {
+    db.transaction = originalTransaction;
+    db.chefConversations.delete = originalConversationDelete;
+    db.chefConversationAssets.where = originalAssetWhere;
+  }
+});
+
+test("le coordinateur réel laisse finir l'écriture antérieure puis bloque les snapshots périmés", async () => {
+  const coordinator = new ChefConversationPersistenceCoordinator();
+  const written: string[] = [];
+  let release!: () => void;
+  const first = coordinator.enqueue(() => new Promise<void>((resolve) => { release = () => { written.push("open"); resolve(); }; }));
+  await Promise.resolve();
+  assert.equal(coordinator.beginTransition(), true);
+  assert.equal(coordinator.beginTransition(), false, "nouvelle conversation et suppression sont mutuellement exclusives");
+  const stale = coordinator.enqueue(async () => { written.push("resurrected"); });
+  const close = coordinator.transition(async () => { written.push("closed"); });
+  release();
+  await Promise.all([first, stale, close]);
+  assert.deepEqual(written, ["open", "closed"]);
+  assert.equal(coordinator.transitioning, false);
 });
 
 test("ChefSession hydrate un checkpoint photo sans réinterpréter ses références locales", () => {
