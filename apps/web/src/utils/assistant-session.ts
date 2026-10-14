@@ -257,11 +257,9 @@ export class AssistantSession {
   }
 
   cancel(): void {
-    this.controller?.abort();
-    this.controller = null;
-    ++this.requestId;
-    if (this.phase === "importing" || this.phase === "analyzing" || this.phase === "searching" || this.phase === "creating") this.phase = "idle";
-    this.resetConversation();
+    // Une annulation est celle du traitement en cours, pas celle du journal.
+    // Les checkpoints déjà visibles doivent rester disponibles pour reprendre.
+    this.invalidate();
   }
 
   /** Invalide une réponse distante sans effacer les tours tant qu'une écriture locale n'est pas confirmée. */

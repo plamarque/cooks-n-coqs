@@ -74,7 +74,7 @@ import {
   RecipeBookImportError
 } from "./services/recipe-book-transfer-service";
 import { rehydrateRecipeMediaAfterArchiveImport } from "./services/recipe-book-rehydrate-after-import";
-import { db, getChefConversationAttachmentFiles, storeChefConversationAssets, type ChefConversationResume } from "./storage/db";
+import { db, deleteChefConversation, getChefConversationAttachmentFiles, storeChefConversationAssets, type ChefConversationResume } from "./storage/db";
 import { browserCookingModeService } from "./services/cooking-mode-service";
 import {
   bffImportService,
@@ -83,7 +83,7 @@ import {
   generateRecipeImage
 } from "./services/import-service";
 import { AssistantSession, assistantImageErrorMessage, projectAssistantTurnsForNetwork, restoreAssistantPreview, routeAssistantImport, snapshotAssistantPreview, type AssistantPreview } from "./utils/assistant-session";
-import { ChefSession } from "./utils/chef-session";
+import { ChefConversationPersistenceCoordinator, ChefSession } from "./utils/chef-session";
 import { buildChefTurnClassificationContext, requestsRecipePreview, resolveChefTurnClassification } from "./utils/chef-turn-classification";
 import { restoreChefIdeasFromTurns, restoreChefNoCandidateTurnIds, routeChefIntentForRequest, type ChefIdea } from "./utils/chef-intent-router";
 import { preserveChef92Outcome, runChefAgentOutcome } from "./utils/chef-agent-outcome";
@@ -249,11 +249,13 @@ const assistantQuestion = ref<string | null>(null);
 const assistantResumeConversation = ref<ChefConversationResume | null>(null);
 const assistantResumeUnavailable = ref(false);
 let assistantResumeRequestId = 0;
+const chefPersistence = new ChefConversationPersistenceCoordinator();
+const assistantTransitioning = ref(false);
 // La préparation locale (notamment la compression des photos) commence avant
 // le premier appel réseau. Elle doit donc verrouiller le compositeur dès le clic.
 const assistantPreparing = ref(false);
 let assistantPreparationId = 0;
-const assistantBusy = computed(() => assistantPreparing.value || ["importing", "analyzing", "searching", "creating"].includes(assistantPhase.value));
+const assistantBusy = computed(() => assistantTransitioning.value || assistantPreparing.value || ["importing", "analyzing", "searching", "creating"].includes(assistantPhase.value));
 const assistantRetryTurn = computed(() => [...assistantSession.turns].reverse().find((turn) => turn.role === "user"));
 const assistantPhotoRetryTurn = computed(() => assistantRetryTurn.value?.attachments?.length ? assistantRetryTurn.value : undefined);
 
@@ -1197,6 +1199,55 @@ function declineChefConversationResume(): void {
   focusAssistantComposer();
 }
 
+async function startNewChefConversation(): Promise<void> {
+  if (!chefPersistence.beginTransition()) return;
+  assistantTransitioning.value = true;
+  const activeBeforeClose = chefSession.active;
+  const closing = chefSession.close();
+  assistantSession.invalidate();
+  try {
+    await chefPersistence.transition(async () => {
+      if (closing) await db.chefConversations.put(closing);
+    });
+    assistantSession.resetConversation();
+    assistantTurns.value = [];
+    assistantThreadCards.value = [];
+    assistantError.value = null;
+    assistantPreview.value = null;
+    assistantResumeConversation.value = null;
+    assistantAnnouncement.value = "Nouvelle conversation prête.";
+    focusAssistantComposer();
+  } catch {
+    chefSession.active = activeBeforeClose;
+    assistantAnnouncement.value = "Impossible de clôturer cette conversation localement.";
+  } finally {
+    assistantTransitioning.value = false;
+  }
+}
+
+async function deleteActiveChefConversation(): Promise<void> {
+  const id = chefSession.active?.id;
+  if (!id || assistantTransitioning.value || !window.confirm("Supprimer cette conversation et ses photos associées ? Cette action est irréversible.")) return;
+  if (!chefPersistence.beginTransition()) return;
+  assistantTransitioning.value = true;
+  assistantSession.invalidate();
+  try {
+    await chefPersistence.transition(() => deleteChefConversation(id));
+    chefSession.active = null;
+    assistantSession.resetConversation();
+    assistantTurns.value = [];
+    assistantThreadCards.value = [];
+    assistantError.value = null;
+    assistantPreview.value = null;
+    assistantAnnouncement.value = "Conversation supprimée.";
+    focusAssistantComposer();
+  } catch {
+    assistantAnnouncement.value = "Impossible de supprimer cette conversation localement.";
+  } finally {
+    assistantTransitioning.value = false;
+  }
+}
+
 async function retryAssistantRequest(): Promise<void> {
   const checkpoint = assistantRetryTurn.value;
   if (!checkpoint?.id || assistantBusy.value) return;
@@ -1224,18 +1275,20 @@ async function retryAssistantRequest(): Promise<void> {
 }
 
 async function persistChefConversation(files: readonly File[] = [], attachmentTurnId?: string): Promise<void> {
+  if (assistantTransitioning.value) return;
   const turns = assistantSession.persistableTurns();
   const record = chefSession.active ? chefSession.sync(turns) : chefSession.begin(turns);
   if (!record) return;
-  if (files.length && attachmentTurnId) {
-    const persisted = await storeChefConversationAssets(record, attachmentTurnId, files);
-    chefSession.hydrate(persisted);
-    assistantSession.replaceConversationTurns(persisted.turns);
-    // La transaction enrichit le tour déjà affiché avec ses références d'assets.
-    // Synchroniser le ref immédiatement : attendre une reprise masquait la photo
-    // et empêchait une réponse dans le fil courant.
-    assistantTurns.value = [...assistantSession.turns];
-  } else await db.chefConversations.put(record);
+  await chefPersistence.enqueue(async () => {
+    if (files.length && attachmentTurnId) {
+      const persisted = await storeChefConversationAssets(record, attachmentTurnId, files);
+      chefSession.hydrate(persisted);
+      assistantSession.replaceConversationTurns(persisted.turns);
+      assistantTurns.value = [...assistantSession.turns];
+      return;
+    }
+    await db.chefConversations.put(record);
+  });
 }
 
 function openNotebookFromAssistant(): void {
@@ -3865,6 +3918,8 @@ onUnmounted(() => {
             </span>
           </div>
           <div class="assistant-composer-actions" :class="{ 'is-listening': assistantListening }">
+            <Button v-if="assistantTurns.length" aria-label="Nouvelle conversation" icon="pi pi-plus" class="assistant-icon-action" :disabled="assistantBusy" @click="() => void startNewChefConversation()" />
+            <Button v-if="chefSession.active" aria-label="Supprimer cette conversation" icon="pi pi-trash" class="assistant-icon-action" :disabled="assistantBusy" @click="() => void deleteActiveChefConversation()" />
             <Button v-if="assistantResumeConversation?.kind === 'available'" aria-label="Reprendre le dernier échange" icon="pi pi-history" class="assistant-icon-action assistant-resume-action" :disabled="assistantBusy" @click="resumeChefConversation" />
             <div class="assistant-photo-picker" @keydown="onAssistantPhotoMenuKeydown" @focusout="onAssistantPhotoMenuFocusout">
               <Button

@@ -2,6 +2,38 @@ import { isChefConversation, type AssistantConversationTurnV1, type ChefConversa
 
 export type ChefConversationRecord = ChefConversation;
 
+/** Sérialise les snapshots du fil et donne priorité à une transition utilisateur. */
+export class ChefConversationPersistenceCoordinator {
+  private generation = 0;
+  private tail: Promise<void> = Promise.resolve();
+  transitioning = false;
+
+  enqueue(write: () => Promise<void>): Promise<boolean> {
+    if (this.transitioning) return Promise.resolve(false);
+    const snapshotGeneration = this.generation;
+    const queued = this.tail.then(async () => {
+      if (snapshotGeneration !== this.generation) return false;
+      await write();
+      return true;
+    });
+    this.tail = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
+
+  beginTransition(): boolean {
+    if (this.transitioning) return false;
+    this.transitioning = true;
+    this.generation += 1;
+    return true;
+  }
+
+  transition(operation: () => Promise<void>): Promise<void> {
+    const queued = this.tail.then(operation, operation);
+    this.tail = queued.then(() => undefined, () => undefined);
+    return queued.finally(() => { this.transitioning = false; });
+  }
+}
+
 function cloneTurn(turn: AssistantConversationTurnV1): AssistantConversationTurnV1 {
   return {
     ...turn,
@@ -26,7 +58,7 @@ export class ChefSession {
   }
   hydrate(value: unknown): ChefConversationRecord | null {
     const conversation = hydrateChefConversation(value);
-    if (!conversation) return null;
+    if (!conversation || conversation.closedAt) return null;
     this.active = { ...conversation, closedAt: undefined };
     return this.active;
   }
